@@ -23,6 +23,9 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.Property(a => a.LicenseId)
             .HasMaxLength(26);
 
+        builder.Property(a => a.InvoiceId)
+            .HasMaxLength(26);
+
         builder.Property(a => a.Action)
             .HasConversion<string>()
             .HasMaxLength(100)
@@ -51,6 +54,11 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.HasOne(a => a.License)
             .WithMany(l => l.AuditLogs)
             .HasForeignKey(a => a.LicenseId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        builder.HasOne(a => a.Invoice)
+            .WithMany(i => i.AuditLogs)
+            .HasForeignKey(a => a.InvoiceId)
             .OnDelete(DeleteBehavior.SetNull);
     }
 }

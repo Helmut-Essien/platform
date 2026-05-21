@@ -66,8 +66,10 @@ Production-ready **centralized admin hub** for the developer/owner to:
 - **Customer**: Id, Name, ContactEmail, ContactPhone, InternalNotes, IsSuspended, CreatedAt
 - **ServiceProduct**: Id, Name, Code, Description, IsAvailableForSale
 - **License**: Id, CustomerId, ServiceProductId, Status, ExpiresAt, PlanName, LicenseKeyHash, LicenseKeySentAt, CreatedAt, UpdatedAt
-- **AuditLog**: Id, CustomerId?, LicenseId?, Action, PerformedBy, DetailsJson, IpAddress, Timestamp
+- **AuditLog**: Id, CustomerId?, LicenseId?, InvoiceId?, Action, PerformedBy, DetailsJson, IpAddress, Timestamp
 - **IntegrationKey**: Id, ServiceProductId, KeyHash, IsActive, CreatedAt, LastUsedAt
+- **Invoice**: Id, CustomerId, LicenseId?, ServiceProductId?, InvoiceNumber, Status, IssueDate, DueDate?, Currency, Subtotal, TaxAmount, TotalAmount, PlanName?, Description?, InternalNotes?, CreatedAt, UpdatedAt
+- **Receipt**: Id, InvoiceId, ReceiptNumber, AmountPaid, PaidAt, PaymentMethod, PaymentReference?, Notes?, CreatedAt
 
 ULID IDs: `NUlid.Ulid.NewUlid().ToString()`. Enums → PostgreSQL **strings**.
 
@@ -100,6 +102,7 @@ sequenceDiagram
 
 - Configurations: `API/Data/EntityConfigurations/`
 - **License** global filter: `!Customer.IsSuspended` — use `.IgnoreQueryFilters()` when admin must see those licenses
+- **Invoice** and **Receipt**: same suspended-customer filter via `Customer` / `Invoice.Customer`
 - **Customer**: no global filter (must list suspended orgs)
 - Migrations: `API/Data/Migrations/`
 
@@ -117,6 +120,7 @@ sequenceDiagram
 |-------|--------|--------|
 | 1 | Entities, DbContext, seed, migrations, Docker Postgres | **Done** |
 | 2 | Identity, admin user seed, JWT login, `[Authorize]` admin APIs | Next |
+| 3b | Invoices, receipts, billing APIs, license activate/renew → invoice | **Done** |
 | 3 | Admin CRUD: customers, service catalog, licenses + audit on writes | Planned |
 | 4 | License lifecycle + key generation + email on Active/renew | Planned |
 | 5 | `POST /api/licenses/validate` + Redis deny-list + cache | Planned |
@@ -134,7 +138,22 @@ sequenceDiagram
 
 **License key format:** e.g. `HOSTEL-XXXX-YYYY`; BCrypt hash in DB; email to `Customer.ContactEmail` when status → Active (new or renewed).
 
-**Audit (mandatory when implemented):** every license status change; integration key create/revoke; include `PerformedBy`, `IpAddress`, `DetailsJson`.
+**Audit (mandatory when implemented):** every license status change; integration key create/revoke; invoice/receipt events; include `PerformedBy`, `IpAddress`, `DetailsJson`.
+
+### Billing APIs (Phase 3b — implemented)
+
+| Method | Route |
+|--------|-------|
+| GET | `/api/invoices?customerId=` |
+| GET | `/api/invoices/{id}` |
+| POST | `/api/invoices` |
+| POST | `/api/invoices/{id}/void` |
+| POST | `/api/invoices/{invoiceId}/receipts` |
+| GET/POST | `/api/licenses`, `/api/licenses/{id}/activate`, `/api/licenses/{id}/renew` |
+
+Admin identity header (until JWT): `X-Admin-User`. Services: `IBillingService`, `ILicenseService`, `IAuditLogService`.
+
+Activate/renew license creates a **Sent** invoice automatically.
 
 ## Local development
 

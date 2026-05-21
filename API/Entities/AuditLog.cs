@@ -10,6 +10,8 @@ public class AuditLog
 
     public string? LicenseId { get; set; }
 
+    public string? InvoiceId { get; set; }
+
     public AuditAction Action { get; set; }
 
     public required string PerformedBy { get; set; }
@@ -23,4 +25,6 @@ public class AuditLog
     public Customer? Customer { get; set; }
 
     public License? License { get; set; }
+
+    public Invoice? Invoice { get; set; }
 }

@@ -1,10 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
+using Platform.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IBillingService, BillingService>();
+builder.Services.AddScoped<ILicenseService, LicenseService>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -18,6 +23,7 @@ using (var scope = app.Services.CreateScope())
 
     await db.Database.MigrateAsync();
     await SeedData.SeedAsync(db, logger, app.Environment.IsDevelopment());
+    await SeedData.SeedBillingAsync(db);
 }
 
 if (app.Environment.IsDevelopment())

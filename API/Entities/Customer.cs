@@ -18,5 +18,7 @@ public class Customer
 
     public ICollection<License> Licenses { get; set; } = [];
 
+    public ICollection<Invoice> Invoices { get; set; } = [];
+
     public ICollection<AuditLog> AuditLogs { get; set; } = [];
 }

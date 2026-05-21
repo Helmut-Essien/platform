@@ -24,6 +24,45 @@ No sidebar. No plain keys.
 
 See [wireframes-phase1.md](wireframes-phase1.md).
 
+Add KPI: **Unpaid Invoices** (count or total `AmountDue` where status Sent/PartiallyPaid/Overdue).
+
+---
+
+## Invoices `/invoices`
+
+**Purpose:** List and manage bills; record payments.
+
+### Layout
+
+```
+[H1 Invoices]                       [ + New Invoice ]
+[Status v] [Customer v] [Date range]
++------------------------------------------------------------------+
+| Invoice # | Customer | Service | Total | Paid | Due | Status | ... |
++------------------------------------------------------------------+
+```
+
+### Detail `/invoices/{id}`
+
+- Header: invoice number, status chip, amounts (Subtotal, Tax, Total, Paid, Due)
+- Receipts table + **Record payment** opens dialog (`RecordReceiptRequest`)
+- Link to customer, license, void (if allowed)
+
+### Status chips
+
+| Status | Color |
+|--------|-------|
+| Draft | muted |
+| Sent | info `#60a5fa` |
+| PartiallyPaid | `#FFCC00` |
+| Paid | `#71e215` |
+| Void | `#64748b` |
+| Overdue | `#ef4444` or `#FFCC00` |
+
+### API
+
+`GET/POST /api/invoices`, `POST /api/invoices/{id}/void`, `POST /api/invoices/{id}/receipts`
+
 ---
 
 ## Customers `/customers`
@@ -64,7 +103,7 @@ See [wireframes-phase1.md](wireframes-phase1.md).
 
 ### Detail drawer (`MudDrawer` Anchor.Right)
 
-- Tabs: Profile | Licenses | Audit (filtered)
+- Tabs: Profile | Licenses | Invoices | Audit (filtered)
 - Profile: all customer fields + InternalNotes `MudTextField` multiline
 
 ### Empty state

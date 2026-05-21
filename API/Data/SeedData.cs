@@ -112,5 +112,54 @@ public static class SeedData
                     key);
             }
         }
+
+        await SeedBillingAsync(db, cancellationToken: default);
+    }
+
+    public static async Task SeedBillingAsync(AppDbContext db, CancellationToken cancellationToken = default)
+    {
+        if (await db.Invoices.AnyAsync(cancellationToken))
+            return;
+
+        var customer = await db.Customers.FirstOrDefaultAsync(cancellationToken);
+        var product = await db.ServiceProducts.FirstOrDefaultAsync(p => p.Code == "HOSTEL", cancellationToken);
+
+        if (customer is null || product is null)
+            return;
+
+        var now = DateTime.UtcNow;
+        var year = now.Year;
+
+        var invoice = new Invoice
+        {
+            CustomerId = customer.Id,
+            ServiceProductId = product.Id,
+            InvoiceNumber = $"INV-{year}-00001",
+            Status = InvoiceStatus.Sent,
+            IssueDate = now,
+            DueDate = now.AddDays(30),
+            Currency = "USD",
+            Subtotal = 299.00m,
+            TaxAmount = 0m,
+            TotalAmount = 299.00m,
+            PlanName = "Pro Annual",
+            Description = "Hostel Management — Pro Annual (demo)",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        db.Invoices.Add(invoice);
+
+        db.AuditLogs.Add(new AuditLog
+        {
+            Action = AuditAction.InvoiceSent,
+            PerformedBy = "system",
+            CustomerId = customer.Id,
+            InvoiceId = invoice.Id,
+            DetailsJson = """{"source":"seed","invoiceNumber":"INV-demo"}""",
+            Timestamp = now
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
     }
 }

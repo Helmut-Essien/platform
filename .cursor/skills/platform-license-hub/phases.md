@@ -137,6 +137,27 @@ Shared/
 
 ---
 
+## Phase 3b — Invoices & receipts (DONE)
+
+**Goal:** Billing records linked to customers and licenses.
+
+**Delivered**
+
+- Entities: `Invoice`, `Receipt`; `AuditLog.InvoiceId`
+- Enums: `InvoiceStatus`, `PaymentMethod`; audit actions for billing
+- Migration: `AddInvoicesAndReceipts`
+- `BillingService`, `LicenseService` (activate/renew → invoice)
+- Controllers: `InvoicesController`, `ReceiptsController`, `LicensesController`
+- DTOs: `Shared/Dtos/Billing/`, `Shared/Dtos/Licenses/`
+- Seed: demo invoice for Acme (`SeedBillingAsync`)
+
+**Acceptance**
+
+- Create invoice manually; record receipt updates status to Paid/PartiallyPaid
+- Activate license creates invoice; void blocked when receipts exist
+
+---
+
 ## Phase 6 — Blazor MudBlazor admin UI
 
 **Goal:** Developer admin dashboard in `Client/`.
@@ -147,7 +168,8 @@ Shared/
 - `RootNamespace`: `Platform.Client`
 - Auth: login page, store JWT (local storage or auth state), `AuthorizationMessageHandler` on `HttpClient`
 - Pages:
-  - Dashboard (counts: customers, active licenses, expiring soon)
+  - Dashboard (counts: customers, active licenses, expiring soon, unpaid invoices)
+  - Invoices grid + detail + record payment
   - Customers grid + create/edit + suspend
   - Service catalog grid
   - Licenses grid + issue/suspend/renew/revoke actions + status badges (`MudChip`)

@@ -29,4 +29,6 @@ public class License
     public ServiceProduct ServiceProduct { get; set; } = null!;
 
     public ICollection<AuditLog> AuditLogs { get; set; } = [];
+
+    public ICollection<Invoice> Invoices { get; set; } = [];
 }

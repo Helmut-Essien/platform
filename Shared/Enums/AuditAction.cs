@@ -12,5 +12,10 @@ public enum AuditAction
     LicenseSuspended,
     LicenseRevoked,
     IntegrationKeyCreated,
-    IntegrationKeyRevoked
+    IntegrationKeyRevoked,
+    InvoiceCreated,
+    InvoiceSent,
+    InvoiceVoided,
+    ReceiptRecorded,
+    InvoiceLinkedToLicense
 }

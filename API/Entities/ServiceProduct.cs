@@ -15,4 +15,6 @@ public class ServiceProduct
     public ICollection<License> Licenses { get; set; } = [];
 
     public ICollection<IntegrationKey> IntegrationKeys { get; set; } = [];
+
+    public ICollection<Invoice> Invoices { get; set; } = [];
 }

@@ -78,6 +78,7 @@ Load fonts in `index.html` (see `.cursor/skills/platform-admin-ui/design-system.
 | `/customers` | Customers |
 | `/services` | Service Catalog |
 | `/licenses` | Licenses |
+| `/invoices` | Invoices (list, detail, record payment) |
 | `/audit` | Audit Log |
 | `/tools/validate` | Validate License |
 | `/login` | Login (no drawer) |

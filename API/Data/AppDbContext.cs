@@ -15,6 +15,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<IntegrationKey> IntegrationKeys => Set<IntegrationKey>();
 
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+
+    public DbSet<Receipt> Receipts => Set<Receipt>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -23,5 +27,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<License>()
             .HasQueryFilter(l => !l.Customer.IsSuspended);
+
+        modelBuilder.Entity<Invoice>()
+            .HasQueryFilter(i => !i.Customer.IsSuspended);
+
+        modelBuilder.Entity<Receipt>()
+            .HasQueryFilter(r => !r.Invoice.Customer.IsSuspended);
     }
 }

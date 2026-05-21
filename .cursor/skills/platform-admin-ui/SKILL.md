@@ -46,6 +46,7 @@ Replace default Bootstrap layout in `Client/Layout/` with:
 | `/customers` | Customers | Icons.Material.Filled.People |
 | `/services` | Service Catalog | Icons.Material.Filled.Apps |
 | `/licenses` | Licenses | Icons.Material.Filled.VpnKey |
+| `/invoices` | Invoices | Icons.Material.Filled.Receipt |
 | `/audit` | Audit Log | Icons.Material.Filled.History |
 | `/tools/validate` | Validate License | Icons.Material.Filled.Science |
 | `/login` | (no drawer) | — |
@@ -82,7 +83,7 @@ Customer row: **Suspended** → chip `#f59e0b`; **Active** → `#71e215`.
 | UI-1 | Shell + Dashboard ([wireframes-phase1.md](wireframes-phase1.md)) |
 | UI-2 | Customers + Service catalog |
 | UI-3 | Licenses (+ customer-scoped route) |
-| UI-4 | Audit log + Integration keys |
+| UI-4 | Audit log + Integration keys + Invoices/Receipts |
 | UI-5 | Validate tool + Login page |
 
 Confirm with user before next UI phase. Match backend Phase 6 in `platform-license-hub/phases.md`.
