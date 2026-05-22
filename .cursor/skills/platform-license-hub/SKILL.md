@@ -35,7 +35,7 @@ Production-ready **centralized admin hub** for the developer/owner to:
 | Database | **PostgreSQL 16** (Docker) | Active |
 | IDs | **NUlid** string primary keys | Active |
 | Hashing | **BCrypt.Net-Next** (license + integration keys) | Active |
-| Admin auth | **ASP.NET Core Identity** + **JWT Bearer** | Phase 2 |
+| Admin auth | **ASP.NET Core Identity** + **JWT Bearer** | **Done** (Phase 2) |
 | Service auth | Hashed **integration keys** (`X-Integration-Key`) | Seed done; validation Phase 5 |
 | Cache / revocation | **Redis** (`StackExchangeRedis`) | Package referenced; Phase 5 |
 | Email | SMTP or **SendGrid** | Phase 4 |
@@ -119,7 +119,7 @@ sequenceDiagram
 | Phase | Focus | Status |
 |-------|--------|--------|
 | 1 | Entities, DbContext, seed, migrations, Docker Postgres | **Done** |
-| 2 | Identity, admin user seed, JWT login, `[Authorize]` admin APIs | Next |
+| 2 | Identity, admin user seed, JWT login, `[Authorize]` admin APIs | **Done** |
 | 3b | Invoices, receipts, billing APIs, license activate/renew → invoice | **Done** |
 | 3 | Admin CRUD: customers, service catalog, licenses + audit on writes | Planned |
 | 4 | License lifecycle + key generation + email on Active/renew | Planned |

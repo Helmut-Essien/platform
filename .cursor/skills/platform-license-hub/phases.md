@@ -22,7 +22,7 @@ Work **one phase per delivery**. Include migrations, config, CLI commands, and n
 
 ---
 
-## Phase 2 — Admin authentication
+## Phase 2 — Admin authentication (DONE)
 
 **Goal:** Secure admin-only API access for the future Blazor UI.
 
@@ -48,6 +48,14 @@ Shared/
 ```
 
 **Out of scope:** Blazor login UI, customer/license CRUD, validation endpoint.
+
+**Delivered**
+
+- `ApplicationUser`, Identity tables (migration `AddIdentity`)
+- `POST /api/auth/login`, `GET /api/auth/me`
+- `[Authorize(Policy = AdminOnly)]` on Invoices, Licenses, Receipts controllers
+- `JwtTokenService`, `IdentitySeedData` (dev admin in `appsettings.Development.json`)
+- Audit `PerformedBy` from JWT claims via `AdminRequestContext`
 
 **Acceptance**
 

@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Platform.Api.Extensions;
 using Platform.Api.Http;
 using Platform.Api.Services;
 using Platform.Shared.Dtos.Licenses;
@@ -6,6 +8,7 @@ using Platform.Shared.Dtos.Licenses;
 namespace Platform.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = PlatformAuthorizationPolicies.AdminOnly)]
 [Route("api/[controller]")]
 public class LicensesController(ILicenseService licenses) : ControllerBase
 {

@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Platform.Api.Extensions;
 using Platform.Api.Http;
 using Platform.Api.Services;
 using Platform.Shared.Dtos.Billing;
@@ -6,6 +8,7 @@ using Platform.Shared.Dtos.Billing;
 namespace Platform.Api.Controllers;
 
 [ApiController]
+[Authorize(Policy = PlatformAuthorizationPolicies.AdminOnly)]
 [Route("api/invoices/{invoiceId}/receipts")]
 public class ReceiptsController(IBillingService billing) : ControllerBase
 {
