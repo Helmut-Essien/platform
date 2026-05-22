@@ -44,20 +44,26 @@ public class LicenseService(
         await auditLog.WriteAsync(AuditAction.LicenseIssued, performedBy, request.CustomerId, license.Id,
             null, $$"""{"planName":"{{request.PlanName}}"}""", ipAddress, cancellationToken);
 
-        return await MapLicenseAsync(license.Id, cancellationToken)
+        return await MapLicenseAsync(license.Id, cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException("Failed to load created license.");
     }
 
-    public async Task<LicenseDto?> GetAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<LicenseDto?> GetAsync(
+        string id,
+        bool includeSuspendedCustomers = false,
+        CancellationToken cancellationToken = default)
     {
-        return await MapLicenseAsync(id, cancellationToken);
+        return await MapLicenseAsync(id, includeSuspendedCustomers, cancellationToken);
     }
 
     public async Task<IReadOnlyList<LicenseDto>> ListAsync(
         string? customerId = null,
+        bool includeSuspendedCustomers = false,
         CancellationToken cancellationToken = default)
     {
-        var query = db.Licenses
+        var query = (includeSuspendedCustomers
+                ? db.Licenses.IgnoreQueryFilters()
+                : db.Licenses)
             .AsNoTracking()
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
@@ -112,7 +118,7 @@ public class LicenseService(
         await billing.CreateInvoiceForLicenseAsync(license, request.Subtotal, request.TaxAmount, request.Currency,
             request.DueDate, request.Description, performedBy, InvoiceStatus.Sent, ipAddress, cancellationToken);
 
-        return await MapLicenseAsync(license.Id, cancellationToken)
+        return await MapLicenseAsync(license.Id, cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException("Failed to load license.");
     }
 
@@ -148,13 +154,96 @@ public class LicenseService(
         await billing.CreateInvoiceForLicenseAsync(license, request.Subtotal, request.TaxAmount, request.Currency,
             request.DueDate, request.Description, performedBy, InvoiceStatus.Sent, ipAddress, cancellationToken);
 
-        return await MapLicenseAsync(license.Id, cancellationToken)
+        return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load license.");
     }
 
-    private async Task<LicenseDto?> MapLicenseAsync(string id, CancellationToken cancellationToken)
+    public async Task<LicenseDto> UpdateAsync(
+        string id,
+        UpdateLicenseRequest request,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default)
     {
         var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("License not found.");
+
+        if (license.Status is LicenseStatus.Revoked)
+            throw new InvalidOperationException("Cannot update a revoked license.");
+
+        license.PlanName = request.PlanName.Trim();
+        license.ExpiresAt = request.ExpiresAt;
+        license.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        await auditLog.WriteAsync(AuditAction.LicenseUpdated, performedBy, license.CustomerId, license.Id, null,
+            $$"""{"planName":"{{license.PlanName}}","expiresAt":"{{license.ExpiresAt:o}}"}""", ipAddress, cancellationToken);
+
+        return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
+            ?? throw new InvalidOperationException("Failed to load license.");
+    }
+
+    public async Task<LicenseDto> SuspendAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("License not found.");
+
+        if (license.Status is not LicenseStatus.Active)
+            throw new InvalidOperationException($"Cannot suspend license in status {license.Status}.");
+
+        license.Status = LicenseStatus.Suspended;
+        license.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+
+        await auditLog.WriteAsync(AuditAction.LicenseSuspended, performedBy, license.CustomerId, license.Id,
+            null, null, ipAddress, cancellationToken);
+
+        return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
+            ?? throw new InvalidOperationException("Failed to load license.");
+    }
+
+    public async Task<LicenseDto> RevokeAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("License not found.");
+
+        if (license.Status == LicenseStatus.Revoked)
+            throw new InvalidOperationException("License is already revoked.");
+
+        license.Status = LicenseStatus.Revoked;
+        license.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+
+        await auditLog.WriteAsync(AuditAction.LicenseRevoked, performedBy, license.CustomerId, license.Id,
+            null, null, ipAddress, cancellationToken);
+
+        return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
+            ?? throw new InvalidOperationException("Failed to load license.");
+    }
+
+    private async Task<LicenseDto?> MapLicenseAsync(
+        string id,
+        bool includeSuspendedCustomers = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = includeSuspendedCustomers ? db.Licenses.IgnoreQueryFilters() : db.Licenses;
+
+        var license = await query
             .AsNoTracking()
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)

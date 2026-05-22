@@ -15,16 +15,20 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<LicenseDto>>> List(
         [FromQuery] string? customerId,
-        CancellationToken cancellationToken)
+        [FromQuery] bool includeSuspendedCustomers = false,
+        CancellationToken cancellationToken = default)
     {
-        var result = await licenses.ListAsync(customerId, cancellationToken);
+        var result = await licenses.ListAsync(customerId, includeSuspendedCustomers, cancellationToken);
         return Ok(result);
     }
 
     [HttpGet("{id}")]
-    public async Task<ActionResult<LicenseDto>> Get(string id, CancellationToken cancellationToken)
+    public async Task<ActionResult<LicenseDto>> Get(
+        string id,
+        [FromQuery] bool includeSuspendedCustomers = false,
+        CancellationToken cancellationToken = default)
     {
-        var license = await licenses.GetAsync(id, cancellationToken);
+        var license = await licenses.GetAsync(id, includeSuspendedCustomers, cancellationToken);
         return license is null ? NotFound() : Ok(license);
     }
 
@@ -83,6 +87,67 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
             var license = await licenses.RenewAsync(
                 id,
                 request,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+
+            return Ok(license);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("{id}")]
+    public async Task<ActionResult<LicenseDto>> Update(
+        string id,
+        [FromBody] UpdateLicenseRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var license = await licenses.UpdateAsync(
+                id,
+                request,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+
+            return Ok(license);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/suspend")]
+    public async Task<ActionResult<LicenseDto>> Suspend(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var license = await licenses.SuspendAsync(
+                id,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+
+            return Ok(license);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/revoke")]
+    public async Task<ActionResult<LicenseDto>> Revoke(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var license = await licenses.RevokeAsync(
+                id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);

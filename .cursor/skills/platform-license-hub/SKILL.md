@@ -121,7 +121,7 @@ sequenceDiagram
 | 1 | Entities, DbContext, seed, migrations, Docker Postgres | **Done** |
 | 2 | Identity, admin user seed, JWT login, `[Authorize]` admin APIs | **Done** |
 | 3b | Invoices, receipts, billing APIs, license activate/renew → invoice | **Done** |
-| 3 | Admin CRUD: customers, service catalog, licenses + audit on writes | Planned |
+| 3 | Admin CRUD: customers, service catalog, licenses + audit on writes | **Done** |
 | 4 | License lifecycle + key generation + email on Active/renew | Planned |
 | 5 | `POST /api/licenses/validate` + Redis deny-list + cache | Planned |
 | 6 | Blazor MudBlazor dashboard (grids, forms, status badges) | Planned |
@@ -151,7 +151,16 @@ sequenceDiagram
 | POST | `/api/invoices/{invoiceId}/receipts` |
 | GET/POST | `/api/licenses`, `/api/licenses/{id}/activate`, `/api/licenses/{id}/renew` |
 
-Admin identity header (until JWT): `X-Admin-User`. Services: `IBillingService`, `ILicenseService`, `IAuditLogService`.
+### Admin domain APIs (Phase 3 — implemented)
+
+| Method | Route |
+|--------|-------|
+| GET/POST/PUT | `/api/customers`, `/api/customers/{id}`, `/api/customers/{id}/suspend`, `/reactivate` |
+| GET/POST/PUT | `/api/serviceproducts`, `/api/serviceproducts/{id}` |
+| GET/PUT/POST | `/api/licenses?customerId=&includeSuspendedCustomers=`, `/api/licenses/{id}`, `/suspend`, `/revoke` |
+| GET | `/api/audit-logs?customerId=&licenseId=&action=&limit=` |
+
+JWT required (`POST /api/auth/login`). Services: `ICustomerService`, `IServiceProductService`, `IBillingService`, `ILicenseService`, `IAuditLogService`.
 
 Activate/renew license creates a **Sent** invoice automatically.
 

@@ -15,6 +15,8 @@ builder.Services.AddPlatformAuthentication(builder.Configuration);
 
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IBillingService, BillingService>();
+builder.Services.AddScoped<ICustomerService, CustomerService>();
+builder.Services.AddScoped<IServiceProductService, ServiceProductService>();
 builder.Services.AddScoped<ILicenseService, LicenseService>();
 
 builder.Services.AddControllers();

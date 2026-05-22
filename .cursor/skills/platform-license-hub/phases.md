@@ -63,29 +63,21 @@ Shared/
 
 ---
 
-## Phase 3 — Admin domain APIs + audit
+## Phase 3 — Admin domain APIs + audit (DONE)
 
 **Goal:** Full admin CRUD for customers, catalog, licenses with audit trail.
 
-**Scope**
+**Delivered**
 
-- Controllers (or minimal APIs) with `[Authorize]`:
-  - Customers: list, get, create, update, suspend/reactivate
-  - ServiceProducts: list, get, create, update
-  - Licenses: list (with `IgnoreQueryFilters` when needed), get, create (Pending), update plan/expiry
-- Application services encapsulate business rules
-- **AuditLog** written on every mutating action (`PerformedBy` from JWT `sub`/`name`, `IpAddress` from connection)
-- DTOs in `Shared` for all request/response shapes
-- FluentValidation or data annotations on DTOs
-
-**License operations (status only — keys in Phase 4)**
-
-- Issue → `Pending` or workflow as designed
-- Suspend / revoke / renew metadata (expiry, plan) without email yet if split; prefer aligning with Phase 4 for key rotation on renew
+- DTOs: `Shared/Dtos/Customers/`, `ServiceProducts/`, `Licenses/UpdateLicenseRequest`, `Audit/AuditLogDto`
+- Services: `CustomerService`, `ServiceProductService`; `LicenseService` extended (list/get with `includeSuspendedCustomers`, update, suspend, revoke); `AuditLogService.ListAsync`
+- Controllers: `CustomersController`, `ServiceProductsController`, `AuditLogsController` (`GET /api/audit-logs`), `LicensesController` extended
+- Enum: `AuditAction.LicenseUpdated`, `ServiceProductCreated`, `ServiceProductUpdated`
+- DI: `ICustomerService`, `IServiceProductService` in `Program.cs`
 
 **Acceptance**
 
-- CRUD via HTTP + JWT; `AuditLogs` rows for each change; suspended customer visible in customer list; license list respects global filter unless endpoint documents `includeSuspended`.
+- CRUD via HTTP + JWT; `AuditLogs` rows for each change; suspended customer visible in customer list; license list respects global filter unless `?includeSuspendedCustomers=true`.
 
 ---
 
