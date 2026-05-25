@@ -1,0 +1,27 @@
+{
+      "version": "0.2.0",
+      "configurations": [
+          {
+              "name": "C#: API [Default Configuration]",
+              "type": "dotnet",
+              "request": "launch",
+              "projectPath": "${workspaceFolder}/API/API.csproj"
+          },
+          {
+              "name": "C#: Client [Default Configuration]",
+              "type": "dotnet",
+              "request": "launch",
+              "projectPath": "${workspaceFolder}/Client/Client.csproj"
+          }
+      ],
+      "compounds": [
+          {
+              "name": "Platform: API + Client",
+              "configurations": [
+                  "C#: API [Default Configuration]",
+                  "C#: Client [Default Configuration]"
+              ],
+              "stopAll": true
+          }
+      ]
+  }
