@@ -8,8 +8,8 @@
 @inject ISnackbar Snackbar
 
 <MudPaper Class="pa-8" Elevation="4" Style="max-width:420px;margin:80px auto;">
-    <MudText Typo="Typo.h4" Class="mb-4">Platform Admin</MudText>
-    <MudText Typo="Typo.body2" Class="mb-6">Sign in with your admin account</MudText>
+    <MudImage Src="images/helmutcode-logo.png" Alt="HelmutCode" Style="max-width:240px" Class="mb-4 d-block mx-auto" />
+    <MudText Typo="Typo.body2" Class="mb-6">Platform Admin — sign in with your account</MudText>
     <MudTextField @bind-Value="_email" Label="Email" Variant="Variant.Outlined" Class="mb-4" />
     <MudTextField @bind-Value="_password" Label="Password" Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-4" />
     <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_busy" OnClick="LoginAsync">
