@@ -81,59 +81,33 @@ Shared/
 
 ---
 
-## Phase 4 — License lifecycle, keys, and email
+## Phase 4 — License lifecycle, keys, and email (DONE)
 
-**Goal:** Complete license state machine with secure key delivery.
+**Delivered**
 
-**Scope**
-
-- Operations: **issue**, **activate**, **suspend**, **renew**, **revoke**
-- On **Active** (new or renewed):
-  - Generate cryptographically random key: `{SERVICE_CODE}-XXXX-YYYY`
-  - `BCrypt.HashPassword` → `LicenseKeyHash`; set `LicenseKeySentAt`
-  - Send plain key to `Customer.ContactEmail` via **SMTP** or **SendGrid** (`IOptions<EmailSettings>`, `IEmailSender`)
-- Audit on every status transition
-- Never persist or log plain license keys (except one-time email send)
-
-**Config**
-
-```json
-"Email": { "Provider": "Smtp|SendGrid", "Host", "Port", "ApiKey", "FromAddress" }
-```
+- `ILicenseKeyDeliveryService` / `LicenseKeyDeliveryService` — `{CODE}-XXXX-YYYY` keys, BCrypt hash, email via `IEmailSender`
+- `EmailSettings`, `SmtpEmailSender`, `LoggingEmailSender` (dev default)
+- `LicenseService` activate/renew deliver keys; audit `LicenseKeyRotated` on renew
 
 **Acceptance**
 
-- Activate issues key + email; DB has hash only; renew rotates key; revoke/suspend blocks validation later (Phase 5).
+- Activate/renew store hash only; plain key emailed (or logged via Logging provider).
 
 ---
 
-## Phase 5 — License validation + Redis
+## Phase 5 — License validation + Redis (DONE)
 
-**Goal:** SaaS apps validate customer licenses at runtime.
+**Delivered**
 
-**Scope**
-
-- `POST /api/licenses/validate` — **no JWT**; auth via `X-Integration-Key` only
-- Resolve integration key → `ServiceProduct`; BCrypt-verify header key
-- BCrypt-verify body `licenseKey` against `LicenseKeyHash`
-- Checks: status `Active`, not expired, customer not suspended, optional `serviceCode` match
-- **Redis** (`docker-compose` service):
-  - Deny-list: `license:{licenseId}` on revoke/suspend (and customer suspend)
-  - Optional cache: valid validation result with short TTL
-- Update `IntegrationKey.LastUsedAt` on success
-- DTOs: `ValidateLicenseRequest`, `ValidateLicenseResponse` in `Shared`
-
-**Response**
-
-```json
-{ "isValid": true, "planName": "Pro", "expiresAt": "2027-01-01T00:00:00Z" }
-```
+- `POST /api/licenses/validate` + `X-Integration-Key` (`LicenseValidationController`)
+- `LicenseValidationService`, `RedisLicenseDenyListService`, Redis in `docker-compose.yml`
+- Deny-list on license suspend/revoke and customer suspend
+- DTOs: `ValidateLicenseRequest`, `ValidateLicenseResponse`
+- `IntegrationKeysController` — list, create (plain key once), revoke
 
 **Acceptance**
 
-- Valid key + valid integration header → 200 `isValid: true`
-- Wrong key, wrong integration key, revoked, expired, deny-listed → `isValid: false`
-- Integration key from another product rejected
+- Valid integration key + license key → `isValid: true`; denied/revoked/suspended → `isValid: false`.
 
 ---
 
@@ -158,28 +132,17 @@ Shared/
 
 ---
 
-## Phase 6 — Blazor MudBlazor admin UI
+## Phase 6 — Blazor MudBlazor admin UI (DONE)
 
-**Goal:** Developer admin dashboard in `Client/`.
+**Delivered**
 
-**Scope**
-
-- NuGet: `MudBlazor`, project ref to `Shared`
-- `RootNamespace`: `Platform.Client`
-- Auth: login page, store JWT (local storage or auth state), `AuthorizationMessageHandler` on `HttpClient`
-- Pages:
-  - Dashboard (counts: customers, active licenses, expiring soon, unpaid invoices)
-  - Invoices grid + detail + record payment
-  - Customers grid + create/edit + suspend
-  - Service catalog grid
-  - Licenses grid + issue/suspend/renew/revoke actions + status badges (`MudChip`)
-  - Audit log viewer (read-only grid, filters)
-  - Integration keys management (rotate/revoke; show plain key once on create)
-- API base URL in `wwwroot/appsettings.json` or `Client` config
+- MudBlazor 7, Blazored.LocalStorage, JWT `AuthenticationStateProvider` + `JwtAuthorizationMessageHandler`
+- Dark theme (`PlatformTheme`), pages: Dashboard, Customers, Services, Licenses, Invoices, Audit, Integration Keys, Validate tool, Login
+- `wwwroot/appsettings.json` — `ApiBaseUrl`; API CORS for Client origin
 
 **Acceptance**
 
-- Admin can perform full lifecycle from UI; unauthorized routes redirect to login.
+- Login → navigate admin shell; CRUD flows call API with Bearer token.
 
 ---
 

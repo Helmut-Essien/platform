@@ -122,9 +122,9 @@ sequenceDiagram
 | 2 | Identity, admin user seed, JWT login, `[Authorize]` admin APIs | **Done** |
 | 3b | Invoices, receipts, billing APIs, license activate/renew → invoice | **Done** |
 | 3 | Admin CRUD: customers, service catalog, licenses + audit on writes | **Done** |
-| 4 | License lifecycle + key generation + email on Active/renew | Planned |
-| 5 | `POST /api/licenses/validate` + Redis deny-list + cache | Planned |
-| 6 | Blazor MudBlazor dashboard (grids, forms, status badges) | Planned |
+| 4 | License lifecycle + key generation + email on Active/renew | **Done** |
+| 5 | `POST /api/licenses/validate` + Redis deny-list + cache | **Done** |
+| 6 | Blazor MudBlazor dashboard (grids, forms, status badges) | **Done** |
 
 ## Planned public contracts (not implemented until their phase)
 
@@ -163,6 +163,23 @@ sequenceDiagram
 JWT required (`POST /api/auth/login`). Services: `ICustomerService`, `IServiceProductService`, `IBillingService`, `ILicenseService`, `IAuditLogService`.
 
 Activate/renew license creates a **Sent** invoice automatically.
+
+### License keys & validation (Phase 4–5)
+
+| Method | Route |
+|--------|-------|
+| POST | `/api/licenses/validate` (header `X-Integration-Key`, no JWT) |
+| GET/POST | `/api/integration-keys`, `POST ?serviceProductId=`, `POST {id}/revoke` |
+
+Activate/renew generates BCrypt-hashed license key and emails customer (`Email:Provider` = `Logging` or `Smtp`).
+
+### Blazor admin (Phase 6)
+
+```bash
+dotnet run --project Client/Client.csproj   # http://localhost:5154
+```
+
+Set `Client/wwwroot/appsettings.json` → `ApiBaseUrl`. Requires API + Postgres (+ Redis for deny-list).
 
 ## Local development
 

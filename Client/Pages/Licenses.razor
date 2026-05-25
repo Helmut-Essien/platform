@@ -1,0 +1,136 @@
+@page "/licenses"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Licenses</MudText>
+
+<MudExpansionPanels Class="mb-4">
+    <MudExpansionPanel Text="Issue license">
+        <MudSelect T="string" @bind-Value="_customerId" Label="Customer" Variant="Variant.Outlined" Class="mb-2">
+            @foreach (var c in _customers)
+            {
+                <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_productId" Label="Service" Variant="Variant.Outlined" Class="mb-2">
+            @foreach (var p in _products)
+            {
+                <MudSelectItem Value="@p.Id">@p.Code — @p.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="_planName" Label="Plan" Variant="Variant.Outlined" Class="mb-2" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="IssueAsync">Issue (Pending)</MudButton>
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="_licenses" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Customer</MudTh>
+            <MudTh>Service</MudTh>
+            <MudTh>Plan</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Expires</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.CustomerName</MudTd>
+            <MudTd>@context.ServiceProductCode</MudTd>
+            <MudTd>@context.PlanName</MudTd>
+            <MudTd><LicenseStatusChip Status="context.Status" /></MudTd>
+            <MudTd>@(context.ExpiresAt?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
+            <MudTd>
+                @if (context.Status == LicenseStatus.Pending)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="() => ActivateAsync(context.Id)">Activate</MudButton>
+                }
+                @if (context.Status == LicenseStatus.Active)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="() => SuspendAsync(context.Id)">Suspend</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => RevokeAsync(context.Id)">Revoke</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private bool _loading = true;
+    private List<LicenseDto> _licenses = [];
+    private List<CustomerDto> _customers = [];
+    private List<ServiceProductDto> _products = [];
+    private string? _customerId;
+    private string? _productId;
+    private string _planName = "Pro";
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _licenses = await Api.GetLicensesAsync();
+        _customers = await Api.GetCustomersAsync();
+        _products = await Api.GetServiceProductsAsync();
+        _customerId ??= _customers.FirstOrDefault()?.Id;
+        _productId ??= _products.FirstOrDefault()?.Id;
+        _loading = false;
+    }
+
+    private async Task IssueAsync()
+    {
+        if (_customerId is null || _productId is null) return;
+        var created = await Api.CreateLicenseAsync(new CreateLicenseRequest
+        {
+            CustomerId = _customerId,
+            ServiceProductId = _productId,
+            PlanName = _planName,
+            ExpiresAt = DateTime.UtcNow.AddYears(1)
+        });
+        if (created is null)
+            Snackbar.Add("Failed to issue license.", Severity.Error);
+        else
+        {
+            Snackbar.Add("License issued (Pending).", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ActivateAsync(string id)
+    {
+        var ok = await Api.ActivateLicenseAsync(id, new ActivateLicenseRequest
+        {
+            Subtotal = 99m,
+            TaxAmount = 0m,
+            Currency = "USD",
+            DueDate = DateTime.UtcNow.AddDays(30),
+            Description = "Activation"
+        });
+        Snackbar.Add(ok ? "License activated; key emailed (check API logs if Email:Logging)." : "Activation failed.",
+            ok ? Severity.Success : Severity.Error);
+        await ReloadAsync();
+    }
+
+    private async Task SuspendAsync(string id)
+    {
+        if (await Api.SuspendLicenseAsync(id))
+        {
+            Snackbar.Add("License suspended.", Severity.Warning);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task RevokeAsync(string id)
+    {
+        if (await Api.RevokeLicenseAsync(id))
+        {
+            Snackbar.Add("License revoked.", Severity.Error);
+            await ReloadAsync();
+        }
+    }
+}

@@ -1,0 +1,40 @@
+@page "/audit"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+
+<MudText Typo="Typo.h4" Class="mb-4">Audit Log</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="_logs" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Time</MudTh>
+            <MudTh>Action</MudTh>
+            <MudTh>By</MudTh>
+            <MudTh>Customer</MudTh>
+            <MudTh>License</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Timestamp.ToString("g")</MudTd>
+            <MudTd>@context.Action</MudTd>
+            <MudTd>@context.PerformedBy</MudTd>
+            <MudTd>@(context.CustomerId ?? "—")</MudTd>
+            <MudTd>@(context.LicenseId ?? "—")</MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private bool _loading = true;
+    private List<AuditLogDto> _logs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _logs = await Api.GetAuditLogsAsync(100);
+        _loading = false;
+    }
+}

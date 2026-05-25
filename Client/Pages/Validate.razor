@@ -1,0 +1,47 @@
+@page "/validate"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Validate License (dev tool)</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Tests the public validation API with an integration key header.</MudText>
+
+<MudTextField @bind-Value="_integrationKey" Label="X-Integration-Key" Variant="Variant.Outlined" Class="mb-2" />
+<MudTextField @bind-Value="_licenseKey" Label="License key" Variant="Variant.Outlined" Class="mb-2" />
+<MudTextField @bind-Value="_serviceCode" Label="Service code (optional)" Variant="Variant.Outlined" Class="mb-2" />
+<MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync">Validate</MudButton>
+
+@if (_result is not null)
+{
+    <MudPaper Class="pa-4 mt-4">
+        <MudText>Valid: <strong>@_result.IsValid</strong></MudText>
+        @if (!string.IsNullOrEmpty(_result.Message))
+        {
+            <MudText>@_result.Message</MudText>
+        }
+        @if (_result.IsValid)
+        {
+            <MudText>Plan: @_result.PlanName</MudText>
+            <MudText>Expires: @_result.ExpiresAt</MudText>
+        }
+    </MudPaper>
+}
+
+@code {
+    private string _integrationKey = "";
+    private string _licenseKey = "";
+    private string _serviceCode = "";
+    private ValidateLicenseResponse? _result;
+
+    private async Task ValidateAsync()
+    {
+        _result = await Api.ValidateLicenseAsync(_integrationKey, new ValidateLicenseRequest
+        {
+            LicenseKey = _licenseKey,
+            ServiceCode = string.IsNullOrWhiteSpace(_serviceCode) ? null : _serviceCode
+        });
+
+        if (_result is null)
+            Snackbar.Add("Validation request failed.", Severity.Error);
+    }
+}

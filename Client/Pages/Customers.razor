@@ -1,0 +1,104 @@
+@page "/customers"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Customers</MudText>
+
+<MudExpansionPanels Class="mb-4">
+    <MudExpansionPanel Text="Add customer">
+        <MudTextField @bind-Value="_newName" Label="Name" Variant="Variant.Outlined" Class="mb-2" />
+        <MudTextField @bind-Value="_newEmail" Label="Email" Variant="Variant.Outlined" Class="mb-2" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync">Create</MudButton>
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="_customers" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Licenses</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Name</MudTd>
+            <MudTd>@context.ContactEmail</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="@(context.IsSuspended ? Color.Warning : Color.Success)">
+                    @(context.IsSuspended ? "Suspended" : "Active")
+                </MudChip>
+            </MudTd>
+            <MudTd>@context.LicenseCount</MudTd>
+            <MudTd>
+                @if (context.IsSuspended)
+                {
+                    <MudButton Size="Size.Small" OnClick="() => ReactivateAsync(context.Id)">Reactivate</MudButton>
+                }
+                else
+                {
+                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="() => SuspendAsync(context.Id)">Suspend</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private bool _loading = true;
+    private List<CustomerDto> _customers = [];
+    private string _newName = "";
+    private string _newEmail = "";
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _customers = await Api.GetCustomersAsync();
+        _loading = false;
+    }
+
+    private async Task CreateAsync()
+    {
+        var created = await Api.CreateCustomerAsync(new CreateCustomerRequest
+        {
+            Name = _newName,
+            ContactEmail = _newEmail
+        });
+
+        if (created is null)
+            Snackbar.Add("Failed to create customer.", Severity.Error);
+        else
+        {
+            Snackbar.Add("Customer created.", Severity.Success);
+            _newName = "";
+            _newEmail = "";
+            await ReloadAsync();
+        }
+    }
+
+    private async Task SuspendAsync(string id)
+    {
+        if (await Api.SuspendCustomerAsync(id))
+        {
+            Snackbar.Add("Customer suspended.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ReactivateAsync(string id)
+    {
+        if (await Api.ReactivateCustomerAsync(id))
+        {
+            Snackbar.Add("Customer reactivated.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+}

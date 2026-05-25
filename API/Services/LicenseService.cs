@@ -9,7 +9,9 @@ namespace Platform.Api.Services;
 public class LicenseService(
     AppDbContext db,
     IBillingService billing,
-    IAuditLogService auditLog) : ILicenseService
+    IAuditLogService auditLog,
+    ILicenseKeyDeliveryService licenseKeyDelivery,
+    ILicenseDenyListService denyList) : ILicenseService
 {
     public async Task<LicenseDto> CreateAsync(
         CreateLicenseRequest request,
@@ -97,6 +99,7 @@ public class LicenseService(
     {
         var license = await db.Licenses
             .Include(l => l.Customer)
+            .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
             ?? throw new InvalidOperationException("License not found.");
 
@@ -110,10 +113,11 @@ public class LicenseService(
         license.Status = LicenseStatus.Active;
         license.UpdatedAt = now;
 
+        await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: false, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.LicenseActivated, performedBy, license.CustomerId, license.Id,
-            null, null, ipAddress, cancellationToken);
+            null, """{"licenseKeyDelivered":true}""", ipAddress, cancellationToken);
 
         await billing.CreateInvoiceForLicenseAsync(license, request.Subtotal, request.TaxAmount, request.Currency,
             request.DueDate, request.Description, performedBy, InvoiceStatus.Sent, ipAddress, cancellationToken);
@@ -131,6 +135,7 @@ public class LicenseService(
     {
         var license = await db.Licenses
             .Include(l => l.Customer)
+            .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
             ?? throw new InvalidOperationException("License not found.");
 
@@ -146,9 +151,13 @@ public class LicenseService(
             license.ExpiresAt = request.ExpiresAt;
         license.UpdatedAt = now;
 
+        await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: true, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.LicenseRenewed, performedBy, license.CustomerId, license.Id,
+            null, """{"licenseKeyDelivered":true}""", ipAddress, cancellationToken);
+
+        await auditLog.WriteAsync(AuditAction.LicenseKeyRotated, performedBy, license.CustomerId, license.Id,
             null, null, ipAddress, cancellationToken);
 
         await billing.CreateInvoiceForLicenseAsync(license, request.Subtotal, request.TaxAmount, request.Currency,
@@ -204,6 +213,8 @@ public class LicenseService(
         license.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
 
+        await denyList.DenyLicenseAsync(license.Id, cancellationToken);
+
         await auditLog.WriteAsync(AuditAction.LicenseSuspended, performedBy, license.CustomerId, license.Id,
             null, null, ipAddress, cancellationToken);
 
@@ -228,6 +239,8 @@ public class LicenseService(
         license.Status = LicenseStatus.Revoked;
         license.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
+
+        await denyList.DenyLicenseAsync(license.Id, cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.LicenseRevoked, performedBy, license.CustomerId, license.Id,
             null, null, ipAddress, cancellationToken);

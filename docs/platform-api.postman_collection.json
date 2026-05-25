@@ -1,0 +1,164 @@
+{
+  "info": {
+    "name": "Platform License Hub API",
+    "description": "Admin JWT + public license validation. Import into Postman; set `baseUrl` and run Login first.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5176" },
+    { "key": "token", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "serviceProductId", "value": "" },
+    { "key": "licenseId", "value": "" },
+    { "key": "invoiceId", "value": "" },
+    { "key": "integrationKey", "value": "" },
+    { "key": "licenseKey", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@platform.local\",\n  \"password\": \"Admin123!\"\n}"
+            },
+            "url": "{{baseUrl}}/api/auth/login"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  pm.collectionVariables.set('token', pm.response.json().token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/api/customers" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Test Co\",\n  \"contactEmail\": \"test@postman.local\"\n}"
+            },
+            "url": "{{baseUrl}}/api/customers"
+          }
+        },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/api/customers/{{customerId}}" } },
+        { "name": "Suspend", "request": { "method": "POST", "url": "{{baseUrl}}/api/customers/{{customerId}}/suspend" } },
+        { "name": "Reactivate", "request": { "method": "POST", "url": "{{baseUrl}}/api/customers/{{customerId}}/reactivate" } }
+      ]
+    },
+    {
+      "name": "Service Products",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/api/serviceproducts" } },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}" } }
+      ]
+    },
+    {
+      "name": "Licenses",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/api/licenses" } },
+        {
+          "name": "Create (Pending)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"serviceProductId\": \"{{serviceProductId}}\",\n  \"planName\": \"Pro\",\n  \"expiresAt\": \"2027-12-31T00:00:00Z\"\n}"
+            },
+            "url": "{{baseUrl}}/api/licenses"
+          }
+        },
+        {
+          "name": "Activate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subtotal\": 99,\n  \"taxAmount\": 0,\n  \"currency\": \"USD\",\n  \"dueDate\": \"2026-06-01T00:00:00Z\",\n  \"description\": \"Activation\"\n}"
+            },
+            "url": "{{baseUrl}}/api/licenses/{{licenseId}}/activate"
+          }
+        },
+        { "name": "Suspend", "request": { "method": "POST", "url": "{{baseUrl}}/api/licenses/{{licenseId}}/suspend" } },
+        { "name": "Revoke", "request": { "method": "POST", "url": "{{baseUrl}}/api/licenses/{{licenseId}}/revoke" } }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/api/invoices" } },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/api/invoices/{{invoiceId}}" } }
+      ]
+    },
+    {
+      "name": "Audit",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/api/audit-logs?limit=50" } }
+      ]
+    },
+    {
+      "name": "Integration Keys",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/api/integration-keys" } },
+        {
+          "name": "Create (rotate)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/integration-keys?serviceProductId={{serviceProductId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Validation (public)",
+      "item": [
+        {
+          "name": "Validate License",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Integration-Key", "value": "{{integrationKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"licenseKey\": \"{{licenseKey}}\",\n  \"serviceCode\": \"HOSTEL\"\n}"
+            },
+            "url": "{{baseUrl}}/api/licenses/validate"
+          }
+        }
+      ]
+    }
+  ]
+}

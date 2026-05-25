@@ -1,0 +1,78 @@
+@page "/integration-keys"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Integration Keys</MudText>
+
+<MudSelect T="string" @bind-Value="_productId" Label="Service product" Variant="Variant.Outlined" Class="mb-2">
+    @foreach (var p in _products)
+    {
+        <MudSelectItem Value="@p.Id">@p.Code</MudSelectItem>
+    }
+</MudSelect>
+<MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mb-4" OnClick="RotateAsync">Rotate / create key</MudButton>
+
+@if (!string.IsNullOrEmpty(_plainKey))
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4">
+        Copy this key now — it will not be shown again:
+        <span class="license-key">@_plainKey</span>
+    </MudAlert>
+}
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="_keys" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Service</MudTh>
+            <MudTh>Active</MudTh>
+            <MudTh>Created</MudTh>
+            <MudTh>Last used</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.ServiceProductCode</MudTd>
+            <MudTd>@(context.IsActive ? "Yes" : "No")</MudTd>
+            <MudTd>@context.CreatedAt.ToString("g")</MudTd>
+            <MudTd>@(context.LastUsedAt?.ToString("g") ?? "—")</MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private bool _loading = true;
+    private List<IntegrationKeyDto> _keys = [];
+    private List<ServiceProductDto> _products = [];
+    private string? _productId;
+    private string? _plainKey;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _keys = await Api.GetIntegrationKeysAsync();
+        _products = await Api.GetServiceProductsAsync();
+        _productId ??= _products.FirstOrDefault()?.Id;
+        _loading = false;
+    }
+
+    private async Task RotateAsync()
+    {
+        if (_productId is null) return;
+        var result = await Api.CreateIntegrationKeyAsync(_productId);
+        if (result is null)
+        {
+            Snackbar.Add("Failed to create integration key.", Severity.Error);
+            return;
+        }
+
+        _plainKey = result.PlainKey;
+        Snackbar.Add("Integration key created.", Severity.Success);
+        await ReloadAsync();
+    }
+}

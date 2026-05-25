@@ -1,0 +1,66 @@
+@page "/"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+
+<MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudText Typo="Typo.subtitle2">Customers</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Primary">@_customerCount</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudText Typo="Typo.subtitle2">Active licenses</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Primary">@_activeLicenses</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudText Typo="Typo.subtitle2">Expiring in 30 days</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Warning">@_expiringSoon</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudText Typo="Typo.subtitle2">Unpaid invoices</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Error">@_unpaidInvoices</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private bool _loading = true;
+    private int _customerCount;
+    private int _activeLicenses;
+    private int _expiringSoon;
+    private int _unpaidInvoices;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var customers = await Api.GetCustomersAsync();
+        var licenses = await Api.GetLicensesAsync();
+        var invoices = await Api.GetInvoicesAsync();
+
+        _customerCount = customers.Count;
+        _activeLicenses = licenses.Count(l => l.Status == LicenseStatus.Active);
+        var threshold = DateTime.UtcNow.AddDays(30);
+        _expiringSoon = licenses.Count(l =>
+            l.Status == LicenseStatus.Active &&
+            l.ExpiresAt.HasValue &&
+            l.ExpiresAt.Value <= threshold);
+        _unpaidInvoices = invoices.Count(i =>
+            i.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue);
+
+        _loading = false;
+    }
+}

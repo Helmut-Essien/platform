@@ -1,0 +1,46 @@
+@page "/login"
+@layout LoginLayout
+@attribute [AllowAnonymous]
+@inject PlatformApiClient Api
+@inject TokenStorage TokenStorage
+@inject JwtAuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<MudPaper Class="pa-8" Elevation="4" Style="max-width:420px;margin:80px auto;">
+    <MudText Typo="Typo.h4" Class="mb-4">Platform Admin</MudText>
+    <MudText Typo="Typo.body2" Class="mb-6">Sign in with your admin account</MudText>
+    <MudTextField @bind-Value="_email" Label="Email" Variant="Variant.Outlined" Class="mb-4" />
+    <MudTextField @bind-Value="_password" Label="Password" Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-4" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_busy" OnClick="LoginAsync">
+        @(_busy ? "Signing in..." : "Sign in")
+    </MudButton>
+</MudPaper>
+
+@code {
+    private string _email = "admin@platform.local";
+    private string _password = "Admin123!";
+    private bool _busy;
+
+    private async Task LoginAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.LoginAsync(new LoginRequest { Email = _email, Password = _password });
+            if (result is null)
+            {
+                Snackbar.Add("Invalid email or password.", Severity.Error);
+                return;
+            }
+
+            await TokenStorage.SetAsync(result.Token, result.Email);
+            AuthState.NotifyStateChanged();
+            Navigation.NavigateTo("/");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

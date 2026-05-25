@@ -1,16 +1,39 @@
 ﻿@inherits LayoutComponentBase
-<div class="page">
-    <div class="sidebar">
+@inject NavigationManager Navigation
+@inject TokenStorage TokenStorage
+@inject JwtAuthenticationStateProvider AuthState
+
+<MudLayout>
+    <MudAppBar Elevation="0" Color="Color.Dark">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
+        <MudText Typo="Typo.h6">Platform Admin</MudText>
+        <MudSpacer />
+        <MudText Typo="Typo.body2" Class="mr-4">@_email</MudText>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Logout">Logout</MudButton>
+    </MudAppBar>
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="0" Variant="DrawerVariant.Mini" ClipMode="DrawerClipMode.Always">
         <NavMenu />
-    </div>
+    </MudDrawer>
+    <MudMainContent Class="pa-6">
+        @Body
+    </MudMainContent>
+</MudLayout>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+@code {
+    private bool _drawerOpen = true;
+    private string? _email;
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+    protected override async Task OnInitializedAsync()
+    {
+        _email = await TokenStorage.GetEmailAsync();
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private async Task Logout()
+    {
+        await TokenStorage.ClearAsync();
+        AuthState.NotifyStateChanged();
+        Navigation.NavigateTo("/login");
+    }
+}

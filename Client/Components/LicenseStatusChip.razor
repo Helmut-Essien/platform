@@ -1,0 +1,17 @@
+@using Platform.Shared.Enums
+
+<MudChip T="string" Size="Size.Small" Color="@GetColor()">@Status</MudChip>
+
+@code {
+    [Parameter] public LicenseStatus Status { get; set; }
+
+    private Color GetColor() => Status switch
+    {
+        LicenseStatus.Active => Color.Success,
+        LicenseStatus.Pending => Color.Warning,
+        LicenseStatus.Suspended => Color.Warning,
+        LicenseStatus.Revoked => Color.Error,
+        LicenseStatus.Expired => Color.Default,
+        _ => Color.Default
+    };
+}

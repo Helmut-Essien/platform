@@ -12,12 +12,30 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddPlatformAuthentication(builder.Configuration);
+builder.Services.AddPlatformEmail(builder.Configuration);
+builder.Services.AddPlatformRedis(builder.Configuration);
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Client", policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:5154",
+                "https://localhost:7296",
+                "http://localhost:5173",
+                "https://localhost:7173",
+                "http://localhost:5174")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IBillingService, BillingService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IServiceProductService, ServiceProductService>();
 builder.Services.AddScoped<ILicenseService, LicenseService>();
+builder.Services.AddScoped<IIntegrationKeyService, IntegrationKeyService>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -49,6 +67,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors("Client");
 
 app.UseAuthentication();
 app.UseAuthorization();

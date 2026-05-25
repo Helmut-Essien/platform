@@ -6,7 +6,7 @@ using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
 
-public class CustomerService(AppDbContext db, IAuditLogService auditLog) : ICustomerService
+public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicenseDenyListService denyList) : ICustomerService
 {
     public async Task<IReadOnlyList<CustomerDto>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -110,6 +110,16 @@ public class CustomerService(AppDbContext db, IAuditLogService auditLog) : ICust
         customer.IsSuspended = true;
         await db.SaveChangesAsync(cancellationToken);
 
+        await denyList.DenyCustomerLicensesAsync(customer.Id, cancellationToken);
+
+        var licenseIds = await db.Licenses.IgnoreQueryFilters()
+            .Where(l => l.CustomerId == customer.Id)
+            .Select(l => l.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (var licenseId in licenseIds)
+            await denyList.DenyLicenseAsync(licenseId, cancellationToken);
+
         await auditLog.WriteAsync(AuditAction.CustomerSuspended, performedBy, customer.Id, null, null,
             null, ipAddress, cancellationToken);
 
@@ -131,6 +141,8 @@ public class CustomerService(AppDbContext db, IAuditLogService auditLog) : ICust
 
         customer.IsSuspended = false;
         await db.SaveChangesAsync(cancellationToken);
+
+        await denyList.ClearCustomerDenyAsync(customer.Id, cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.CustomerReactivated, performedBy, customer.Id, null, null,
             null, ipAddress, cancellationToken);

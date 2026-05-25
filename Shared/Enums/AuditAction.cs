@@ -12,6 +12,7 @@ public enum AuditAction
     LicenseUpdated,
     LicenseActivated,
     LicenseRenewed,
+    LicenseKeyRotated,
     LicenseSuspended,
     LicenseRevoked,
     IntegrationKeyCreated,

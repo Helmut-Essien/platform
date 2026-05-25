@@ -1,0 +1,42 @@
+@page "/services"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+
+<MudText Typo="Typo.h4" Class="mb-4">Service Catalog</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="_products" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Code</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Available</MudTh>
+            <MudTh>Description</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><span class="license-key">@context.Code</span></MudTd>
+            <MudTd>@context.Name</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="@(context.IsAvailableForSale ? Color.Success : Color.Default)">
+                    @(context.IsAvailableForSale ? "Yes" : "No")
+                </MudChip>
+            </MudTd>
+            <MudTd>@context.Description</MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private bool _loading = true;
+    private List<ServiceProductDto> _products = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _products = await Api.GetServiceProductsAsync();
+        _loading = false;
+    }
+}

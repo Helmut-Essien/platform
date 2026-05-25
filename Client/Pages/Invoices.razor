@@ -1,0 +1,40 @@
+@page "/invoices"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+
+<MudText Typo="Typo.h4" Class="mb-4">Invoices</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="_invoices" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Number</MudTh>
+            <MudTh>Customer</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Total</MudTh>
+            <MudTh>Due</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.InvoiceNumber</MudTd>
+            <MudTd>@context.CustomerName</MudTd>
+            <MudTd>@context.Status</MudTd>
+            <MudTd>@context.TotalAmount.ToString("N2") @context.Currency</MudTd>
+            <MudTd>@(context.DueDate?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private bool _loading = true;
+    private List<InvoiceDto> _invoices = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _invoices = await Api.GetInvoicesAsync();
+        _loading = false;
+    }
+}
