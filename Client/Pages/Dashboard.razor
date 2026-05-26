@@ -47,19 +47,14 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var customers = await Api.GetCustomersAsync();
-        var licenses = await Api.GetLicensesAsync();
-        var invoices = await Api.GetInvoicesAsync();
-
-        _customerCount = customers.Count;
-        _activeLicenses = licenses.Count(l => l.Status == LicenseStatus.Active);
-        var threshold = DateTime.UtcNow.AddDays(30);
-        _expiringSoon = licenses.Count(l =>
-            l.Status == LicenseStatus.Active &&
-            l.ExpiresAt.HasValue &&
-            l.ExpiresAt.Value <= threshold);
-        _unpaidInvoices = invoices.Count(i =>
-            i.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue);
+        var stats = await Api.GetDashboardStatsAsync();
+        if (stats is not null)
+        {
+            _customerCount = stats.CustomerCount;
+            _activeLicenses = stats.ActiveLicenses;
+            _expiringSoon = stats.ExpiringWithin30Days;
+            _unpaidInvoices = stats.UnpaidInvoices;
+        }
 
         _loading = false;
     }

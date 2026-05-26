@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Platform.Api.Extensions;
 using Platform.Api.Services;
 using Platform.Shared.Dtos.Licenses;
 
@@ -7,6 +9,7 @@ namespace Platform.Api.Controllers;
 
 [ApiController]
 [AllowAnonymous]
+[EnableRateLimiting(RateLimitingExtensions.LicenseValidatePolicy)]
 [Route("api/licenses")]
 public class LicenseValidationController(ILicenseValidationService validation) : ControllerBase
 {

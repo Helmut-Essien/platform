@@ -37,6 +37,11 @@ public class LicenseConfiguration : IEntityTypeConfiguration<License>
         builder.Property(l => l.LicenseKeyHash)
             .HasMaxLength(100);
 
+        builder.Property(l => l.LicenseKeyLookupHash)
+            .HasMaxLength(64);
+
+        builder.HasIndex(l => new { l.ServiceProductId, l.LicenseKeyLookupHash });
+
         builder.Property(l => l.CreatedAt)
             .IsRequired();
 

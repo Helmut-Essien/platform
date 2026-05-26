@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Platform.Api.Extensions;
 using Platform.Api.Http;
 using Platform.Api.Services;
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Licenses;
 
 namespace Platform.Api.Controllers;
@@ -13,12 +14,14 @@ namespace Platform.Api.Controllers;
 public class LicensesController(ILicenseService licenses) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<LicenseDto>>> List(
+    public async Task<ActionResult<PagedResult<LicenseDto>>> List(
         [FromQuery] string? customerId,
         [FromQuery] bool includeSuspendedCustomers = false,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
         CancellationToken cancellationToken = default)
     {
-        var result = await licenses.ListAsync(customerId, includeSuspendedCustomers, cancellationToken);
+        var result = await licenses.ListAsync(customerId, includeSuspendedCustomers, page, pageSize, cancellationToken);
         return Ok(result);
     }
 

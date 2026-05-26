@@ -1,10 +1,11 @@
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
 
 namespace Platform.Api.Services;
 
 public interface ICustomerService
 {
-    Task<IReadOnlyList<CustomerDto>> ListAsync(CancellationToken cancellationToken = default);
+    Task<PagedResult<CustomerDto>> ListAsync(int page = 1, int pageSize = 25, CancellationToken cancellationToken = default);
 
     Task<CustomerDto?> GetAsync(string id, CancellationToken cancellationToken = default);
 

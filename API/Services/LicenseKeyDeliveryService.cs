@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Security;
 using Platform.Api.Services.Email;
 
 namespace Platform.Api.Services;
@@ -26,6 +27,7 @@ public class LicenseKeyDeliveryService(
 
         var plainKey = GenerateLicenseKey(serviceProduct.Code);
         license.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey);
+        license.LicenseKeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey);
         license.LicenseKeySentAt = DateTime.UtcNow;
         license.UpdatedAt = DateTime.UtcNow;
 

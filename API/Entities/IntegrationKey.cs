@@ -8,6 +8,8 @@ public class IntegrationKey
 
     public required string KeyHash { get; set; }
 
+    public string? KeyLookupHash { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

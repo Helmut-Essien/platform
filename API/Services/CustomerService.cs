@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Helpers;
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
 using Platform.Shared.Enums;
 
@@ -8,21 +10,40 @@ namespace Platform.Api.Services;
 
 public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicenseDenyListService denyList) : ICustomerService
 {
-    public async Task<IReadOnlyList<CustomerDto>> ListAsync(CancellationToken cancellationToken = default)
+    public async Task<PagedResult<CustomerDto>> ListAsync(
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
+        CancellationToken cancellationToken = default)
     {
-        var customers = await db.Customers
-            .AsNoTracking()
-            .OrderByDescending(c => c.CreatedAt)
+        var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
+
+        var query = db.Customers.AsNoTracking().OrderByDescending(c => c.CreatedAt);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var customers = await query
+            .Skip(skip)
+            .Take(normalizedPageSize)
             .ToListAsync(cancellationToken);
 
-        var licenseCounts = await db.Licenses
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .GroupBy(l => l.CustomerId)
-            .Select(g => new { CustomerId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.CustomerId, x => x.Count, cancellationToken);
+        var customerIds = customers.Select(c => c.Id).ToList();
+        var licenseCounts = customerIds.Count == 0
+            ? new Dictionary<string, int>()
+            : await db.Licenses
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(l => customerIds.Contains(l.CustomerId))
+                .GroupBy(l => l.CustomerId)
+                .Select(g => new { CustomerId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.CustomerId, x => x.Count, cancellationToken);
 
-        return customers.Select(c => MapCustomer(c, licenseCounts.GetValueOrDefault(c.Id))).ToList();
+        return new PagedResult<CustomerDto>
+        {
+            Items = customers.Select(c => MapCustomer(c, licenseCounts.GetValueOrDefault(c.Id))).ToList(),
+            TotalCount = totalCount,
+            Page = normalizedPage,
+            PageSize = normalizedPageSize
+        };
     }
 
     public async Task<CustomerDto?> GetAsync(string id, CancellationToken cancellationToken = default)

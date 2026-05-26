@@ -18,6 +18,8 @@ public class License
 
     public string? LicenseKeyHash { get; set; }
 
+    public string? LicenseKeyLookupHash { get; set; }
+
     public DateTime? LicenseKeySentAt { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

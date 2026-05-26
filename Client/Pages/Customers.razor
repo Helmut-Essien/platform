@@ -13,56 +13,51 @@
     </MudExpansionPanel>
 </MudExpansionPanels>
 
-@if (_loading)
-{
-    <MudProgressLinear Indeterminate="true" />
-}
-else
-{
-    <MudTable Items="_customers" Hover="true" Dense="true">
-        <HeaderContent>
-            <MudTh>Name</MudTh>
-            <MudTh>Email</MudTh>
-            <MudTh>Status</MudTh>
-            <MudTh>Licenses</MudTh>
-            <MudTh></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>@context.Name</MudTd>
-            <MudTd>@context.ContactEmail</MudTd>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Color="@(context.IsSuspended ? Color.Warning : Color.Success)">
-                    @(context.IsSuspended ? "Suspended" : "Active")
-                </MudChip>
-            </MudTd>
-            <MudTd>@context.LicenseCount</MudTd>
-            <MudTd>
-                @if (context.IsSuspended)
-                {
-                    <MudButton Size="Size.Small" OnClick="() => ReactivateAsync(context.Id)">Reactivate</MudButton>
-                }
-                else
-                {
-                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="() => SuspendAsync(context.Id)">Suspend</MudButton>
-                }
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
-}
+<MudTable @ref="_table" ServerData="LoadServerData" Hover="true" Dense="true" Loading="_loading" RowsPerPage="25">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Email</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Licenses</MudTh>
+        <MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.Name</MudTd>
+        <MudTd>@context.ContactEmail</MudTd>
+        <MudTd>
+            <MudChip T="string" Size="Size.Small" Color="@(context.IsSuspended ? Color.Warning : Color.Success)">
+                @(context.IsSuspended ? "Suspended" : "Active")
+            </MudChip>
+        </MudTd>
+        <MudTd>@context.LicenseCount</MudTd>
+        <MudTd>
+            @if (context.IsSuspended)
+            {
+                <MudButton Size="Size.Small" OnClick="() => ReactivateAsync(context.Id)">Reactivate</MudButton>
+            }
+            else
+            {
+                <MudButton Size="Size.Small" Color="Color.Warning" OnClick="() => SuspendAsync(context.Id)">Suspend</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+    <PagerContent>
+        <MudTablePager />
+    </PagerContent>
+</MudTable>
 
 @code {
-    private bool _loading = true;
-    private List<CustomerDto> _customers = [];
+    private bool _loading;
+    private MudTable<CustomerDto>? _table;
     private string _newName = "";
     private string _newEmail = "";
 
-    protected override async Task OnInitializedAsync() => await ReloadAsync();
-
-    private async Task ReloadAsync()
+    private async Task<TableData<CustomerDto>> LoadServerData(TableState state, CancellationToken ct)
     {
         _loading = true;
-        _customers = await Api.GetCustomersAsync();
+        var result = await Api.GetCustomersPagedAsync(state.Page + 1, state.PageSize, ct);
         _loading = false;
+        return new TableData<CustomerDto> { Items = result.Items, TotalItems = result.TotalCount };
     }
 
     private async Task CreateAsync()
@@ -80,7 +75,8 @@ else
             Snackbar.Add("Customer created.", Severity.Success);
             _newName = "";
             _newEmail = "";
-            await ReloadAsync();
+            if (_table is not null)
+                await _table.ReloadServerData();
         }
     }
 
@@ -89,7 +85,8 @@ else
         if (await Api.SuspendCustomerAsync(id))
         {
             Snackbar.Add("Customer suspended.", Severity.Success);
-            await ReloadAsync();
+            if (_table is not null)
+                await _table.ReloadServerData();
         }
     }
 
@@ -98,7 +95,8 @@ else
         if (await Api.ReactivateCustomerAsync(id))
         {
             Snackbar.Add("Customer reactivated.", Severity.Success);
-            await ReloadAsync();
+            if (_table is not null)
+                await _table.ReloadServerData();
         }
     }
 }

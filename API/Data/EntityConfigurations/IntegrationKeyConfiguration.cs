@@ -24,6 +24,11 @@ public class IntegrationKeyConfiguration : IEntityTypeConfiguration<IntegrationK
             .HasMaxLength(100)
             .IsRequired();
 
+        builder.Property(i => i.KeyLookupHash)
+            .HasMaxLength(64);
+
+        builder.HasIndex(i => i.KeyLookupHash);
+
         builder.Property(i => i.CreatedAt)
             .IsRequired();
 

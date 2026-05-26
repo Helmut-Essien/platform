@@ -4,6 +4,7 @@ using Platform.Api.Extensions;
 using Platform.Api.Http;
 using Platform.Api.Services;
 using Platform.Shared.Dtos.Billing;
+using Platform.Shared.Dtos.Common;
 
 namespace Platform.Api.Controllers;
 
@@ -13,11 +14,13 @@ namespace Platform.Api.Controllers;
 public class InvoicesController(IBillingService billing) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<InvoiceDto>>> List(
+    public async Task<ActionResult<PagedResult<InvoiceDto>>> List(
         [FromQuery] string? customerId,
-        CancellationToken cancellationToken)
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken cancellationToken = default)
     {
-        var invoices = await billing.ListInvoicesAsync(customerId, cancellationToken);
+        var invoices = await billing.ListInvoicesAsync(customerId, page, pageSize, cancellationToken);
         return Ok(invoices);
     }
 

@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Helpers;
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Licenses;
 using Platform.Shared.Enums;
 
@@ -58,11 +60,15 @@ public class LicenseService(
         return await MapLicenseAsync(id, includeSuspendedCustomers, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<LicenseDto>> ListAsync(
+    public async Task<PagedResult<LicenseDto>> ListAsync(
         string? customerId = null,
         bool includeSuspendedCustomers = false,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
         CancellationToken cancellationToken = default)
     {
+        var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
+
         var query = (includeSuspendedCustomers
                 ? db.Licenses.IgnoreQueryFilters()
                 : db.Licenses)
@@ -74,20 +80,35 @@ public class LicenseService(
         if (customerId is not null)
             query = query.Where(l => l.CustomerId == customerId);
 
-        var licenses = await query.OrderByDescending(l => l.CreatedAt).ToListAsync(cancellationToken);
+        var ordered = query.OrderByDescending(l => l.CreatedAt);
+
+        var totalCount = await ordered.CountAsync(cancellationToken);
+
+        var licenses = await ordered
+            .Skip(skip)
+            .Take(normalizedPageSize)
+            .ToListAsync(cancellationToken);
 
         var ids = licenses.Select(l => l.Id).ToList();
-        var invoiceRows = await db.Invoices
-            .AsNoTracking()
-            .Where(i => i.LicenseId != null && ids.Contains(i.LicenseId))
-            .Select(i => new { i.LicenseId, i.Id, i.CreatedAt })
-            .ToListAsync(cancellationToken);
+        var invoiceRows = ids.Count == 0
+            ? []
+            : await db.Invoices
+                .AsNoTracking()
+                .Where(i => i.LicenseId != null && ids.Contains(i.LicenseId))
+                .Select(i => new { i.LicenseId, i.Id, i.CreatedAt })
+                .ToListAsync(cancellationToken);
 
         var invoiceLookup = invoiceRows
             .GroupBy(i => i.LicenseId!)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CreatedAt).First().Id);
 
-        return licenses.Select(l => MapLicense(l, invoiceLookup.GetValueOrDefault(l.Id))).ToList();
+        return new PagedResult<LicenseDto>
+        {
+            Items = licenses.Select(l => MapLicense(l, invoiceLookup.GetValueOrDefault(l.Id))).ToList(),
+            TotalCount = totalCount,
+            Page = normalizedPage,
+            PageSize = normalizedPageSize
+        };
     }
 
     public async Task<LicenseDto> ActivateAsync(

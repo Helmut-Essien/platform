@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Platform.Api.Extensions;
 using Platform.Api.Http;
 using Platform.Api.Services;
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
 
 namespace Platform.Api.Controllers;
@@ -13,9 +14,12 @@ namespace Platform.Api.Controllers;
 public class CustomersController(ICustomerService customers) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<CustomerDto>>> List(CancellationToken cancellationToken)
+    public async Task<ActionResult<PagedResult<CustomerDto>>> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken cancellationToken = default)
     {
-        var result = await customers.ListAsync(cancellationToken);
+        var result = await customers.ListAsync(page, pageSize, cancellationToken);
         return Ok(result);
     }
 

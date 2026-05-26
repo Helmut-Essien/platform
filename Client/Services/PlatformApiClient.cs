@@ -2,7 +2,9 @@ using System.Net.Http.Json;
 using Platform.Shared.Dtos.Audit;
 using Platform.Shared.Dtos.Auth;
 using Platform.Shared.Dtos.Billing;
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
+using Platform.Shared.Dtos.Dashboard;
 using Platform.Shared.Dtos.IntegrationKeys;
 using Platform.Shared.Dtos.Licenses;
 using Platform.Shared.Dtos.ServiceProducts;
@@ -20,8 +22,15 @@ public class PlatformApiClient(HttpClient http)
     public async Task<object?> GetMeAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<object>("api/auth/me", ct);
 
-    public async Task<List<CustomerDto>> GetCustomersAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<List<CustomerDto>>("api/customers", ct) ?? [];
+    public async Task<DashboardStatsDto?> GetDashboardStatsAsync(CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<DashboardStatsDto>("api/dashboard/stats", ct);
+
+    public async Task<PagedResult<CustomerDto>> GetCustomersPagedAsync(
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<PagedResult<CustomerDto>>($"api/customers?page={page}&pageSize={pageSize}", ct)
+        ?? new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
 
     public async Task<CustomerDto?> CreateCustomerAsync(CreateCustomerRequest request, CancellationToken ct = default)
     {
@@ -48,10 +57,18 @@ public class PlatformApiClient(HttpClient http)
     public async Task<List<ServiceProductDto>> GetServiceProductsAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<List<ServiceProductDto>>("api/serviceproducts", ct) ?? [];
 
-    public async Task<List<LicenseDto>> GetLicensesAsync(string? customerId = null, CancellationToken ct = default)
+    public async Task<PagedResult<LicenseDto>> GetLicensesPagedAsync(
+        string? customerId = null,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default)
     {
-        var url = string.IsNullOrEmpty(customerId) ? "api/licenses" : $"api/licenses?customerId={customerId}";
-        return await http.GetFromJsonAsync<List<LicenseDto>>(url, ct) ?? [];
+        var url = $"api/licenses?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrEmpty(customerId))
+            url += $"&customerId={Uri.EscapeDataString(customerId)}";
+
+        return await http.GetFromJsonAsync<PagedResult<LicenseDto>>(url, ct)
+            ?? new PagedResult<LicenseDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
 
     public async Task<LicenseDto?> CreateLicenseAsync(CreateLicenseRequest request, CancellationToken ct = default)
@@ -71,8 +88,12 @@ public class PlatformApiClient(HttpClient http)
     public async Task<bool> RevokeLicenseAsync(string id, CancellationToken ct = default) =>
         (await http.PostAsync($"api/licenses/{id}/revoke", null, ct)).IsSuccessStatusCode;
 
-    public async Task<List<InvoiceDto>> GetInvoicesAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<List<InvoiceDto>>("api/invoices", ct) ?? [];
+    public async Task<PagedResult<InvoiceDto>> GetInvoicesPagedAsync(
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<PagedResult<InvoiceDto>>($"api/invoices?page={page}&pageSize={pageSize}", ct)
+        ?? new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
 
     public async Task<List<AuditLogDto>> GetAuditLogsAsync(int limit = 50, CancellationToken ct = default) =>
         await http.GetFromJsonAsync<List<AuditLogDto>>($"api/audit-logs?limit={limit}", ct) ?? [];

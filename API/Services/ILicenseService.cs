@@ -1,3 +1,4 @@
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Licenses;
 
 namespace Platform.Api.Services;
@@ -6,7 +7,12 @@ public interface ILicenseService
 {
     Task<LicenseDto> CreateAsync(CreateLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<LicenseDto>> ListAsync(string? customerId = null, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default);
+    Task<PagedResult<LicenseDto>> ListAsync(
+        string? customerId = null,
+        bool includeSuspendedCustomers = false,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken cancellationToken = default);
 
     Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default);
 

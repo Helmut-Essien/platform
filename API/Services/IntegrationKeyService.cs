@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Security;
 using Platform.Shared.Dtos.IntegrationKeys;
 using Platform.Shared.Enums;
 
@@ -32,42 +33,55 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
         var product = await db.ServiceProducts.FindAsync([serviceProductId], cancellationToken)
             ?? throw new InvalidOperationException("Service product not found.");
 
-        var activeKeys = await db.IntegrationKeys
-            .Where(k => k.ServiceProductId == serviceProductId && k.IsActive)
-            .ToListAsync(cancellationToken);
-
-        foreach (var existing in activeKeys)
-            existing.IsActive = false;
-
         var plainKey = GenerateIntegrationKey(product.Code);
-        var entity = new IntegrationKey
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            ServiceProductId = serviceProductId,
-            KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow
-        };
+            var activeKeys = await db.IntegrationKeys
+                .Where(k => k.ServiceProductId == serviceProductId && k.IsActive)
+                .ToListAsync(cancellationToken);
 
-        db.IntegrationKeys.Add(entity);
-        await db.SaveChangesAsync(cancellationToken);
+            foreach (var existing in activeKeys)
+                existing.IsActive = false;
 
-        await auditLog.WriteAsync(AuditAction.IntegrationKeyCreated, performedBy, null, null, null,
-            $$"""{"serviceProductId":"{{serviceProductId}}","integrationKeyId":"{{entity.Id}}"}""",
-            ipAddress, cancellationToken);
-
-        return new CreateIntegrationKeyResponse
-        {
-            Key = new IntegrationKeyDto
+            var entity = new IntegrationKey
             {
-                Id = entity.Id,
-                ServiceProductId = entity.ServiceProductId,
-                ServiceProductCode = product.Code,
-                IsActive = entity.IsActive,
-                CreatedAt = entity.CreatedAt,
-                LastUsedAt = entity.LastUsedAt
-            },
-            PlainKey = plainKey
-        };
+                ServiceProductId = serviceProductId,
+                KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
+                KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey),
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            db.IntegrationKeys.Add(entity);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            await auditLog.WriteAsync(AuditAction.IntegrationKeyCreated, performedBy, null, null, null,
+                $$"""{"serviceProductId":"{{serviceProductId}}","integrationKeyId":"{{entity.Id}}"}""",
+                ipAddress, cancellationToken);
+
+            return new CreateIntegrationKeyResponse
+            {
+                Key = new IntegrationKeyDto
+                {
+                    Id = entity.Id,
+                    ServiceProductId = entity.ServiceProductId,
+                    ServiceProductCode = product.Code,
+                    IsActive = entity.IsActive,
+                    CreatedAt = entity.CreatedAt,
+                    LastUsedAt = entity.LastUsedAt
+                },
+                PlainKey = plainKey
+            };
+        }
+        catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new InvalidOperationException("An integration key rotation is already in progress. Please try again.");
+        }
+
     }
 
     public async Task<IntegrationKeyDto> RevokeAsync(

@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Helpers;
 using Platform.Shared.Dtos.Billing;
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
@@ -10,6 +12,8 @@ public class BillingService(
     AppDbContext db,
     IAuditLogService auditLog) : IBillingService
 {
+    private const int MaxNumberGenerationAttempts = 3;
+
     public async Task<InvoiceDto> CreateInvoiceAsync(
         CreateInvoiceRequest request,
         string performedBy,
@@ -41,7 +45,7 @@ public class BillingService(
             CustomerId = request.CustomerId,
             LicenseId = request.LicenseId,
             ServiceProductId = request.ServiceProductId,
-            InvoiceNumber = await GenerateInvoiceNumberAsync(cancellationToken),
+            InvoiceNumber = string.Empty,
             Status = request.Status,
             IssueDate = now,
             DueDate = request.DueDate,
@@ -56,8 +60,7 @@ public class BillingService(
             UpdatedAt = now
         };
 
-        db.Invoices.Add(invoice);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveNewInvoiceAsync(invoice, cancellationToken);
 
         var action = request.Status == InvoiceStatus.Sent ? AuditAction.InvoiceSent : AuditAction.InvoiceCreated;
         await auditLog.WriteAsync(action, performedBy, request.CustomerId, request.LicenseId, invoice.Id,
@@ -105,10 +108,14 @@ public class BillingService(
         return await MapInvoiceAsync(id, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<InvoiceDto>> ListInvoicesAsync(
+    public async Task<PagedResult<InvoiceDto>> ListInvoicesAsync(
         string? customerId = null,
+        int page = 1,
+        int pageSize = PagingHelper.DefaultPageSize,
         CancellationToken cancellationToken = default)
     {
+        var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
+
         var query = db.Invoices
             .AsNoTracking()
             .Include(i => i.Customer)
@@ -119,11 +126,23 @@ public class BillingService(
         if (customerId is not null)
             query = query.Where(i => i.CustomerId == customerId);
 
-        var invoices = await query
-            .OrderByDescending(i => i.IssueDate)
+        var ordered = query.OrderByDescending(i => i.IssueDate);
+
+        var totalCount = await ordered.CountAsync(cancellationToken);
+
+        var invoices = await ordered
+            .Skip(skip)
+            .Take(normalizedPageSize)
+            .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
-        return invoices.Select(MapInvoice).ToList();
+        return new PagedResult<InvoiceDto>
+        {
+            Items = invoices.Select(MapInvoice).ToList(),
+            TotalCount = totalCount,
+            Page = normalizedPage,
+            PageSize = normalizedPageSize
+        };
     }
 
     public async Task<InvoiceDto> VoidInvoiceAsync(
@@ -181,7 +200,7 @@ public class BillingService(
         var receipt = new Receipt
         {
             InvoiceId = invoiceId,
-            ReceiptNumber = await GenerateReceiptNumberAsync(cancellationToken),
+            ReceiptNumber = string.Empty,
             AmountPaid = request.AmountPaid,
             PaidAt = request.PaidAt ?? now,
             PaymentMethod = request.PaymentMethod,
@@ -190,11 +209,7 @@ public class BillingService(
             CreatedAt = now
         };
 
-        db.Receipts.Add(receipt);
-        invoice.Receipts.Add(receipt);
-        await UpdateInvoicePaymentStatusAsync(invoice, cancellationToken);
-        invoice.UpdatedAt = now;
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveNewReceiptAsync(invoice, receipt, cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.ReceiptRecorded, performedBy, invoice.CustomerId, invoice.LicenseId,
             invoice.Id,
@@ -216,6 +231,56 @@ public class BillingService(
             invoice.Status = InvoiceStatus.Overdue;
 
         await Task.CompletedTask;
+    }
+
+    private async Task SaveNewInvoiceAsync(Invoice invoice, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
+        {
+            invoice.InvoiceNumber = await GenerateInvoiceNumberAsync(cancellationToken);
+            db.Invoices.Add(invoice);
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                return;
+            }
+            catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+            {
+                db.Entry(invoice).State = EntityState.Detached;
+                if (attempt == MaxNumberGenerationAttempts - 1)
+                    throw new InvalidOperationException("Could not generate a unique invoice number.", ex);
+            }
+        }
+    }
+
+    private async Task SaveNewReceiptAsync(
+        Invoice invoice,
+        Receipt receipt,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
+        {
+            receipt.ReceiptNumber = await GenerateReceiptNumberAsync(cancellationToken);
+            db.Receipts.Add(receipt);
+            invoice.Receipts.Add(receipt);
+            await UpdateInvoicePaymentStatusAsync(invoice, cancellationToken);
+            invoice.UpdatedAt = DateTime.UtcNow;
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                return;
+            }
+            catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+            {
+                db.Entry(receipt).State = EntityState.Detached;
+                invoice.Receipts.Remove(receipt);
+                await UpdateInvoicePaymentStatusAsync(invoice, cancellationToken);
+                if (attempt == MaxNumberGenerationAttempts - 1)
+                    throw new InvalidOperationException("Could not generate a unique receipt number.", ex);
+            }
+        }
     }
 
     private async Task<string> GenerateInvoiceNumberAsync(CancellationToken cancellationToken)

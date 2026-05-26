@@ -1,11 +1,14 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
+using Platform.Api.Data;
 
 namespace Platform.Api.Services;
 
 public class RedisLicenseDenyListService(
     IDistributedCache cache,
+    AppDbContext db,
     IOptions<RedisSettings> settings,
     ILogger<RedisLicenseDenyListService> logger) : ILicenseDenyListService
 {
@@ -19,7 +22,7 @@ public class RedisLicenseDenyListService(
             new DistributedCacheEntryOptions(),
             cancellationToken);
 
-        await cache.RemoveAsync(ValidationCacheKey(licenseId), cancellationToken);
+        await InvalidateValidationCacheAsync(licenseId, cancellationToken);
         logger.LogDebug("License {LicenseId} added to deny-list", licenseId);
     }
 
@@ -30,6 +33,16 @@ public class RedisLicenseDenyListService(
             "1",
             new DistributedCacheEntryOptions(),
             cancellationToken);
+
+        var licenseIds = await db.Licenses
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(l => l.CustomerId == customerId)
+            .Select(l => l.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (var licenseId in licenseIds)
+            await InvalidateValidationCacheAsync(licenseId, cancellationToken);
 
         logger.LogDebug("Customer {CustomerId} licenses marked denied in cache layer", customerId);
     }
@@ -43,13 +56,37 @@ public class RedisLicenseDenyListService(
     public async Task ClearLicenseDenyAsync(string licenseId, CancellationToken cancellationToken = default)
     {
         await cache.RemoveAsync(DenyKey(licenseId), cancellationToken);
-        await cache.RemoveAsync(ValidationCacheKey(licenseId), cancellationToken);
+        await InvalidateValidationCacheAsync(licenseId, cancellationToken);
     }
 
     public Task ClearCustomerDenyAsync(string customerId, CancellationToken cancellationToken = default) =>
         cache.RemoveAsync($"customer:deny:{customerId}");
 
-    internal static string ValidationCacheKey(string licenseId) => $"license:valid:{licenseId}";
+    internal static string ValidationCacheKey(string serviceProductId, string lookupHash) =>
+        $"license:valid:{serviceProductId}:{lookupHash}";
+
+    internal static string ValidationCacheKeyByLicenseId(string licenseId) => $"license:valid:{licenseId}";
 
     internal int ValidationCacheSeconds => settings.Value.ValidationCacheSeconds;
+
+    internal int IntegrationKeyLastUsedUpdateMinutes => settings.Value.IntegrationKeyLastUsedUpdateMinutes;
+
+    private async Task InvalidateValidationCacheAsync(string licenseId, CancellationToken cancellationToken)
+    {
+        await cache.RemoveAsync(ValidationCacheKeyByLicenseId(licenseId), cancellationToken);
+
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(l => l.Id == licenseId)
+            .Select(l => new { l.ServiceProductId, l.LicenseKeyLookupHash })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (license?.LicenseKeyLookupHash is not null)
+        {
+            await cache.RemoveAsync(
+                ValidationCacheKey(license.ServiceProductId, license.LicenseKeyLookupHash),
+                cancellationToken);
+        }
+    }
 }

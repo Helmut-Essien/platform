@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Entities;
+using Platform.Api.Security;
 using Platform.Shared.Enums;
 
 namespace Platform.Api.Data;
@@ -69,12 +70,17 @@ public static class SeedData
 
         db.Customers.Add(demoCustomer);
 
-        var integrationKeys = products.Select(p => new IntegrationKey
+        var integrationKeys = products.Select(p =>
         {
-            ServiceProductId = p.Id,
-            KeyHash = BCrypt.Net.BCrypt.HashPassword(DevIntegrationKeys[p.Code]),
-            IsActive = true,
-            CreatedAt = now
+            var plainKey = DevIntegrationKeys[p.Code];
+            return new IntegrationKey
+            {
+                ServiceProductId = p.Id,
+                KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
+                KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey),
+                IsActive = true,
+                CreatedAt = now
+            };
         }).ToList();
 
         db.IntegrationKeys.AddRange(integrationKeys);

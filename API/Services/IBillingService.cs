@@ -1,5 +1,6 @@
 using Platform.Api.Entities;
 using Platform.Shared.Dtos.Billing;
+using Platform.Shared.Dtos.Common;
 using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
@@ -12,7 +13,11 @@ public interface IBillingService
 
     Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<InvoiceDto>> ListInvoicesAsync(string? customerId = null, CancellationToken cancellationToken = default);
+    Task<PagedResult<InvoiceDto>> ListInvoicesAsync(
+        string? customerId = null,
+        int page = 1,
+        int pageSize = 25,
+        CancellationToken cancellationToken = default);
 
     Task<InvoiceDto> VoidInvoiceAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 

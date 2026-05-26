@@ -4,37 +4,34 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Invoices</MudText>
 
-@if (_loading)
-{
-    <MudProgressLinear Indeterminate="true" />
-}
-else
-{
-    <MudTable Items="_invoices" Hover="true" Dense="true">
-        <HeaderContent>
-            <MudTh>Number</MudTh>
-            <MudTh>Customer</MudTh>
-            <MudTh>Status</MudTh>
-            <MudTh>Total</MudTh>
-            <MudTh>Due</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>@context.InvoiceNumber</MudTd>
-            <MudTd>@context.CustomerName</MudTd>
-            <MudTd>@context.Status</MudTd>
-            <MudTd>@context.TotalAmount.ToString("N2") @context.Currency</MudTd>
-            <MudTd>@(context.DueDate?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
-        </RowTemplate>
-    </MudTable>
-}
+<MudTable ServerData="LoadServerData" Hover="true" Dense="true" Loading="_loading" RowsPerPage="25">
+    <HeaderContent>
+        <MudTh>Number</MudTh>
+        <MudTh>Customer</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Total</MudTh>
+        <MudTh>Due</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.InvoiceNumber</MudTd>
+        <MudTd>@context.CustomerName</MudTd>
+        <MudTd>@context.Status</MudTd>
+        <MudTd>@context.TotalAmount.ToString("N2") @context.Currency</MudTd>
+        <MudTd>@(context.DueDate?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
+    </RowTemplate>
+    <PagerContent>
+        <MudTablePager />
+    </PagerContent>
+</MudTable>
 
 @code {
-    private bool _loading = true;
-    private List<InvoiceDto> _invoices = [];
+    private bool _loading;
 
-    protected override async Task OnInitializedAsync()
+    private async Task<TableData<InvoiceDto>> LoadServerData(TableState state, CancellationToken ct)
     {
-        _invoices = await Api.GetInvoicesAsync();
+        _loading = true;
+        var result = await Api.GetInvoicesPagedAsync(state.Page + 1, state.PageSize, ct);
         _loading = false;
+        return new TableData<InvoiceDto> { Items = result.Items, TotalItems = result.TotalCount };
     }
 }

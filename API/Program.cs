@@ -36,8 +36,10 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IServiceProductService, ServiceProductService>();
 builder.Services.AddScoped<ILicenseService, LicenseService>();
 builder.Services.AddScoped<IIntegrationKeyService, IntegrationKeyService>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
 
-builder.Services.AddControllers();
+builder.Services.AddPlatformControllers();
+builder.Services.AddPlatformRateLimiting(builder.Configuration);
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
@@ -72,6 +74,7 @@ app.UseCors("Client");
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 

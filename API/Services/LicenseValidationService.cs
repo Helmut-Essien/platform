@@ -1,7 +1,10 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Options;
+using Platform.Api.Configuration;
 using Platform.Api.Data;
+using Platform.Api.Security;
 using Platform.Shared.Dtos.Licenses;
 using Platform.Shared.Enums;
 
@@ -11,8 +14,11 @@ public class LicenseValidationService(
     AppDbContext db,
     ILicenseDenyListService denyList,
     IDistributedCache cache,
+    IOptions<RedisSettings> redisSettings,
     ILogger<LicenseValidationService> logger) : ILicenseValidationService
 {
+    private readonly RedisSettings _redisSettings = redisSettings.Value;
+
     public async Task<ValidateLicenseResponse> ValidateAsync(
         string integrationKeyHeader,
         ValidateLicenseRequest request,
@@ -29,12 +35,31 @@ public class LicenseValidationService(
             return Invalid("Invalid integration key.");
 
         var (integrationKey, serviceProduct) = integrationMatch.Value;
+        var lookupHash = KeyLookupHasher.ComputeSha256Hex(request.LicenseKey);
+
+        var cached = await TryGetCachedValidationAsync(
+            serviceProduct.Id,
+            lookupHash,
+            cancellationToken);
+
+        if (cached is not null)
+        {
+            await TouchIntegrationKeyLastUsedAsync(integrationKey.Id, integrationKey.LastUsedAt, cancellationToken);
+            return cached;
+        }
+
+        var utcNow = DateTime.UtcNow;
 
         var licensesQuery = db.Licenses
             .IgnoreQueryFilters()
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
-            .Where(l => l.ServiceProductId == serviceProduct.Id && l.LicenseKeyHash != null);
+            .Where(l => l.ServiceProductId == serviceProduct.Id
+                && l.LicenseKeyHash != null
+                && l.Status == LicenseStatus.Active
+                && !l.Customer.IsSuspended
+                && (l.ExpiresAt == null || l.ExpiresAt > utcNow)
+                && (l.LicenseKeyLookupHash == lookupHash || l.LicenseKeyLookupHash == null));
 
         var licenses = await licensesQuery.ToListAsync(cancellationToken);
 
@@ -59,21 +84,11 @@ public class LicenseValidationService(
         if (customerDenied is not null)
             return Invalid("License is not valid.");
 
-        if (matchedLicense.Customer.IsSuspended)
-            return Invalid("Customer account is suspended.");
-
-        if (matchedLicense.Status != LicenseStatus.Active)
-            return Invalid($"License status is {matchedLicense.Status}.");
-
-        if (matchedLicense.ExpiresAt.HasValue && matchedLicense.ExpiresAt.Value < DateTime.UtcNow)
-            return Invalid("License has expired.");
-
         if (request.ServiceCode is not null &&
             !string.Equals(matchedLicense.ServiceProduct.Code, request.ServiceCode.Trim(), StringComparison.OrdinalIgnoreCase))
             return Invalid("License does not match the requested service.");
 
-        integrationKey.LastUsedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        await TouchIntegrationKeyLastUsedAsync(integrationKey.Id, integrationKey.LastUsedAt, cancellationToken);
 
         var response = new ValidateLicenseResponse
         {
@@ -82,24 +97,105 @@ public class LicenseValidationService(
             ExpiresAt = matchedLicense.ExpiresAt
         };
 
+        await CacheValidationAsync(
+            serviceProduct.Id,
+            lookupHash,
+            matchedLicense.Id,
+            matchedLicense.CustomerId,
+            response,
+            cancellationToken);
+
+        return response;
+    }
+
+    private async Task<ValidateLicenseResponse?> TryGetCachedValidationAsync(
+        string serviceProductId,
+        string lookupHash,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            var cacheKey = RedisLicenseDenyListService.ValidationCacheKey(matchedLicense.Id);
+            var cacheKey = RedisLicenseDenyListService.ValidationCacheKey(serviceProductId, lookupHash);
+            var json = await cache.GetStringAsync(cacheKey, cancellationToken);
+            if (json is null)
+                return null;
+
+            var entry = JsonSerializer.Deserialize<CachedLicenseValidation>(json);
+            if (entry is null)
+                return null;
+
+            if (await denyList.IsDeniedAsync(entry.LicenseId, cancellationToken))
+                return Invalid("License is not valid.");
+
+            var customerDenied = await cache.GetStringAsync($"customer:deny:{entry.CustomerId}", cancellationToken);
+            if (customerDenied is not null)
+                return Invalid("License is not valid.");
+
+            if (entry.Response.ExpiresAt.HasValue && entry.Response.ExpiresAt.Value < DateTime.UtcNow)
+                return Invalid("License has expired.");
+
+            return entry.Response;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to read validation cache for service {ServiceProductId}", serviceProductId);
+            return null;
+        }
+    }
+
+    private async Task CacheValidationAsync(
+        string serviceProductId,
+        string lookupHash,
+        string licenseId,
+        string customerId,
+        ValidateLicenseResponse response,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var entry = new CachedLicenseValidation
+            {
+                LicenseId = licenseId,
+                CustomerId = customerId,
+                Response = response
+            };
+
+            var cacheKey = RedisLicenseDenyListService.ValidationCacheKey(serviceProductId, lookupHash);
+            var ttl = TimeSpan.FromSeconds(_redisSettings.ValidationCacheSeconds);
+
             await cache.SetStringAsync(
                 cacheKey,
-                JsonSerializer.Serialize(response),
-                new DistributedCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60)
-                },
+                JsonSerializer.Serialize(entry),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl },
                 cancellationToken);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to cache validation result for license {LicenseId}", matchedLicense.Id);
+            logger.LogWarning(ex, "Failed to cache validation result for license {LicenseId}", licenseId);
         }
+    }
 
-        return response;
+    private async Task TouchIntegrationKeyLastUsedAsync(
+        string integrationKeyId,
+        DateTime? lastUsedAt,
+        CancellationToken cancellationToken)
+    {
+        var threshold = DateTime.UtcNow.AddMinutes(-_redisSettings.IntegrationKeyLastUsedUpdateMinutes);
+        if (lastUsedAt.HasValue && lastUsedAt.Value >= threshold)
+            return;
+
+        try
+        {
+            await db.IntegrationKeys
+                .Where(k => k.Id == integrationKeyId)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(k => k.LastUsedAt, DateTime.UtcNow),
+                    cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to update LastUsedAt for integration key {IntegrationKeyId}", integrationKeyId);
+        }
     }
 
     private async Task<(Entities.IntegrationKey Key, Entities.ServiceProduct Product)?> ResolveIntegrationKeyAsync(
@@ -107,9 +203,12 @@ public class LicenseValidationService(
         string? serviceCode,
         CancellationToken cancellationToken)
     {
+        var lookupHash = KeyLookupHasher.ComputeSha256Hex(plainIntegrationKey);
+
         IQueryable<Entities.IntegrationKey> query = db.IntegrationKeys
             .Include(k => k.ServiceProduct)
-            .Where(k => k.IsActive);
+            .Where(k => k.IsActive
+                && (k.KeyLookupHash == lookupHash || k.KeyLookupHash == null));
 
         if (!string.IsNullOrWhiteSpace(serviceCode))
             query = query.Where(k => k.ServiceProduct.Code == serviceCode.Trim().ToUpperInvariant());
