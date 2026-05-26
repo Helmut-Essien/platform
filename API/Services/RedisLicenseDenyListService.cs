@@ -8,7 +8,7 @@ namespace Platform.Api.Services;
 
 public class RedisLicenseDenyListService(
     IDistributedCache cache,
-    AppDbContext db,
+    IServiceScopeFactory scopeFactory,
     IOptions<RedisSettings> settings,
     ILogger<RedisLicenseDenyListService> logger) : ILicenseDenyListService
 {
@@ -34,12 +34,17 @@ public class RedisLicenseDenyListService(
             new DistributedCacheEntryOptions(),
             cancellationToken);
 
-        var licenseIds = await db.Licenses
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .Where(l => l.CustomerId == customerId)
-            .Select(l => l.Id)
-            .ToListAsync(cancellationToken);
+        List<string> licenseIds;
+        await using (var scope = scopeFactory.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            licenseIds = await db.Licenses
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(l => l.CustomerId == customerId)
+                .Select(l => l.Id)
+                .ToListAsync(cancellationToken);
+        }
 
         foreach (var licenseId in licenseIds)
             await InvalidateValidationCacheAsync(licenseId, cancellationToken);
@@ -74,6 +79,9 @@ public class RedisLicenseDenyListService(
     private async Task InvalidateValidationCacheAsync(string licenseId, CancellationToken cancellationToken)
     {
         await cache.RemoveAsync(ValidationCacheKeyByLicenseId(licenseId), cancellationToken);
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var license = await db.Licenses
             .IgnoreQueryFilters()
