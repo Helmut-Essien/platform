@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <MudText Typo="Typo.h4" Class="mb-4">Customers</MudText>
 
@@ -41,6 +42,10 @@
             }
         </MudTd>
     </RowTemplate>
+    <NoRecordsContent>
+        <MudText Typo="Typo.subtitle1" Class="pa-4">No customers yet.</MudText>
+        <MudText Typo="Typo.body2" Class="px-4 pb-4">Expand the panel above to add your first customer.</MudText>
+    </NoRecordsContent>
     <PagerContent>
         <MudTablePager />
     </PagerContent>
@@ -82,6 +87,15 @@
 
     private async Task SuspendAsync(string id)
     {
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Suspend Customer", new DialogParameters
+        {
+            ["Title"] = "Suspend Customer",
+            ["Message"] = "This will block all licenses for this customer. Continue?",
+            ["ConfirmText"] = "Suspend"
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false) return;
+
         if (await Api.SuspendCustomerAsync(id))
         {
             Snackbar.Add("Customer suspended.", Severity.Success);

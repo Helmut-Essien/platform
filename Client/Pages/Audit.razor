@@ -4,33 +4,55 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Audit Log</MudText>
 
+<MudTextField @bind-Value="_search" Label="Search" Variant="Variant.Outlined" Class="mb-4" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+
 @if (_loading)
 {
     <MudProgressLinear Indeterminate="true" />
 }
 else
 {
-    <MudTable Items="_logs" Hover="true" Dense="true">
-        <HeaderContent>
-            <MudTh>Time</MudTh>
-            <MudTh>Action</MudTh>
-            <MudTh>By</MudTh>
-            <MudTh>Customer</MudTh>
-            <MudTh>License</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>@context.Timestamp.ToString("g")</MudTd>
-            <MudTd>@context.Action</MudTd>
-            <MudTd>@context.PerformedBy</MudTd>
-            <MudTd>@(context.CustomerId ?? "—")</MudTd>
-            <MudTd>@(context.LicenseId ?? "—")</MudTd>
-        </RowTemplate>
-    </MudTable>
+    var filtered = string.IsNullOrWhiteSpace(_search)
+        ? _logs
+        : _logs.Where(l =>
+            (l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase)) ||
+            (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (l.CustomerId?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (l.LicenseId?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+
+    if (filtered.Count == 0)
+    {
+        <MudText Typo="Typo.subtitle1" Class="pa-4">@(string.IsNullOrWhiteSpace(_search) ? "No audit events recorded yet." : "No results match your search.")</MudText>
+        @if (string.IsNullOrWhiteSpace(_search))
+        {
+            <MudText Typo="Typo.body2" Class="px-4 pb-4">Audit events are logged automatically when licenses and customers are managed.</MudText>
+        }
+    }
+    else
+    {
+        <MudTable Items="filtered" Hover="true" Dense="true">
+            <HeaderContent>
+                <MudTh>Time</MudTh>
+                <MudTh>Action</MudTh>
+                <MudTh>By</MudTh>
+                <MudTh>Customer</MudTh>
+                <MudTh>License</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Timestamp.ToString("g")</MudTd>
+                <MudTd>@context.Action</MudTd>
+                <MudTd>@context.PerformedBy</MudTd>
+                <MudTd>@(context.CustomerId ?? "—")</MudTd>
+                <MudTd>@(context.LicenseId ?? "—")</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
 }
 
 @code {
     private bool _loading = true;
     private List<AuditLogDto> _logs = [];
+    private string _search = "";
 
     protected override async Task OnInitializedAsync()
     {

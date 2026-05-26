@@ -72,3 +72,21 @@ html, body {
 .loading-progress-text:after {
     content: var(--blazor-load-percentage-text, "Loading");
 }
+
+.dashboard-card {
+    cursor: pointer;
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dashboard-card:hover {
+    box-shadow: 0 0 20px rgba(113, 226, 21, 0.3) !important;
+    transform: translateY(-2px);
+}
+
+.warning-card:hover {
+    box-shadow: 0 0 20px rgba(255, 204, 0, 0.3) !important;
+}
+
+.error-card:hover {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3) !important;
+}

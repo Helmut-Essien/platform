@@ -8,6 +8,11 @@
 {
     <MudProgressLinear Indeterminate="true" />
 }
+else if (_products.Count == 0)
+{
+    <MudText Typo="Typo.subtitle1" Class="pa-4">No services configured.</MudText>
+    <MudText Typo="Typo.body2" Class="px-4 pb-4">Service products are seeded through the API or database.</MudText>
+}
 else
 {
     <MudTable Items="_products" Hover="true" Dense="true">

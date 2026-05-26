@@ -8,13 +8,16 @@
 
 <MudTextField @bind-Value="_integrationKey" Label="X-Integration-Key" Variant="Variant.Outlined" Class="mb-2" />
 <MudTextField @bind-Value="_licenseKey" Label="License key" Variant="Variant.Outlined" Class="mb-2" />
-<MudTextField @bind-Value="_serviceCode" Label="Service code (optional)" Variant="Variant.Outlined" Class="mb-2" />
-<MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync">Validate</MudButton>
+<MudTextField @bind-Value="_serviceCode" Label="Service code (optional)" Variant="Variant.Outlined" Class="mb-2" OnKeyUp="OnKeyUp" />
+<MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync" Disabled="_busy">
+    @(_busy ? "Validating..." : "Validate")
+</MudButton>
+<MudButton Variant="Variant.Text" Color="Color.Default" Class="ml-2" OnClick="Clear">Clear</MudButton>
 
 @if (_result is not null)
 {
-    <MudPaper Class="pa-4 mt-4">
-        <MudText>Valid: <strong>@_result.IsValid</strong></MudText>
+    <MudPaper Class="pa-4 mt-4" Style="@(_result.IsValid ? "border-left:4px solid #71e215" : "border-left:4px solid #ef4444")">
+        <MudText Typo="Typo.subtitle1">Valid: <strong>@_result.IsValid</strong></MudText>
         @if (!string.IsNullOrEmpty(_result.Message))
         {
             <MudText>@_result.Message</MudText>
@@ -32,9 +35,28 @@
     private string _licenseKey = "";
     private string _serviceCode = "";
     private ValidateLicenseResponse? _result;
+    private bool _busy;
+
+    private async Task OnKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" && !_busy)
+            await ValidateAsync();
+    }
 
     private async Task ValidateAsync()
     {
+        if (string.IsNullOrWhiteSpace(_integrationKey))
+        {
+            Snackbar.Add("Integration key is required.", Severity.Warning);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_licenseKey))
+        {
+            Snackbar.Add("License key is required.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
         _result = await Api.ValidateLicenseAsync(_integrationKey, new ValidateLicenseRequest
         {
             LicenseKey = _licenseKey,
@@ -43,5 +65,14 @@
 
         if (_result is null)
             Snackbar.Add("Validation request failed.", Severity.Error);
+        _busy = false;
+    }
+
+    private void Clear()
+    {
+        _integrationKey = "";
+        _licenseKey = "";
+        _serviceCode = "";
+        _result = null;
     }
 }

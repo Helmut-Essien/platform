@@ -1,6 +1,7 @@
 @page "/"
 @attribute [Authorize]
 @inject PlatformApiClient Api
+@inject NavigationManager Navigation
 
 <MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
 
@@ -12,30 +13,60 @@ else
 {
     <MudGrid>
         <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4" Elevation="2">
+            <div class="pa-4 dashboard-card mud-paper mud-elevation-2" @onclick="GoToCustomers">
                 <MudText Typo="Typo.subtitle2">Customers</MudText>
                 <MudText Typo="Typo.h4" Color="Color.Primary">@_customerCount</MudText>
-            </MudPaper>
+            </div>
         </MudItem>
         <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4" Elevation="2">
+            <div class="pa-4 dashboard-card mud-paper mud-elevation-2" @onclick="GoToLicenses">
                 <MudText Typo="Typo.subtitle2">Active licenses</MudText>
                 <MudText Typo="Typo.h4" Color="Color.Primary">@_activeLicenses</MudText>
-            </MudPaper>
+            </div>
         </MudItem>
         <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4" Elevation="2">
+            <div class="pa-4 dashboard-card warning-card mud-paper mud-elevation-2" @onclick="GoToLicenses">
                 <MudText Typo="Typo.subtitle2">Expiring in 30 days</MudText>
                 <MudText Typo="Typo.h4" Color="Color.Warning">@_expiringSoon</MudText>
-            </MudPaper>
+            </div>
         </MudItem>
         <MudItem xs="12" sm="6" md="3">
-            <MudPaper Class="pa-4" Elevation="2">
+            <div class="pa-4 dashboard-card error-card mud-paper mud-elevation-2" @onclick="GoToInvoices">
                 <MudText Typo="Typo.subtitle2">Unpaid invoices</MudText>
                 <MudText Typo="Typo.h4" Color="Color.Error">@_unpaidInvoices</MudText>
-            </MudPaper>
+            </div>
         </MudItem>
     </MudGrid>
+
+    <MudText Typo="Typo.h5" Class="mt-8 mb-4">Quick Actions</MudText>
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="GoToCustomers">New Customer</MudButton>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.VpnKey" OnClick="GoToLicenses">Issue License</MudButton>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.Key" OnClick="GoToIntegrationKeys">New Integration Key</MudButton>
+        </MudItem>
+    </MudGrid>
+
+    @if (_recentAudit is { Count: > 0 })
+    {
+        <MudText Typo="Typo.h5" Class="mt-8 mb-4">Recent Activity</MudText>
+        <MudTable Items="_recentAudit" Hover="true" Dense="true">
+            <HeaderContent>
+                <MudTh>Time</MudTh>
+                <MudTh>Action</MudTh>
+                <MudTh>By</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Timestamp.ToString("g")</MudTd>
+                <MudTd>@context.Action</MudTd>
+                <MudTd>@context.PerformedBy</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
 }
 
 @code {
@@ -44,18 +75,29 @@ else
     private int _activeLicenses;
     private int _expiringSoon;
     private int _unpaidInvoices;
+    private List<AuditLogDto> _recentAudit = [];
 
     protected override async Task OnInitializedAsync()
     {
-        var stats = await Api.GetDashboardStatsAsync();
-        if (stats is not null)
+        var statsTask = Task.Run(async () =>
         {
-            _customerCount = stats.CustomerCount;
-            _activeLicenses = stats.ActiveLicenses;
-            _expiringSoon = stats.ExpiringWithin30Days;
-            _unpaidInvoices = stats.UnpaidInvoices;
-        }
+            var stats = await Api.GetDashboardStatsAsync();
+            if (stats is not null)
+            {
+                _customerCount = stats.CustomerCount;
+                _activeLicenses = stats.ActiveLicenses;
+                _expiringSoon = stats.ExpiringWithin30Days;
+                _unpaidInvoices = stats.UnpaidInvoices;
+            }
+        });
 
+        try { _recentAudit = await Api.GetAuditLogsAsync(10); } catch { }
+        await statsTask;
         _loading = false;
     }
+
+    private void GoToCustomers() => Navigation.NavigateTo("/customers");
+    private void GoToLicenses() => Navigation.NavigateTo("/licenses");
+    private void GoToInvoices() => Navigation.NavigateTo("/invoices");
+    private void GoToIntegrationKeys() => Navigation.NavigateTo("/integration-keys");
 }

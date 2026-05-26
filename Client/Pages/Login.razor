@@ -11,16 +11,22 @@
     <MudImage Src="images/helmutcode-logo.png" Alt="HelmutCode" Style="max-width:240px" Class="mb-4 d-block mx-auto" />
     <MudText Typo="Typo.body2" Class="mb-6">Platform Admin — sign in with your account</MudText>
     <MudTextField @bind-Value="_email" Label="Email" Variant="Variant.Outlined" Class="mb-4" />
-    <MudTextField @bind-Value="_password" Label="Password" Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-4" />
+    <MudTextField @bind-Value="_password" Label="Password" Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-4" OnKeyUp="OnKeyUp" />
     <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_busy" OnClick="LoginAsync">
         @(_busy ? "Signing in..." : "Sign in")
     </MudButton>
 </MudPaper>
 
 @code {
-    private string _email = "admin@platform.local";
-    private string _password = "Admin123!";
+    private string _email = "";
+    private string _password = "";
     private bool _busy;
+
+    private async Task OnKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" && !_busy)
+            await LoginAsync();
+    }
 
     private async Task LoginAsync()
     {

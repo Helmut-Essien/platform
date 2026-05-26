@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <MudText Typo="Typo.h4" Class="mb-4">Licenses</MudText>
 
@@ -20,6 +21,7 @@
             }
         </MudSelect>
         <MudTextField @bind-Value="_planName" Label="Plan" Variant="Variant.Outlined" Class="mb-2" />
+        <MudDatePicker @bind-Date="_expiresAt" Label="Expires" Variant="Variant.Outlined" Class="mb-2" />
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="IssueAsync">Issue (Pending)</MudButton>
     </MudExpansionPanel>
 </MudExpansionPanels>
@@ -51,6 +53,10 @@
             }
         </MudTd>
     </RowTemplate>
+    <NoRecordsContent>
+        <MudText Typo="Typo.subtitle1" Class="pa-4">No licenses found.</MudText>
+        <MudText Typo="Typo.body2" Class="px-4 pb-4">Expand the issue panel above to create a license.</MudText>
+    </NoRecordsContent>
     <PagerContent>
         <MudTablePager />
     </PagerContent>
@@ -64,10 +70,11 @@
     private string? _customerId;
     private string? _productId;
     private string _planName = "Pro";
+    private DateTime? _expiresAt = DateTime.UtcNow.AddYears(1);
 
     protected override async Task OnInitializedAsync()
     {
-        var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 100);
+        var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 200);
         var productsTask = Api.GetServiceProductsAsync();
         await Task.WhenAll(customersTask, productsTask);
 
@@ -87,13 +94,18 @@
 
     private async Task IssueAsync()
     {
-        if (_customerId is null || _productId is null) return;
+        if (_customerId is null || _productId is null)
+        {
+            Snackbar.Add("Please select a customer and service.", Severity.Warning);
+            return;
+        }
+
         var created = await Api.CreateLicenseAsync(new CreateLicenseRequest
         {
             CustomerId = _customerId,
             ServiceProductId = _productId,
             PlanName = _planName,
-            ExpiresAt = DateTime.UtcNow.AddYears(1)
+            ExpiresAt = _expiresAt ?? DateTime.UtcNow.AddYears(1)
         });
         if (created is null)
             Snackbar.Add("Failed to issue license.", Severity.Error);
@@ -115,7 +127,7 @@
             DueDate = DateTime.UtcNow.AddDays(30),
             Description = "Activation"
         });
-        Snackbar.Add(ok ? "License activated; key emailed (check API logs if Email:Logging)." : "Activation failed.",
+        Snackbar.Add(ok ? "License activated." : "Activation failed.",
             ok ? Severity.Success : Severity.Error);
         if (_table is not null)
             await _table.ReloadServerData();
@@ -123,6 +135,15 @@
 
     private async Task SuspendAsync(string id)
     {
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Suspend License", new DialogParameters
+        {
+            ["Title"] = "Suspend License",
+            ["Message"] = "This will temporarily disable this license. Continue?",
+            ["ConfirmText"] = "Suspend"
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false) return;
+
         if (await Api.SuspendLicenseAsync(id))
         {
             Snackbar.Add("License suspended.", Severity.Warning);
@@ -133,6 +154,15 @@
 
     private async Task RevokeAsync(string id)
     {
+        var dialog2 = await DialogService.ShowAsync<ConfirmDialog>("Revoke License", new DialogParameters
+        {
+            ["Title"] = "Revoke License",
+            ["Message"] = "This will permanently revoke this license. This cannot be undone. Continue?",
+            ["ConfirmText"] = "Revoke"
+        });
+        var dialogResult2 = await dialog2.Result;
+        if (dialogResult2?.Canceled is not false) return;
+
         if (await Api.RevokeLicenseAsync(id))
         {
             Snackbar.Add("License revoked.", Severity.Error);

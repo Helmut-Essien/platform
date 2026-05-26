@@ -2,6 +2,8 @@
 @attribute [Authorize]
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JSRuntime
 
 <MudText Typo="Typo.h4" Class="mb-4">Integration Keys</MudText>
 
@@ -17,13 +19,22 @@
 {
     <MudAlert Severity="Severity.Warning" Class="mb-4">
         Copy this key now — it will not be shown again:
-        <span class="license-key">@_plainKey</span>
+        <div class="d-flex align-center mt-2">
+            <span class="license-key mr-2">@_plainKey</span>
+            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" Color="Color.Inherit"
+                           OnClick="CopyKeyToClipboard" aria-label="Copy key to clipboard" />
+        </div>
     </MudAlert>
 }
 
 @if (_loading)
 {
     <MudProgressLinear Indeterminate="true" />
+}
+else if (_keys.Count == 0)
+{
+    <MudText Typo="Typo.subtitle1" Class="pa-4">No integration keys found.</MudText>
+    <MudText Typo="Typo.body2" Class="px-4 pb-4">Select a service above and click Rotate / create key.</MudText>
 }
 else
 {
@@ -63,16 +74,37 @@ else
 
     private async Task RotateAsync()
     {
-        if (_productId is null) return;
-        var result = await Api.CreateIntegrationKeyAsync(_productId);
-        if (result is null)
+        if (_productId is null)
+        {
+            Snackbar.Add("Please select a service product.", Severity.Warning);
+            return;
+        }
+
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Rotate Integration Key", new DialogParameters
+        {
+            ["Title"] = "Rotate Integration Key",
+            ["Message"] = "This will invalidate the existing key for this service. Continue?",
+            ["ConfirmText"] = "Rotate"
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false) return;
+
+        var keyResult = await Api.CreateIntegrationKeyAsync(_productId);
+        if (keyResult is null)
         {
             Snackbar.Add("Failed to create integration key.", Severity.Error);
             return;
         }
 
-        _plainKey = result.PlainKey;
+        _plainKey = keyResult.PlainKey;
         Snackbar.Add("Integration key created.", Severity.Success);
         await ReloadAsync();
+    }
+
+    private async Task CopyKeyToClipboard()
+    {
+        if (string.IsNullOrEmpty(_plainKey)) return;
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _plainKey);
+        Snackbar.Add("Key copied to clipboard.", Severity.Success);
     }
 }

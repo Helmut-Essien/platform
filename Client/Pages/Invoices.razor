@@ -15,10 +15,18 @@
     <RowTemplate>
         <MudTd>@context.InvoiceNumber</MudTd>
         <MudTd>@context.CustomerName</MudTd>
-        <MudTd>@context.Status</MudTd>
+        <MudTd>
+            <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Status)">
+                @context.Status
+            </MudChip>
+        </MudTd>
         <MudTd>@context.TotalAmount.ToString("N2") @context.Currency</MudTd>
         <MudTd>@(context.DueDate?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
     </RowTemplate>
+    <NoRecordsContent>
+        <MudText Typo="Typo.subtitle1" Class="pa-4">No invoices found.</MudText>
+        <MudText Typo="Typo.body2" Class="px-4 pb-4">Invoices are generated automatically when licenses are activated.</MudText>
+    </NoRecordsContent>
     <PagerContent>
         <MudTablePager />
     </PagerContent>
@@ -34,4 +42,15 @@
         _loading = false;
         return new TableData<InvoiceDto> { Items = result.Items, TotalItems = result.TotalCount };
     }
+
+    private static Color GetStatusColor(InvoiceStatus status) => status switch
+    {
+        InvoiceStatus.Paid => Color.Success,
+        InvoiceStatus.Sent => Color.Info,
+        InvoiceStatus.PartiallyPaid => Color.Warning,
+        InvoiceStatus.Overdue => Color.Error,
+        InvoiceStatus.Void => Color.Default,
+        InvoiceStatus.Draft => Color.Default,
+        _ => Color.Default
+    };
 }
