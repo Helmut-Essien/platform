@@ -14,10 +14,11 @@ namespace Platform.Client.Services;
 
 public class PlatformApiClient(HttpClient http)
 {
-    public async Task<LoginResponse?> LoginAsync(LoginRequest request, CancellationToken ct = default) =>
-        await http.PostAsJsonAsync("api/auth/login", request, ct) is { IsSuccessStatusCode: true } response
-            ? await response.Content.ReadFromJsonAsync<LoginResponse>(ct)
-            : null;
+    public async Task<ApiResult<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync("api/auth/login", request, ct);
+        return await ToApiResultAsync<LoginResponse>(response, ct);
+    }
 
     public async Task<object?> GetMeAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<object>("api/auth/me", ct);
@@ -32,20 +33,35 @@ public class PlatformApiClient(HttpClient http)
         await http.GetFromJsonAsync<PagedResult<CustomerDto>>($"api/customers?page={page}&pageSize={pageSize}", ct)
         ?? new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
 
-    public async Task<CustomerDto?> CreateCustomerAsync(CreateCustomerRequest request, CancellationToken ct = default)
+    public async Task<ApiResult<CustomerDto>> CreateCustomerAsync(
+        CreateCustomerRequest request,
+        CancellationToken ct = default)
     {
         var response = await http.PostAsJsonAsync("api/customers", request, ct);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<CustomerDto>(ct)
-            : null;
+        return await ToApiResultAsync<CustomerDto>(response, ct);
     }
 
-    public async Task<CustomerDto?> UpdateCustomerAsync(string id, UpdateCustomerRequest request, CancellationToken ct = default)
+    public async Task<ApiResult<CustomerDto>> UpdateCustomerAsync(
+        string id,
+        UpdateCustomerRequest request,
+        CancellationToken ct = default)
     {
         var response = await http.PutAsJsonAsync($"api/customers/{id}", request, ct);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<CustomerDto>(ct)
-            : null;
+        return await ToApiResultAsync<CustomerDto>(response, ct);
+    }
+
+    private async Task<ApiResult<T>> ToApiResultAsync<T>(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            var data = await response.Content.ReadFromJsonAsync<T>(ct);
+            return data is null
+                ? ApiResult<T>.Fail("Empty response from server.")
+                : ApiResult<T>.Ok(data);
+        }
+
+        var message = await GetErrorMessageAsync(response, ct);
+        return ApiResult<T>.Fail(message ?? "Request failed.");
     }
 
     public async Task<bool> SuspendCustomerAsync(string id, CancellationToken ct = default) =>
@@ -56,6 +72,23 @@ public class PlatformApiClient(HttpClient http)
 
     public async Task<List<ServiceProductDto>> GetServiceProductsAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<List<ServiceProductDto>>("api/serviceproducts", ct) ?? [];
+
+    public async Task<ApiResult<ServiceProductDto>> CreateServiceProductAsync(
+        CreateServiceProductRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync("api/serviceproducts", request, ct);
+        return await ToApiResultAsync<ServiceProductDto>(response, ct);
+    }
+
+    public async Task<ApiResult<ServiceProductDto>> UpdateServiceProductAsync(
+        string id,
+        UpdateServiceProductRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PutAsJsonAsync($"api/serviceproducts/{id}", request, ct);
+        return await ToApiResultAsync<ServiceProductDto>(response, ct);
+    }
 
     public async Task<PagedResult<LicenseDto>> GetLicensesPagedAsync(
         string? customerId = null,
@@ -71,12 +104,12 @@ public class PlatformApiClient(HttpClient http)
             ?? new PagedResult<LicenseDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
 
-    public async Task<LicenseDto?> CreateLicenseAsync(CreateLicenseRequest request, CancellationToken ct = default)
+    public async Task<ApiResult<LicenseDto>> CreateLicenseAsync(
+        CreateLicenseRequest request,
+        CancellationToken ct = default)
     {
         var response = await http.PostAsJsonAsync("api/licenses", request, ct);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<LicenseDto>(ct)
-            : null;
+        return await ToApiResultAsync<LicenseDto>(response, ct);
     }
 
     public async Task<bool> ActivateLicenseAsync(string id, ActivateLicenseRequest request, CancellationToken ct = default) =>
@@ -98,7 +131,7 @@ public class PlatformApiClient(HttpClient http)
     public async Task<List<AuditLogDto>> GetAuditLogsAsync(int limit = 50, CancellationToken ct = default) =>
         await http.GetFromJsonAsync<List<AuditLogDto>>($"api/audit-logs?limit={limit}", ct) ?? [];
 
-    public async Task<ValidateLicenseResponse?> ValidateLicenseAsync(
+    public async Task<ApiResult<ValidateLicenseResponse>> ValidateLicenseAsync(
         string integrationKey,
         ValidateLicenseRequest request,
         CancellationToken ct = default)
@@ -107,22 +140,18 @@ public class PlatformApiClient(HttpClient http)
         message.Headers.Add("X-Integration-Key", integrationKey);
         message.Content = JsonContent.Create(request);
         var response = await http.SendAsync(message, ct);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<ValidateLicenseResponse>(ct)
-            : null;
+        return await ToApiResultAsync<ValidateLicenseResponse>(response, ct);
     }
 
     public async Task<List<IntegrationKeyDto>> GetIntegrationKeysAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<List<IntegrationKeyDto>>("api/integration-keys", ct) ?? [];
 
-    public async Task<CreateIntegrationKeyResponse?> CreateIntegrationKeyAsync(
+    public async Task<ApiResult<CreateIntegrationKeyResponse>> CreateIntegrationKeyAsync(
         string serviceProductId,
         CancellationToken ct = default)
     {
         var response = await http.PostAsync($"api/integration-keys?serviceProductId={serviceProductId}", null, ct);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<CreateIntegrationKeyResponse>(ct)
-            : null;
+        return await ToApiResultAsync<CreateIntegrationKeyResponse>(response, ct);
     }
 
     public async Task<string?> GetErrorMessageAsync(HttpResponseMessage response, CancellationToken ct = default)

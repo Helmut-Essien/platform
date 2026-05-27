@@ -8,17 +8,21 @@
 
 @if (_loading)
 {
-    <MudProgressLinear Indeterminate="true" />
+    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
+    @for (var i = 0; i < 8; i++)
+    {
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
+    }
 }
 else
 {
     var filtered = string.IsNullOrWhiteSpace(_search)
         ? _logs
         : _logs.Where(l =>
-            (l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase)) ||
+            l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase) ||
             (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (l.CustomerId?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (l.LicenseId?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+            (ResolveCustomer(l.CustomerId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (ResolveLicense(l.LicenseId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
 
     if (filtered.Count == 0)
     {
@@ -42,8 +46,8 @@ else
                 <MudTd>@context.Timestamp.ToString("g")</MudTd>
                 <MudTd>@context.Action</MudTd>
                 <MudTd>@context.PerformedBy</MudTd>
-                <MudTd>@(context.CustomerId ?? "—")</MudTd>
-                <MudTd>@(context.LicenseId ?? "—")</MudTd>
+                <MudTd>@ResolveCustomer(context.CustomerId)</MudTd>
+                <MudTd>@ResolveLicense(context.LicenseId)</MudTd>
             </RowTemplate>
         </MudTable>
     }
@@ -52,11 +56,40 @@ else
 @code {
     private bool _loading = true;
     private List<AuditLogDto> _logs = [];
+    private Dictionary<string, string> _customerNames = [];
+    private Dictionary<string, string> _licenseLabels = [];
     private string _search = "";
 
     protected override async Task OnInitializedAsync()
     {
-        _logs = await Api.GetAuditLogsAsync(100);
+        var logsTask = Api.GetAuditLogsAsync(100);
+        var customersTask = Api.GetCustomersPagedAsync(1, 500);
+        var licensesTask = Api.GetLicensesPagedAsync(page: 1, pageSize: 500);
+
+        await Task.WhenAll(logsTask, customersTask, licensesTask);
+
+        _logs = await logsTask;
+        var customers = await customersTask;
+        var licenses = await licensesTask;
+
+        _customerNames = customers.Items.ToDictionary(c => c.Id, c => c.Name);
+        _licenseLabels = licenses.Items.ToDictionary(
+            l => l.Id,
+            l => $"{l.CustomerName} / {l.ServiceProductCode}");
+
         _loading = false;
     }
+
+    private string ResolveCustomer(string? id) =>
+        string.IsNullOrEmpty(id) ? "—"
+        : _customerNames.TryGetValue(id, out var name) ? name
+        : ShortId(id);
+
+    private string ResolveLicense(string? id) =>
+        string.IsNullOrEmpty(id) ? "—"
+        : _licenseLabels.TryGetValue(id, out var label) ? label
+        : ShortId(id);
+
+    private static string ShortId(string id) =>
+        id.Length <= 12 ? id : $"{id[..8]}…";
 }

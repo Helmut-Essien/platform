@@ -1,0 +1,66 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Edit Service</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.caption" Class="mb-2">Code: <span class="license-key">@Product.Code</span></MudText>
+        <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
+            <MudTextField @bind-Value="_model.Name"
+                          For="@(() => _model.Name)"
+                          Label="Name"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Name is required"
+                          MaxLength="200"
+                          Counter="200"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_model.Description"
+                          For="@(() => _model.Description)"
+                          Label="Description"
+                          Variant="Variant.Outlined"
+                          Lines="3"
+                          MaxLength="2000"
+                          Counter="2000"
+                          Class="mb-2" />
+            <MudSwitch @bind-Value="_model.IsAvailableForSale" Label="Available for sale" Color="Color.Primary" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public required ServiceProductDto Product { get; set; }
+
+    private MudForm? _form;
+    private bool _formValid;
+    private UpdateServiceProductRequest _model = new() { Name = "" };
+
+    protected override void OnInitialized()
+    {
+        _model = new UpdateServiceProductRequest
+        {
+            Name = Product.Name,
+            Description = Product.Description,
+            IsAvailableForSale = Product.IsAvailableForSale
+        };
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+        if (!_formValid)
+            return;
+
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

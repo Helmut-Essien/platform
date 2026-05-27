@@ -7,13 +7,27 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Integration Keys</MudText>
 
-<MudSelect T="string" @bind-Value="_productId" Label="Service product" Variant="Variant.Outlined" Class="mb-2">
-    @foreach (var p in _products)
-    {
-        <MudSelectItem Value="@p.Id">@p.Code</MudSelectItem>
-    }
-</MudSelect>
-<MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mb-4" OnClick="RotateAsync">Rotate / create key</MudButton>
+<MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
+    Copy integration keys immediately after creation — they cannot be recovered.
+</MudAlert>
+
+<MudForm @ref="_form" @bind-IsValid="_formValid" Class="mb-4">
+    <MudSelect T="string" @bind-Value="_productId"
+               Label="Service product"
+               Variant="Variant.Outlined"
+               Required="true"
+               RequiredError="Service product is required"
+               Disabled="_busy"
+               Class="mb-2">
+        @foreach (var p in _products)
+        {
+            <MudSelectItem Value="@p.Id">@p.Code — @p.Name</MudSelectItem>
+        }
+    </MudSelect>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RotateAsync">
+        @(_busy ? "Creating..." : "Rotate / create key")
+    </MudButton>
+</MudForm>
 
 @if (!string.IsNullOrEmpty(_plainKey))
 {
@@ -55,7 +69,13 @@ else
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "productId")]
+    public string? ProductId { get; set; }
+
     private bool _loading = true;
+    private bool _busy;
+    private bool _formValid;
+    private MudForm? _form;
     private List<IntegrationKeyDto> _keys = [];
     private List<ServiceProductDto> _products = [];
     private string? _productId;
@@ -63,18 +83,35 @@ else
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrEmpty(ProductId) && _products.Any(p => p.Id == ProductId))
+            _productId = ProductId;
+    }
+
     private async Task ReloadAsync()
     {
         _loading = true;
         _keys = await Api.GetIntegrationKeysAsync();
         _products = await Api.GetServiceProductsAsync();
         _productId ??= _products.FirstOrDefault()?.Id;
+
+        if (!string.IsNullOrEmpty(ProductId) && _products.Any(p => p.Id == ProductId))
+            _productId = ProductId;
+
         _loading = false;
     }
 
     private async Task RotateAsync()
     {
-        if (_productId is null)
+        if (_form is not null)
+        {
+            await _form.Validate();
+            if (!_formValid)
+                return;
+        }
+
+        if (string.IsNullOrEmpty(_productId))
         {
             Snackbar.Add("Please select a service product.", Severity.Warning);
             return;
@@ -89,16 +126,24 @@ else
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false) return;
 
-        var keyResult = await Api.CreateIntegrationKeyAsync(_productId);
-        if (keyResult is null)
+        _busy = true;
+        try
         {
-            Snackbar.Add("Failed to create integration key.", Severity.Error);
-            return;
-        }
+            var result = await Api.CreateIntegrationKeyAsync(_productId);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Failed to create integration key.", Severity.Error);
+                return;
+            }
 
-        _plainKey = keyResult.PlainKey;
-        Snackbar.Add("Integration key created.", Severity.Success);
-        await ReloadAsync();
+            _plainKey = result.Data!.PlainKey;
+            Snackbar.Add("Integration key created.", Severity.Success);
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task CopyKeyToClipboard()

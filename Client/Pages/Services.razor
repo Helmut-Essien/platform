@@ -1,8 +1,65 @@
 @page "/services"
 @attribute [Authorize]
 @inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
 
 <MudText Typo="Typo.h4" Class="mb-4">Service Catalog</MudText>
+
+<MudExpansionPanels Class="mb-4">
+    <MudExpansionPanel Text="Add service" Expanded="_addPanelExpanded">
+        <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
+            Integration keys cannot be recovered after generation. Create the service first, then use View Keys.
+        </MudAlert>
+        <MudForm @ref="_form" Model="_newProduct" @bind-IsValid="_formValid">
+            <MudTextField @bind-Value="_newProduct.Name"
+                          For="@(() => _newProduct.Name)"
+                          Label="Name"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Name is required"
+                          MaxLength="200"
+                          Counter="200"
+                          Disabled="_busy"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_newProduct.Code"
+                          For="@(() => _newProduct.Code)"
+                          Label="Code"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Code is required"
+                          HelperText="Uppercase identifier, e.g. HOSTEL"
+                          MaxLength="50"
+                          Counter="50"
+                          Error="@(!string.IsNullOrEmpty(_codeFieldError))"
+                          ErrorText="@_codeFieldError"
+                          Disabled="_busy"
+                          Class="mb-2"
+                          @bind-Value:after="OnCodeChanged" />
+            <MudTextField @bind-Value="_newProduct.Description"
+                          For="@(() => _newProduct.Description)"
+                          Label="Description (optional)"
+                          Variant="Variant.Outlined"
+                          Lines="2"
+                          MaxLength="2000"
+                          Counter="2000"
+                          Disabled="_busy"
+                          Class="mb-2" />
+            <MudSwitch @bind-Value="_newProduct.IsAvailableForSale"
+                       Label="Available for sale"
+                       Color="Color.Primary"
+                       Disabled="_busy"
+                       Class="mb-4" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="_busy"
+                       OnClick="CreateAsync">
+                @(_busy ? "Creating..." : "Add Service")
+            </MudButton>
+        </MudForm>
+    </MudExpansionPanel>
+</MudExpansionPanels>
 
 @if (_loading)
 {
@@ -11,37 +68,137 @@
 else if (_products.Count == 0)
 {
     <MudText Typo="Typo.subtitle1" Class="pa-4">No services configured.</MudText>
-    <MudText Typo="Typo.body2" Class="px-4 pb-4">Service products are seeded through the API or database.</MudText>
+    <MudText Typo="Typo.body2" Class="px-4 pb-4 mb-4">Add your first service product to issue licenses and integration keys.</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">Add Service</MudButton>
 }
 else
 {
     <MudTable Items="_products" Hover="true" Dense="true">
         <HeaderContent>
-            <MudTh>Code</MudTh>
             <MudTh>Name</MudTh>
-            <MudTh>Available</MudTh>
+            <MudTh>Code</MudTh>
             <MudTh>Description</MudTh>
+            <MudTh>Available</MudTh>
+            <MudTh>Int. Key</MudTh>
+            <MudTh></MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd><span class="license-key">@context.Code</span></MudTd>
             <MudTd>@context.Name</MudTd>
+            <MudTd><span class="license-key">@context.Code</span></MudTd>
+            <MudTd>@(context.Description ?? "—")</MudTd>
             <MudTd>
                 <MudChip T="string" Size="Size.Small" Color="@(context.IsAvailableForSale ? Color.Success : Color.Default)">
                     @(context.IsAvailableForSale ? "Yes" : "No")
                 </MudChip>
             </MudTd>
-            <MudTd>@context.Description</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="@(context.HasActiveIntegrationKey ? Color.Success : Color.Default)">
+                    @(context.HasActiveIntegrationKey ? "Active" : "None")
+                </MudChip>
+            </MudTd>
+            <MudTd>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => EditAsync(context)">Edit</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => ViewKeys(context.Id)">View Keys</MudButton>
+            </MudTd>
         </RowTemplate>
     </MudTable>
 }
 
 @code {
     private bool _loading = true;
+    private bool _busy;
+    private bool _formValid;
+    private bool _addPanelExpanded;
+    private string? _codeFieldError;
+    private MudForm? _form;
     private List<ServiceProductDto> _products = [];
+    private CreateServiceProductRequest _newProduct = new() { Name = "", Code = "" };
 
     protected override async Task OnInitializedAsync()
     {
-        _products = await Api.GetServiceProductsAsync();
+        var query = Navigation.ToAbsoluteUri(Navigation.Uri).Query;
+        if (query.Contains("add=", StringComparison.OrdinalIgnoreCase))
+            _addPanelExpanded = true;
+
+        await ReloadAsync();
+    }
+
+    private void OnCodeChanged()
+    {
+        if (!string.IsNullOrEmpty(_newProduct.Code))
+            _newProduct.Code = _newProduct.Code.Trim().ToUpperInvariant();
+    }
+
+    private void OpenAddPanel() => _addPanelExpanded = true;
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _products = (await Api.GetServiceProductsAsync()).ToList();
         _loading = false;
     }
+
+    private async Task CreateAsync()
+    {
+        _codeFieldError = null;
+        OnCodeChanged();
+
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+        if (!_formValid)
+        {
+            Snackbar.Add("Please fix the errors in the form.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await Api.CreateServiceProductAsync(_newProduct);
+            if (!result.IsSuccess)
+            {
+                var message = result.ErrorMessage ?? "Failed to create service.";
+                Snackbar.Add(message, Severity.Error);
+                if (message.Contains("code", StringComparison.OrdinalIgnoreCase))
+                    _codeFieldError = message;
+                return;
+            }
+
+            Snackbar.Add("Service created.", Severity.Success);
+            _newProduct = new CreateServiceProductRequest { Name = "", Code = "" };
+            _form.ResetValidation();
+            _addPanelExpanded = false;
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task EditAsync(ServiceProductDto product)
+    {
+        var dialog = await DialogService.ShowAsync<ServiceProductEditDialog>("Edit Service", new DialogParameters
+        {
+            [nameof(ServiceProductEditDialog.Product)] = product
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false || dialogResult.Data is not UpdateServiceProductRequest request)
+            return;
+
+        var result = await Api.UpdateServiceProductAsync(product.Id, request);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.ErrorMessage ?? "Failed to update service.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Service updated.", Severity.Success);
+        await ReloadAsync();
+    }
+
+    private void ViewKeys(string productId) =>
+        Navigation.NavigateTo($"/integration-keys?productId={Uri.EscapeDataString(productId)}");
 }

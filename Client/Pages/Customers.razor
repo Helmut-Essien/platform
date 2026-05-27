@@ -3,14 +3,58 @@
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject NavigationManager Navigation
 
 <MudText Typo="Typo.h4" Class="mb-4">Customers</MudText>
 
 <MudExpansionPanels Class="mb-4">
-    <MudExpansionPanel Text="Add customer">
-        <MudTextField @bind-Value="_newName" Label="Name" Variant="Variant.Outlined" Class="mb-2" />
-        <MudTextField @bind-Value="_newEmail" Label="Email" Variant="Variant.Outlined" Class="mb-2" />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync">Create</MudButton>
+    <MudExpansionPanel Text="Add customer" Expanded="_addPanelExpanded">
+        <MudForm @ref="_form" Model="_newCustomer" @bind-IsValid="_formValid">
+            <MudTextField @bind-Value="_newCustomer.Name"
+                          For="@(() => _newCustomer.Name)"
+                          Label="Name"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Name is required"
+                          MaxLength="200"
+                          Counter="200"
+                          Disabled="_busy"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_newCustomer.ContactEmail"
+                          For="@(() => _newCustomer.ContactEmail)"
+                          Label="Email"
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Email"
+                          Required="true"
+                          RequiredError="Email is required"
+                          Error="@(!string.IsNullOrEmpty(_emailFieldError))"
+                          ErrorText="@_emailFieldError"
+                          Disabled="_busy"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_newCustomer.ContactPhone"
+                          For="@(() => _newCustomer.ContactPhone)"
+                          Label="Phone (optional)"
+                          Variant="Variant.Outlined"
+                          MaxLength="50"
+                          Counter="50"
+                          Disabled="_busy"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_newCustomer.InternalNotes"
+                          For="@(() => _newCustomer.InternalNotes)"
+                          Label="Internal notes (optional)"
+                          Variant="Variant.Outlined"
+                          Lines="3"
+                          MaxLength="4000"
+                          Counter="4000"
+                          Disabled="_busy"
+                          Class="mb-2" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="_busy"
+                       OnClick="CreateAsync">
+                @(_busy ? "Creating..." : "Create")
+            </MudButton>
+        </MudForm>
     </MudExpansionPanel>
 </MudExpansionPanels>
 
@@ -32,6 +76,7 @@
         </MudTd>
         <MudTd>@context.LicenseCount</MudTd>
         <MudTd>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => EditAsync(context)">Edit</MudButton>
             @if (context.IsSuspended)
             {
                 <MudButton Size="Size.Small" OnClick="() => ReactivateAsync(context.Id)">Reactivate</MudButton>
@@ -44,7 +89,8 @@
     </RowTemplate>
     <NoRecordsContent>
         <MudText Typo="Typo.subtitle1" Class="pa-4">No customers yet.</MudText>
-        <MudText Typo="Typo.body2" Class="px-4 pb-4">Expand the panel above to add your first customer.</MudText>
+        <MudText Typo="Typo.body2" Class="px-4 pb-2">Add your first customer to start issuing licenses.</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="OpenAddPanel">Add Customer</MudButton>
     </NoRecordsContent>
     <PagerContent>
         <MudTablePager />
@@ -53,9 +99,20 @@
 
 @code {
     private bool _loading;
+    private bool _busy;
+    private bool _formValid;
+    private bool _addPanelExpanded;
+    private string? _emailFieldError;
+    private MudForm? _form;
     private MudTable<CustomerDto>? _table;
-    private string _newName = "";
-    private string _newEmail = "";
+    private CreateCustomerRequest _newCustomer = new() { Name = "", ContactEmail = "" };
+
+    protected override void OnInitialized()
+    {
+        var query = Navigation.ToAbsoluteUri(Navigation.Uri).Query;
+        if (query.Contains("add=", StringComparison.OrdinalIgnoreCase))
+            _addPanelExpanded = true;
+    }
 
     private async Task<TableData<CustomerDto>> LoadServerData(TableState state, CancellationToken ct)
     {
@@ -67,22 +124,70 @@
 
     private async Task CreateAsync()
     {
-        var created = await Api.CreateCustomerAsync(new CreateCustomerRequest
-        {
-            Name = _newName,
-            ContactEmail = _newEmail
-        });
+        _emailFieldError = null;
 
-        if (created is null)
-            Snackbar.Add("Failed to create customer.", Severity.Error);
-        else
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+
+        if (!_formValid)
         {
+            Snackbar.Add("Please fix the errors in the form.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await Api.CreateCustomerAsync(_newCustomer);
+
+            if (!result.IsSuccess)
+            {
+                var message = result.ErrorMessage ?? "Failed to create customer.";
+                Snackbar.Add(message, Severity.Error);
+
+                if (message.Contains("email", StringComparison.OrdinalIgnoreCase))
+                    _emailFieldError = message;
+
+                return;
+            }
+
             Snackbar.Add("Customer created.", Severity.Success);
-            _newName = "";
-            _newEmail = "";
+            _newCustomer = new CreateCustomerRequest { Name = "", ContactEmail = "" };
+            _form.ResetValidation();
+
             if (_table is not null)
                 await _table.ReloadServerData();
         }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void OpenAddPanel() => _addPanelExpanded = true;
+
+    private async Task EditAsync(CustomerDto customer)
+    {
+        var dialog = await DialogService.ShowAsync<CustomerEditDialog>("Edit Customer", new DialogParameters
+        {
+            [nameof(CustomerEditDialog.Customer)] = customer
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false || dialogResult.Data is not UpdateCustomerRequest request)
+            return;
+
+        var result = await Api.UpdateCustomerAsync(customer.Id, request);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.ErrorMessage ?? "Failed to update customer.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Customer updated.", Severity.Success);
+        if (_table is not null)
+            await _table.ReloadServerData();
     }
 
     private async Task SuspendAsync(string id)

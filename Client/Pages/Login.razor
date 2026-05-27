@@ -7,20 +7,54 @@
 @inject NavigationManager Navigation
 @inject ISnackbar Snackbar
 
-<MudPaper Class="pa-8" Elevation="4" Style="max-width:420px;margin:80px auto;">
-    <MudImage Src="images/helmutcode-logo.png" Alt="HelmutCode" Style="max-width:240px" Class="mb-4 d-block mx-auto" />
-    <MudText Typo="Typo.body2" Class="mb-6">Platform Admin — sign in with your account</MudText>
-    <MudTextField @bind-Value="_email" Label="Email" Variant="Variant.Outlined" Class="mb-4" />
-    <MudTextField @bind-Value="_password" Label="Password" Variant="Variant.Outlined" InputType="InputType.Password" Class="mb-4" OnKeyUp="OnKeyUp" />
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_busy" OnClick="LoginAsync">
-        @(_busy ? "Signing in..." : "Sign in")
-    </MudButton>
+<MudPaper Class="login-card pa-5 pa-sm-8" Elevation="0">
+    <div class="login-brand">
+        <img src="images/helmutcode-icon.png" alt="HelmutCode" class="login-logo" width="88" height="88" />
+        <MudText Typo="Typo.h5" Class="login-title">HelmutCode</MudText>
+        <MudText Typo="Typo.body2" Class="login-subtitle">
+            Platform Admin — sign in to manage licenses and customers
+        </MudText>
+    </div>
+
+    <MudForm @ref="_form" Model="_login" @bind-IsValid="_formValid" Class="login-form">
+        <MudTextField @bind-Value="_login.Email"
+                      For="@(() => _login.Email)"
+                      Label="Email"
+                      Variant="Variant.Outlined"
+                      InputType="InputType.Email"
+                      Required="true"
+                      RequiredError="Email is required"
+                      FullWidth="true"
+                      Disabled="_busy"
+                      Class="mb-2"
+                      OnKeyUp="OnKeyUp" />
+        <MudTextField @bind-Value="_login.Password"
+                      For="@(() => _login.Password)"
+                      Label="Password"
+                      Variant="Variant.Outlined"
+                      InputType="InputType.Password"
+                      Required="true"
+                      RequiredError="Password is required"
+                      FullWidth="true"
+                      Disabled="_busy"
+                      Class="mb-2"
+                      OnKeyUp="OnKeyUp" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   FullWidth="true"
+                   Class="login-submit"
+                   Disabled="_busy"
+                   OnClick="LoginAsync">
+            @(_busy ? "Signing in..." : "Sign in")
+        </MudButton>
+    </MudForm>
 </MudPaper>
 
 @code {
-    private string _email = "";
-    private string _password = "";
+    private MudForm? _form;
+    private bool _formValid;
     private bool _busy;
+    private LoginRequest _login = new() { Email = "", Password = "" };
 
     private async Task OnKeyUp(KeyboardEventArgs e)
     {
@@ -30,17 +64,24 @@
 
     private async Task LoginAsync()
     {
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+        if (!_formValid)
+            return;
+
         _busy = true;
         try
         {
-            var result = await Api.LoginAsync(new LoginRequest { Email = _email, Password = _password });
-            if (result is null)
+            var result = await Api.LoginAsync(_login);
+            if (!result.IsSuccess)
             {
-                Snackbar.Add("Invalid email or password.", Severity.Error);
+                Snackbar.Add(result.ErrorMessage ?? "Invalid email or password.", Severity.Error);
                 return;
             }
 
-            await TokenStorage.SetAsync(result.Token, result.Email);
+            await TokenStorage.SetAsync(result.Data!.Token, result.Data.Email);
             AuthState.NotifyStateChanged();
             Navigation.NavigateTo("/");
         }

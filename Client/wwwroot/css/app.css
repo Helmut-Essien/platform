@@ -11,13 +11,26 @@ html, body {
     font-family: 'Inter', system-ui, sans-serif;
     background-color: var(--background);
     color: var(--text-body);
+    -webkit-text-size-adjust: 100%;
+}
+
+/* Mobile-first: comfortable tap targets on small screens */
+@media (max-width: 599px) {
+    .mud-button-root {
+        min-height: 2.75rem;
+    }
+
+    .mud-main-content.pa-6 {
+        padding: 1rem !important;
+    }
 }
 
 .brand-logo {
     height: 36px;
-    width: auto;
-    max-width: 120px;
-    object-fit: contain;
+    width: 36px;
+    max-width: 36px;
+    object-fit: cover;
+    border-radius: 8px;
 }
 
 .license-key {
@@ -89,4 +102,26 @@ html, body {
 
 .error-card:hover {
     box-shadow: 0 0 20px rgba(239, 68, 68, 0.3) !important;
+}
+
+/* Active nav — lime text + accent underline per design spec */
+.mud-navmenu .mud-nav-link.active {
+    color: #71e215 !important;
+    border-bottom: 2px solid #5c9f24;
+}
+
+.mud-navmenu .mud-nav-link {
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.mud-navmenu .mud-nav-link:not(.active):hover {
+    color: #ffffff !important;
+}
+
+/* Focus ring for keyboard navigation */
+.mud-input-root:focus-within,
+.mud-button-root:focus-visible {
+    outline: 2px solid #FFCC00;
+    outline-offset: 2px;
 }

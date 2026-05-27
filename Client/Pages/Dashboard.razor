@@ -7,7 +7,23 @@
 
 @if (_loading)
 {
-    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    <MudGrid>
+        @for (var i = 0; i < 4; i++)
+        {
+            <MudItem xs="12" sm="6" md="3">
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="88px" Class="rounded-lg" />
+            </MudItem>
+        }
+    </MudGrid>
+    <MudSkeleton Width="40%" Height="32px" Class="mt-8 mb-4" />
+    <MudGrid>
+        @for (var i = 0; i < 3; i++)
+        {
+            <MudItem xs="12" sm="4">
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="40px" />
+            </MudItem>
+        }
+    </MudGrid>
 }
 else
 {
@@ -41,10 +57,10 @@ else
     <MudText Typo="Typo.h5" Class="mt-8 mb-4">Quick Actions</MudText>
     <MudGrid>
         <MudItem xs="12" sm="4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="GoToCustomers">New Customer</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="GoToNewCustomer">New Customer</MudButton>
         </MudItem>
         <MudItem xs="12" sm="4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.VpnKey" OnClick="GoToLicenses">Issue License</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.VpnKey" OnClick="GoToIssueLicense">Issue License</MudButton>
         </MudItem>
         <MudItem xs="12" sm="4">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.Key" OnClick="GoToIntegrationKeys">New Integration Key</MudButton>
@@ -79,25 +95,24 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var statsTask = Task.Run(async () =>
+        var stats = await Api.GetDashboardStatsAsync();
+        if (stats is not null)
         {
-            var stats = await Api.GetDashboardStatsAsync();
-            if (stats is not null)
-            {
-                _customerCount = stats.CustomerCount;
-                _activeLicenses = stats.ActiveLicenses;
-                _expiringSoon = stats.ExpiringWithin30Days;
-                _unpaidInvoices = stats.UnpaidInvoices;
-            }
-        });
+            _customerCount = stats.CustomerCount;
+            _activeLicenses = stats.ActiveLicenses;
+            _expiringSoon = stats.ExpiringWithin30Days;
+            _unpaidInvoices = stats.UnpaidInvoices;
+        }
 
-        try { _recentAudit = await Api.GetAuditLogsAsync(10); } catch { }
-        await statsTask;
+        try { _recentAudit = await Api.GetAuditLogsAsync(10); } catch { /* optional */ }
+
         _loading = false;
     }
 
     private void GoToCustomers() => Navigation.NavigateTo("/customers");
+    private void GoToNewCustomer() => Navigation.NavigateTo("/customers?add=true");
     private void GoToLicenses() => Navigation.NavigateTo("/licenses");
+    private void GoToIssueLicense() => Navigation.NavigateTo("/licenses?add=true");
     private void GoToInvoices() => Navigation.NavigateTo("/invoices");
     private void GoToIntegrationKeys() => Navigation.NavigateTo("/integration-keys");
 }

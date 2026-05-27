@@ -6,13 +6,36 @@
 <MudText Typo="Typo.h4" Class="mb-4">Validate License (dev tool)</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Tests the public validation API with an integration key header.</MudText>
 
-<MudTextField @bind-Value="_integrationKey" Label="X-Integration-Key" Variant="Variant.Outlined" Class="mb-2" />
-<MudTextField @bind-Value="_licenseKey" Label="License key" Variant="Variant.Outlined" Class="mb-2" />
-<MudTextField @bind-Value="_serviceCode" Label="Service code (optional)" Variant="Variant.Outlined" Class="mb-2" OnKeyUp="OnKeyUp" />
-<MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync" Disabled="_busy">
-    @(_busy ? "Validating..." : "Validate")
-</MudButton>
-<MudButton Variant="Variant.Text" Color="Color.Default" Class="ml-2" OnClick="Clear">Clear</MudButton>
+<MudForm @ref="_form" Model="_request" @bind-IsValid="_formValid">
+    <MudTextField @bind-Value="_integrationKey"
+                  Label="X-Integration-Key"
+                  Variant="Variant.Outlined"
+                  Required="true"
+                  RequiredError="Integration key is required"
+                  Disabled="_busy"
+                  Class="mb-2"
+                  OnKeyUp="OnKeyUp" />
+    <MudTextField @bind-Value="_request.LicenseKey"
+                  For="@(() => _request.LicenseKey)"
+                  Label="License key"
+                  Variant="Variant.Outlined"
+                  Required="true"
+                  RequiredError="License key is required"
+                  Disabled="_busy"
+                  Class="mb-2"
+                  OnKeyUp="OnKeyUp" />
+    <MudTextField @bind-Value="_request.ServiceCode"
+                  For="@(() => _request.ServiceCode)"
+                  Label="Service code (optional)"
+                  Variant="Variant.Outlined"
+                  Disabled="_busy"
+                  Class="mb-2"
+                  OnKeyUp="OnKeyUp" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync" Disabled="_busy">
+        @(_busy ? "Validating..." : "Validate")
+    </MudButton>
+    <MudButton Variant="Variant.Text" Color="Color.Default" Class="ml-2" Disabled="_busy" OnClick="Clear">Clear</MudButton>
+</MudForm>
 
 @if (_result is not null)
 {
@@ -31,9 +54,10 @@
 }
 
 @code {
+    private MudForm? _form;
+    private bool _formValid;
     private string _integrationKey = "";
-    private string _licenseKey = "";
-    private string _serviceCode = "";
+    private ValidateLicenseRequest _request = new() { LicenseKey = "" };
     private ValidateLicenseResponse? _result;
     private bool _busy;
 
@@ -45,34 +69,43 @@
 
     private async Task ValidateAsync()
     {
-        if (string.IsNullOrWhiteSpace(_integrationKey))
-        {
-            Snackbar.Add("Integration key is required.", Severity.Warning);
+        if (_form is null)
             return;
-        }
-        if (string.IsNullOrWhiteSpace(_licenseKey))
-        {
-            Snackbar.Add("License key is required.", Severity.Warning);
+
+        await _form.Validate();
+        if (!_formValid)
             return;
-        }
 
         _busy = true;
-        _result = await Api.ValidateLicenseAsync(_integrationKey, new ValidateLicenseRequest
+        try
         {
-            LicenseKey = _licenseKey,
-            ServiceCode = string.IsNullOrWhiteSpace(_serviceCode) ? null : _serviceCode
-        });
+            var payload = new ValidateLicenseRequest
+            {
+                LicenseKey = _request.LicenseKey,
+                ServiceCode = string.IsNullOrWhiteSpace(_request.ServiceCode) ? null : _request.ServiceCode.Trim()
+            };
 
-        if (_result is null)
-            Snackbar.Add("Validation request failed.", Severity.Error);
-        _busy = false;
+            var result = await Api.ValidateLicenseAsync(_integrationKey.Trim(), payload);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Validation request failed.", Severity.Error);
+                _result = null;
+                return;
+            }
+
+            _result = result.Data;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private void Clear()
     {
         _integrationKey = "";
-        _licenseKey = "";
-        _serviceCode = "";
+        _request = new ValidateLicenseRequest { LicenseKey = "" };
         _result = null;
+        _form?.ResetValidation();
     }
 }
