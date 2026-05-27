@@ -5,7 +5,7 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<MudText Typo="Typo.h4" Class="mb-4">Customers</MudText>
+<PageHeader Title="Customers" />
 
 <MudExpansionPanels Class="mb-4">
     <MudExpansionPanel Text="Add customer" Expanded="_addPanelExpanded">
@@ -58,53 +58,93 @@
     </MudExpansionPanel>
 </MudExpansionPanels>
 
-<MudTable @ref="_table" ServerData="LoadServerData" Hover="true" Dense="true" Loading="_loading" RowsPerPage="25">
-    <HeaderContent>
-        <MudTh>Name</MudTh>
-        <MudTh>Email</MudTh>
-        <MudTh>Status</MudTh>
-        <MudTh>Licenses</MudTh>
-        <MudTh></MudTh>
-    </HeaderContent>
-    <RowTemplate>
-        <MudTd>@context.Name</MudTd>
-        <MudTd>@context.ContactEmail</MudTd>
-        <MudTd>
-            <MudChip T="string" Size="Size.Small" Color="@(context.IsSuspended ? Color.Warning : Color.Success)">
-                @(context.IsSuspended ? "Suspended" : "Active")
-            </MudChip>
-        </MudTd>
-        <MudTd>@context.LicenseCount</MudTd>
-        <MudTd>
-            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => EditAsync(context)">Edit</MudButton>
-            @if (context.IsSuspended)
-            {
-                <MudButton Size="Size.Small" OnClick="() => ReactivateAsync(context.Id)">Reactivate</MudButton>
-            }
-            else
-            {
-                <MudButton Size="Size.Small" Color="Color.Warning" OnClick="() => SuspendAsync(context.Id)">Suspend</MudButton>
-            }
-        </MudTd>
-    </RowTemplate>
+<MudGrid Class="mb-4">
+    <MudItem xs="12" sm="6" md="4">
+        <MudTextField @bind-Value="_search" Label="Search name or email" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudSelect T="string" @bind-Value="_statusFilter" Label="Status" Variant="Variant.Outlined" Clearable="true">
+            <MudSelectItem Value="@("active")">Active</MudSelectItem>
+            <MudSelectItem Value="@("suspended")">Suspended</MudSelectItem>
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3" Class="d-flex align-end">
+        <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply filters</MudButton>
+    </MudItem>
+</MudGrid>
+
+<MudDataGrid @ref="_grid"
+             T="CustomerDto"
+             ServerData="LoadServerData"
+             Hover="true"
+             Dense="true"
+             RowClick="OnRowClick"
+             RowsPerPage="25">
+    <Columns>
+        <TemplateColumn Title="Name">
+            <CellTemplate>
+                <MudButton Variant="Variant.Text" Size="Size.Small" Class="pa-0" OnClick="@(() => ViewCustomer(context.Item))">@context.Item.Name</MudButton>
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="x => x.ContactEmail" Title="Email" />
+        <PropertyColumn Property="x => x.ContactPhone" Title="Phone" />
+        <TemplateColumn Title="Status">
+            <CellTemplate>
+                <MudChip T="string" Size="Size.Small" Class="@(context.Item.IsSuspended ? "chip-suspended" : "")" Color="@(context.Item.IsSuspended ? Color.Default : Color.Success)">
+                    @(context.Item.IsSuspended ? "Suspended" : "Active")
+                </MudChip>
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="x => x.LicenseCount" Title="Licenses" />
+        <TemplateColumn Title="Created">
+            <CellTemplate>
+                @context.Item.CreatedAt.ToString("yyyy-MM-dd")
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Actions" Sortable="false">
+            <CellTemplate>
+                @{
+                    var customer = context.Item;
+                }
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ViewCustomer(customer))">View</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => EditAsync(customer))">Edit</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"/licenses?customerId={customer.Id}")">Licenses</MudButton>
+                @if (customer.IsSuspended)
+                {
+                    <MudButton Size="Size.Small" OnClick="@(() => ReactivateAsync(customer.Id))">Reactivate</MudButton>
+                }
+                else
+                {
+                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => SuspendAsync(customer.Id))">Suspend</MudButton>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
     <NoRecordsContent>
         <MudText Typo="Typo.subtitle1" Class="pa-4">No customers yet.</MudText>
         <MudText Typo="Typo.body2" Class="px-4 pb-2">Add your first customer to start issuing licenses.</MudText>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="OpenAddPanel">Add Customer</MudButton>
     </NoRecordsContent>
     <PagerContent>
-        <MudTablePager />
+        <MudDataGridPager T="CustomerDto" />
     </PagerContent>
-</MudTable>
+</MudDataGrid>
+
+<CustomerDetailDrawer @bind-Open="_drawerOpen"
+                      Customer="_selectedCustomer"
+                      OnCustomerUpdated="OnCustomerUpdated" />
 
 @code {
-    private bool _loading;
     private bool _busy;
     private bool _formValid;
     private bool _addPanelExpanded;
+    private bool _drawerOpen;
     private string? _emailFieldError;
+    private string _search = "";
+    private string? _statusFilter;
     private MudForm? _form;
-    private MudTable<CustomerDto>? _table;
+    private MudDataGrid<CustomerDto>? _grid;
+    private CustomerDto? _selectedCustomer;
     private CreateCustomerRequest _newCustomer = new() { Name = "", ContactEmail = "" };
 
     protected override void OnInitialized()
@@ -114,12 +154,51 @@
             _addPanelExpanded = true;
     }
 
-    private async Task<TableData<CustomerDto>> LoadServerData(TableState state, CancellationToken ct)
+    private async Task<GridData<CustomerDto>> LoadServerData(GridState<CustomerDto> state)
     {
-        _loading = true;
-        var result = await Api.GetCustomersPagedAsync(state.Page + 1, state.PageSize, ct);
-        _loading = false;
-        return new TableData<CustomerDto> { Items = result.Items, TotalItems = result.TotalCount };
+        var result = await Api.GetCustomersPagedAsync(state.Page + 1, state.PageSize);
+        var items = result.Items.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            items = items.Where(c =>
+                c.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                c.ContactEmail.Contains(_search, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (_statusFilter == "active")
+            items = items.Where(c => !c.IsSuspended);
+        else if (_statusFilter == "suspended")
+            items = items.Where(c => c.IsSuspended);
+
+        return new GridData<CustomerDto>
+        {
+            Items = items.ToList(),
+            TotalItems = string.IsNullOrWhiteSpace(_search) && string.IsNullOrEmpty(_statusFilter)
+                ? result.TotalCount
+                : items.Count()
+        };
+    }
+
+    private async Task ReloadGrid()
+    {
+        if (_grid is not null)
+            await _grid.ReloadServerData();
+    }
+
+    private void OnRowClick(DataGridRowClickEventArgs<CustomerDto> args) => ViewCustomer(args.Item);
+
+    private void ViewCustomer(CustomerDto customer)
+    {
+        _selectedCustomer = customer;
+        _drawerOpen = true;
+    }
+
+    private async Task OnCustomerUpdated()
+    {
+        await ReloadGrid();
+        if (_selectedCustomer is not null)
+            _selectedCustomer = await Api.GetCustomerAsync(_selectedCustomer.Id);
     }
 
     private async Task CreateAsync()
@@ -147,8 +226,9 @@
                 var message = result.ErrorMessage ?? "Failed to create customer.";
                 Snackbar.Add(message, Severity.Error);
 
-                if (message.Contains("email", StringComparison.OrdinalIgnoreCase))
-                    _emailFieldError = message;
+                _emailFieldError = FieldErrorHelper.GetFieldError(result.FieldErrors, "ContactEmail", "request.ContactEmail")
+                    ?? FieldErrorHelper.GetFieldError(result.FieldErrors, "Name", "request.Name")
+                    ?? (message.Contains("email", StringComparison.OrdinalIgnoreCase) ? message : null);
 
                 return;
             }
@@ -156,9 +236,7 @@
             Snackbar.Add("Customer created.", Severity.Success);
             _newCustomer = new CreateCustomerRequest { Name = "", ContactEmail = "" };
             _form.ResetValidation();
-
-            if (_table is not null)
-                await _table.ReloadServerData();
+            await ReloadGrid();
         }
         finally
         {
@@ -181,13 +259,14 @@
         var result = await Api.UpdateCustomerAsync(customer.Id, request);
         if (!result.IsSuccess)
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to update customer.", Severity.Error);
+            var fieldMessage = FieldErrorHelper.GetFieldError(result.FieldErrors, "ContactEmail", "Name")
+                ?? result.ErrorMessage;
+            Snackbar.Add(fieldMessage ?? "Failed to update customer.", Severity.Error);
             return;
         }
 
         Snackbar.Add("Customer updated.", Severity.Success);
-        if (_table is not null)
-            await _table.ReloadServerData();
+        await ReloadGrid();
     }
 
     private async Task SuspendAsync(string id)
@@ -199,23 +278,30 @@
             ["ConfirmText"] = "Suspend"
         });
         var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false) return;
+        if (dialogResult?.Canceled is not false)
+            return;
 
-        if (await Api.SuspendCustomerAsync(id))
+        var result = await Api.SuspendCustomerAsync(id);
+        if (!result.IsSuccess)
         {
-            Snackbar.Add("Customer suspended.", Severity.Success);
-            if (_table is not null)
-                await _table.ReloadServerData();
+            Snackbar.Add(result.ErrorMessage ?? "Suspend failed.", Severity.Error);
+            return;
         }
+
+        Snackbar.Add("Customer suspended.", Severity.Success);
+        await ReloadGrid();
     }
 
     private async Task ReactivateAsync(string id)
     {
-        if (await Api.ReactivateCustomerAsync(id))
+        var result = await Api.ReactivateCustomerAsync(id);
+        if (!result.IsSuccess)
         {
-            Snackbar.Add("Customer reactivated.", Severity.Success);
-            if (_table is not null)
-                await _table.ReloadServerData();
+            Snackbar.Add(result.ErrorMessage ?? "Reactivate failed.", Severity.Error);
+            return;
         }
+
+        Snackbar.Add("Customer reactivated.", Severity.Success);
+        await ReloadGrid();
     }
 }

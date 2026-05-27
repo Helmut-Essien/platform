@@ -1,0 +1,83 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">New Invoice</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
+            <MudSelect T="string" @bind-Value="_model.CustomerId"
+                       Label="Customer"
+                       Variant="Variant.Outlined"
+                       Required="true"
+                       RequiredError="Customer is required"
+                       Class="mb-2">
+                @foreach (var c in Customers)
+                {
+                    <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_model.Currency"
+                          Label="Currency"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          Class="mb-2" />
+            <MudNumericField @bind-Value="_model.Subtotal"
+                             Label="Subtotal"
+                             Variant="Variant.Outlined"
+                             Min="0m"
+                             Class="mb-2" />
+            <MudNumericField @bind-Value="_model.TaxAmount"
+                             Label="Tax"
+                             Variant="Variant.Outlined"
+                             Min="0m"
+                             Class="mb-2" />
+            <MudDatePicker @bind-Date="_dueDate"
+                           Label="Due date"
+                           Variant="Variant.Outlined"
+                           Class="mb-2" />
+            <MudTextField @bind-Value="_model.PlanName"
+                          Label="Plan (optional)"
+                          Variant="Variant.Outlined"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_model.Description"
+                          Label="Description (optional)"
+                          Variant="Variant.Outlined"
+                          Lines="2" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public List<CustomerDto> Customers { get; set; } = [];
+
+    private MudForm? _form;
+    private bool _formValid;
+    private DateTime? _dueDate = DateTime.UtcNow.AddDays(30);
+    private CreateInvoiceRequest _model = new() { CustomerId = "", Currency = "USD" };
+
+    protected override void OnInitialized()
+    {
+        _model.CustomerId = Customers.FirstOrDefault()?.Id ?? "";
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+        if (!_formValid)
+            return;
+
+        _model.DueDate = _dueDate;
+        _model.Status = InvoiceStatus.Sent;
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

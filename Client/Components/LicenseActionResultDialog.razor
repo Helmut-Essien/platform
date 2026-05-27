@@ -1,0 +1,37 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Title</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Class="mb-2">License is now <strong>@License.Status</strong>.</MudText>
+        @if (License.LicenseKeySentAt is not null)
+        {
+            <MudText Class="mb-2">License key emailed at @License.LicenseKeySentAt.Value.ToString("g") UTC.</MudText>
+        }
+        else
+        {
+            <MudText Class="mb-2">License key delivery pending.</MudText>
+        }
+        @if (!string.IsNullOrEmpty(License.LatestInvoiceId))
+        {
+            <MudButton Variant="Variant.Text"
+                       Color="Color.Primary"
+                       Href="@($"/invoices/{License.LatestInvoiceId}")">
+                View invoice
+            </MudButton>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public required LicenseDto License { get; set; }
+
+    [Parameter] public string Title { get; set; } = "License updated";
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

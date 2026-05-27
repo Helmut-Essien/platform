@@ -3,7 +3,7 @@
 @inject PlatformApiClient Api
 @inject NavigationManager Navigation
 
-<MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
+<PageHeader Title="Dashboard" />
 
 @if (_loading)
 {
@@ -16,14 +16,7 @@
         }
     </MudGrid>
     <MudSkeleton Width="40%" Height="32px" Class="mt-8 mb-4" />
-    <MudGrid>
-        @for (var i = 0; i < 3; i++)
-        {
-            <MudItem xs="12" sm="4">
-                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="40px" />
-            </MudItem>
-        }
-    </MudGrid>
+    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="200px" />
 }
 else
 {
@@ -69,19 +62,21 @@ else
 
     @if (_recentAudit is { Count: > 0 })
     {
-        <MudText Typo="Typo.h5" Class="mt-8 mb-4">Recent Activity</MudText>
-        <MudTable Items="_recentAudit" Hover="true" Dense="true">
-            <HeaderContent>
-                <MudTh>Time</MudTh>
-                <MudTh>Action</MudTh>
-                <MudTh>By</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd>@context.Timestamp.ToString("g")</MudTd>
-                <MudTd>@context.Action</MudTd>
-                <MudTd>@context.PerformedBy</MudTd>
-            </RowTemplate>
-        </MudTable>
+        <div class="d-flex align-center justify-space-between mt-8 mb-4">
+            <MudText Typo="Typo.h5">Recent Activity</MudText>
+            <MudButton Variant="Variant.Text" Href="/audit">View full audit log</MudButton>
+        </div>
+        <MudTimeline TimelinePosition="TimelinePosition.Start">
+            @foreach (var entry in _recentAudit)
+            {
+                <MudTimelineItem Color="Color.Primary">
+                    <ItemContent>
+                        <MudText Typo="Typo.body2"><strong>@entry.Action</strong> — @entry.PerformedBy</MudText>
+                        <MudText Typo="Typo.caption">@entry.Timestamp.ToString("g")</MudText>
+                    </ItemContent>
+                </MudTimelineItem>
+            }
+        </MudTimeline>
     }
 }
 
@@ -104,7 +99,7 @@ else
             _unpaidInvoices = stats.UnpaidInvoices;
         }
 
-        try { _recentAudit = await Api.GetAuditLogsAsync(10); } catch { /* optional */ }
+        try { _recentAudit = await Api.GetAuditLogsAsync(limit: 10); } catch { /* optional */ }
 
         _loading = false;
     }

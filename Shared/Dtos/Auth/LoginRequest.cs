@@ -4,10 +4,10 @@ namespace Platform.Shared.Dtos.Auth;
 
 public class LoginRequest
 {
-    [Required]
-    [EmailAddress]
+    [Required(ErrorMessage = "Email is required")]
+    [EmailAddress(ErrorMessage = "Enter a valid email address")]
     public required string Email { get; set; }
 
-    [Required]
+    [Required(ErrorMessage = "Password is required")]
     public required string Password { get; set; }
 }

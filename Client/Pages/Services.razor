@@ -5,7 +5,7 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<MudText Typo="Typo.h4" Class="mb-4">Service Catalog</MudText>
+<PageHeader Title="Service Catalog" />
 
 <MudExpansionPanels Class="mb-4">
     <MudExpansionPanel Text="Add service" Expanded="_addPanelExpanded">
@@ -63,7 +63,11 @@
 
 @if (_loading)
 {
-    <MudProgressLinear Indeterminate="true" />
+    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
+    @for (var i = 0; i < 5; i++)
+    {
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
+    }
 }
 else if (_products.Count == 0)
 {

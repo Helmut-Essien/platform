@@ -1,46 +1,154 @@
 @page "/invoices"
 @attribute [Authorize]
 @inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
 
-<MudText Typo="Typo.h4" Class="mb-4">Invoices</MudText>
+<PageHeader Title="Invoices">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateInvoiceAsync">+ New Invoice</MudButton>
+</PageHeader>
 
-<MudTable ServerData="LoadServerData" Hover="true" Dense="true" Loading="_loading" RowsPerPage="25">
-    <HeaderContent>
-        <MudTh>Number</MudTh>
-        <MudTh>Customer</MudTh>
-        <MudTh>Status</MudTh>
-        <MudTh>Total</MudTh>
-        <MudTh>Due</MudTh>
-    </HeaderContent>
-    <RowTemplate>
-        <MudTd>@context.InvoiceNumber</MudTd>
-        <MudTd>@context.CustomerName</MudTd>
-        <MudTd>
-            <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Status)">
-                @context.Status
-            </MudChip>
-        </MudTd>
-        <MudTd>@context.TotalAmount.ToString("N2") @context.Currency</MudTd>
-        <MudTd>@(context.DueDate?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
-    </RowTemplate>
-    <NoRecordsContent>
-        <MudText Typo="Typo.subtitle1" Class="pa-4">No invoices found.</MudText>
-        <MudText Typo="Typo.body2" Class="px-4 pb-4">Invoices are generated automatically when licenses are activated.</MudText>
-    </NoRecordsContent>
-    <PagerContent>
-        <MudTablePager />
-    </PagerContent>
-</MudTable>
+<MudGrid Class="mb-4">
+    <MudItem xs="12" sm="6" md="3">
+        <MudSelect T="InvoiceStatus?" @bind-Value="_statusFilter" Label="Status" Variant="Variant.Outlined" Clearable="true">
+            @foreach (var status in Enum.GetValues<InvoiceStatus>())
+            {
+                <MudSelectItem Value="@((InvoiceStatus?)status)">@status</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudSelect T="string" @bind-Value="_customerFilter" Label="Customer" Variant="Variant.Outlined" Clearable="true">
+            @foreach (var c in _customers)
+            {
+                <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3" Class="d-flex align-end">
+        <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply filters</MudButton>
+    </MudItem>
+</MudGrid>
+
+@if (_initialLoading)
+{
+    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
+    @for (var i = 0; i < 6; i++)
+    {
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
+    }
+}
+else
+{
+    <MudDataGrid @ref="_grid"
+                 T="InvoiceDto"
+                 ServerData="LoadServerData"
+                 Hover="true"
+                 Dense="true"
+                 RowClick="OnRowClick"
+                 RowsPerPage="25">
+        <Columns>
+            <PropertyColumn Property="x => x.InvoiceNumber" Title="Number" />
+            <PropertyColumn Property="x => x.CustomerName" Title="Customer" />
+            <TemplateColumn Title="Status">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Item.Status)">
+                        @context.Item.Status
+                    </MudChip>
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Total">
+                <CellTemplate>
+                    @context.Item.TotalAmount.ToString("N2") @context.Item.Currency
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Paid">
+                <CellTemplate>
+                    @context.Item.AmountPaid.ToString("N2")
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Due">
+                <CellTemplate>
+                    @context.Item.AmountDue.ToString("N2")
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Due date">
+                <CellTemplate>
+                    @(context.Item.DueDate?.ToString("yyyy-MM-dd") ?? "—")
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <NoRecordsContent>
+            <MudText Typo="Typo.subtitle1" Class="pa-4">No invoices found.</MudText>
+            <MudText Typo="Typo.body2" Class="px-4 pb-2">Create an invoice or activate a license to generate billing.</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="CreateInvoiceAsync">+ New Invoice</MudButton>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudDataGridPager T="InvoiceDto" />
+        </PagerContent>
+    </MudDataGrid>
+}
 
 @code {
-    private bool _loading;
+    private bool _initialLoading = true;
+    private MudDataGrid<InvoiceDto>? _grid;
+    private List<CustomerDto> _customers = [];
+    private InvoiceStatus? _statusFilter;
+    private string? _customerFilter;
 
-    private async Task<TableData<InvoiceDto>> LoadServerData(TableState state, CancellationToken ct)
+    protected override async Task OnInitializedAsync()
     {
-        _loading = true;
-        var result = await Api.GetInvoicesPagedAsync(state.Page + 1, state.PageSize, ct);
-        _loading = false;
-        return new TableData<InvoiceDto> { Items = result.Items, TotalItems = result.TotalCount };
+        _customers = (await Api.GetCustomersPagedAsync(page: 1, pageSize: 500)).Items.ToList();
+        _initialLoading = false;
+    }
+
+    private async Task<GridData<InvoiceDto>> LoadServerData(GridState<InvoiceDto> state)
+    {
+        var result = await Api.GetInvoicesPagedAsync(
+            _customerFilter,
+            page: state.Page + 1,
+            pageSize: state.PageSize);
+
+        var items = result.Items.AsEnumerable();
+        if (_statusFilter is not null)
+            items = items.Where(i => i.Status == _statusFilter);
+
+        return new GridData<InvoiceDto>
+        {
+            Items = items.ToList(),
+            TotalItems = _statusFilter is null ? result.TotalCount : items.Count()
+        };
+    }
+
+    private async Task ReloadGrid()
+    {
+        if (_grid is not null)
+            await _grid.ReloadServerData();
+    }
+
+    private void OnRowClick(DataGridRowClickEventArgs<InvoiceDto> args) =>
+        Navigation.NavigateTo($"/invoices/{args.Item.Id}");
+
+    private async Task CreateInvoiceAsync()
+    {
+        var dialog = await DialogService.ShowAsync<CreateInvoiceDialog>("New Invoice", new DialogParameters
+        {
+            [nameof(CreateInvoiceDialog.Customers)] = _customers
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not CreateInvoiceRequest request)
+            return;
+
+        var apiResult = await Api.CreateInvoiceAsync(request);
+        if (!apiResult.IsSuccess)
+        {
+            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to create invoice.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Invoice created.", Severity.Success);
+        Navigation.NavigateTo($"/invoices/{apiResult.Data!.Id}");
     }
 
     private static Color GetStatusColor(InvoiceStatus status) => status switch

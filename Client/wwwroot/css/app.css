@@ -125,3 +125,8 @@ html, body {
     outline: 2px solid #FFCC00;
     outline-offset: 2px;
 }
+
+.chip-suspended {
+    background-color: #f59e0b !important;
+    color: #000 !important;
+}

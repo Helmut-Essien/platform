@@ -1,0 +1,153 @@
+@page "/invoices/{Id}"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
+
+@if (_loading)
+{
+    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" Class="mb-4" />
+}
+else if (_invoice is null)
+{
+    <MudText Typo="Typo.h6">Invoice not found.</MudText>
+    <MudButton Variant="Variant.Text" Href="/invoices">Back to invoices</MudButton>
+}
+else
+{
+    <PageHeader Title="@($"Invoice {_invoice.InvoiceNumber}")">
+        @if (_invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
+        }
+        @if (_invoice.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="VoidAsync">Void</MudButton>
+        }
+    </PageHeader>
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_invoice.Status)" Class="mb-2">@_invoice.Status</MudChip>
+                <MudText><strong>Customer:</strong> @_invoice.CustomerName</MudText>
+                @if (!string.IsNullOrEmpty(_invoice.ServiceProductCode))
+                {
+                    <MudText><strong>Service:</strong> @_invoice.ServiceProductCode</MudText>
+                }
+                <MudText><strong>Issue date:</strong> @_invoice.IssueDate.ToString("yyyy-MM-dd")</MudText>
+                <MudText><strong>Due:</strong> @(_invoice.DueDate?.ToString("yyyy-MM-dd") ?? "—")</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText>Subtotal: @_invoice.Subtotal.ToString("N2") @_invoice.Currency</MudText>
+                <MudText>Tax: @_invoice.TaxAmount.ToString("N2")</MudText>
+                <MudText><strong>Total: @_invoice.TotalAmount.ToString("N2")</strong></MudText>
+                <MudText>Paid: @_invoice.AmountPaid.ToString("N2")</MudText>
+                <MudText Color="Color.Primary"><strong>Due: @_invoice.AmountDue.ToString("N2")</strong></MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Receipts</MudText>
+    @if (_invoice.Receipts.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="mb-4">No payments recorded.</MudText>
+    }
+    else
+    {
+        <MudTable Items="_invoice.Receipts" Dense="true" Hover="true" Class="mb-4">
+            <HeaderContent>
+                <MudTh>Receipt #</MudTh>
+                <MudTh>Amount</MudTh>
+                <MudTh>Method</MudTh>
+                <MudTh>Paid at</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.ReceiptNumber</MudTd>
+                <MudTd>@context.AmountPaid.ToString("N2")</MudTd>
+                <MudTd>@context.PaymentMethod</MudTd>
+                <MudTd>@context.PaidAt.ToString("g")</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+
+    <MudButton Variant="Variant.Text" Href="/invoices">Back to invoices</MudButton>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+
+    private bool _loading = true;
+    private InvoiceDto? _invoice;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _invoice = await Api.GetInvoiceAsync(Id);
+        _loading = false;
+    }
+
+    private async Task RecordPaymentAsync()
+    {
+        if (_invoice is null)
+            return;
+
+        var dialog = await DialogService.ShowAsync<RecordReceiptDialog>("Record Payment", new DialogParameters
+        {
+            [nameof(RecordReceiptDialog.AmountDue)] = _invoice.AmountDue
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not RecordReceiptRequest request)
+            return;
+
+        var apiResult = await Api.RecordReceiptAsync(_invoice.Id, request);
+        if (!apiResult.IsSuccess)
+        {
+            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to record payment.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Payment recorded.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task VoidAsync()
+    {
+        if (_invoice is null)
+            return;
+
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Void Invoice", new DialogParameters
+        {
+            ["Title"] = "Void Invoice",
+            ["Message"] = "This will void the invoice. Continue?",
+            ["ConfirmText"] = "Void"
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false)
+            return;
+
+        var apiResult = await Api.VoidInvoiceAsync(_invoice.Id);
+        if (!apiResult.IsSuccess)
+        {
+            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to void invoice.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Invoice voided.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private static Color GetStatusColor(InvoiceStatus status) => status switch
+    {
+        InvoiceStatus.Paid => Color.Success,
+        InvoiceStatus.Sent => Color.Info,
+        InvoiceStatus.PartiallyPaid => Color.Warning,
+        InvoiceStatus.Overdue => Color.Error,
+        _ => Color.Default
+    };
+}

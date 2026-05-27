@@ -1,9 +1,10 @@
 @page "/validate"
+@page "/tools/validate"
 @attribute [Authorize]
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h4" Class="mb-4">Validate License (dev tool)</MudText>
+<PageHeader Title="Validate License (dev tool)" />
 <MudText Typo="Typo.body2" Class="mb-4">Tests the public validation API with an integration key header.</MudText>
 
 <MudForm @ref="_form" Model="_request" @bind-IsValid="_formValid">

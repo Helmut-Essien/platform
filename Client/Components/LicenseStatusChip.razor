@@ -1,6 +1,6 @@
 @using Platform.Shared.Enums
 
-<MudChip T="string" Size="Size.Small" Color="@GetColor()">@Status</MudChip>
+<MudChip T="string" Size="Size.Small" Color="@GetColor()" Class="@GetClass()">@Status</MudChip>
 
 @code {
     [Parameter] public LicenseStatus Status { get; set; }
@@ -9,9 +9,11 @@
     {
         LicenseStatus.Active => Color.Success,
         LicenseStatus.Pending => Color.Warning,
-        LicenseStatus.Suspended => Color.Warning,
+        LicenseStatus.Suspended => Color.Default,
         LicenseStatus.Revoked => Color.Error,
         LicenseStatus.Expired => Color.Default,
         _ => Color.Default
     };
+
+    private string GetClass() => Status == LicenseStatus.Suspended ? "chip-suspended" : "";
 }

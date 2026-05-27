@@ -1,0 +1,55 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Edit License</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
+            <MudTextField @bind-Value="_model.PlanName"
+                          For="@(() => _model.PlanName)"
+                          Label="Plan"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Plan is required"
+                          Class="mb-2" />
+            <MudDatePicker @bind-Date="_expiresAt"
+                           Label="Expires"
+                           Variant="Variant.Outlined" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public required LicenseDto License { get; set; }
+
+    private MudForm? _form;
+    private bool _formValid;
+    private DateTime? _expiresAt;
+    private UpdateLicenseRequest _model = new() { PlanName = "" };
+
+    protected override void OnInitialized()
+    {
+        _model.PlanName = License.PlanName;
+        _expiresAt = License.ExpiresAt;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+        if (!_formValid)
+            return;
+
+        _model.ExpiresAt = _expiresAt;
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

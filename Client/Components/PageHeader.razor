@@ -1,0 +1,13 @@
+<div class="d-flex align-center justify-space-between mb-4 flex-wrap gap-2">
+    <MudText Typo="Typo.h4">@Title</MudText>
+    @if (ChildContent is not null)
+    {
+        <div class="d-flex gap-2 flex-wrap">@ChildContent</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

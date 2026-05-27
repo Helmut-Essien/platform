@@ -33,6 +33,9 @@ public class PlatformApiClient(HttpClient http)
         await http.GetFromJsonAsync<PagedResult<CustomerDto>>($"api/customers?page={page}&pageSize={pageSize}", ct)
         ?? new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
 
+    public async Task<CustomerDto?> GetCustomerAsync(string id, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<CustomerDto>($"api/customers/{id}", ct);
+
     public async Task<ApiResult<CustomerDto>> CreateCustomerAsync(
         CreateCustomerRequest request,
         CancellationToken ct = default)
@@ -50,25 +53,17 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<CustomerDto>(response, ct);
     }
 
-    private async Task<ApiResult<T>> ToApiResultAsync<T>(HttpResponseMessage response, CancellationToken ct)
+    public async Task<ApiResult<CustomerDto>> SuspendCustomerAsync(string id, CancellationToken ct = default)
     {
-        if (response.IsSuccessStatusCode)
-        {
-            var data = await response.Content.ReadFromJsonAsync<T>(ct);
-            return data is null
-                ? ApiResult<T>.Fail("Empty response from server.")
-                : ApiResult<T>.Ok(data);
-        }
-
-        var message = await GetErrorMessageAsync(response, ct);
-        return ApiResult<T>.Fail(message ?? "Request failed.");
+        var response = await http.PostAsync($"api/customers/{id}/suspend", null, ct);
+        return await ToApiResultAsync<CustomerDto>(response, ct);
     }
 
-    public async Task<bool> SuspendCustomerAsync(string id, CancellationToken ct = default) =>
-        (await http.PostAsync($"api/customers/{id}/suspend", null, ct)).IsSuccessStatusCode;
-
-    public async Task<bool> ReactivateCustomerAsync(string id, CancellationToken ct = default) =>
-        (await http.PostAsync($"api/customers/{id}/reactivate", null, ct)).IsSuccessStatusCode;
+    public async Task<ApiResult<CustomerDto>> ReactivateCustomerAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/customers/{id}/reactivate", null, ct);
+        return await ToApiResultAsync<CustomerDto>(response, ct);
+    }
 
     public async Task<List<ServiceProductDto>> GetServiceProductsAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<List<ServiceProductDto>>("api/serviceproducts", ct) ?? [];
@@ -104,6 +99,9 @@ public class PlatformApiClient(HttpClient http)
             ?? new PagedResult<LicenseDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
 
+    public async Task<LicenseDto?> GetLicenseAsync(string id, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<LicenseDto>($"api/licenses/{id}", ct);
+
     public async Task<ApiResult<LicenseDto>> CreateLicenseAsync(
         CreateLicenseRequest request,
         CancellationToken ct = default)
@@ -112,24 +110,102 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<LicenseDto>(response, ct);
     }
 
-    public async Task<bool> ActivateLicenseAsync(string id, ActivateLicenseRequest request, CancellationToken ct = default) =>
-        (await http.PostAsJsonAsync($"api/licenses/{id}/activate", request, ct)).IsSuccessStatusCode;
+    public async Task<ApiResult<LicenseDto>> UpdateLicenseAsync(
+        string id,
+        UpdateLicenseRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PutAsJsonAsync($"api/licenses/{id}", request, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
 
-    public async Task<bool> SuspendLicenseAsync(string id, CancellationToken ct = default) =>
-        (await http.PostAsync($"api/licenses/{id}/suspend", null, ct)).IsSuccessStatusCode;
+    public async Task<ApiResult<LicenseDto>> ActivateLicenseAsync(
+        string id,
+        ActivateLicenseRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/licenses/{id}/activate", request, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
 
-    public async Task<bool> RevokeLicenseAsync(string id, CancellationToken ct = default) =>
-        (await http.PostAsync($"api/licenses/{id}/revoke", null, ct)).IsSuccessStatusCode;
+    public async Task<ApiResult<LicenseDto>> RenewLicenseAsync(
+        string id,
+        RenewLicenseRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/licenses/{id}/renew", request, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
+
+    public async Task<ApiResult<LicenseDto>> SuspendLicenseAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/licenses/{id}/suspend", null, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
+
+    public async Task<ApiResult<LicenseDto>> RevokeLicenseAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/licenses/{id}/revoke", null, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
 
     public async Task<PagedResult<InvoiceDto>> GetInvoicesPagedAsync(
+        string? customerId = null,
         int page = 1,
         int pageSize = 25,
-        CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<PagedResult<InvoiceDto>>($"api/invoices?page={page}&pageSize={pageSize}", ct)
-        ?? new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
+        CancellationToken ct = default)
+    {
+        var url = $"api/invoices?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrEmpty(customerId))
+            url += $"&customerId={Uri.EscapeDataString(customerId)}";
 
-    public async Task<List<AuditLogDto>> GetAuditLogsAsync(int limit = 50, CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<List<AuditLogDto>>($"api/audit-logs?limit={limit}", ct) ?? [];
+        return await http.GetFromJsonAsync<PagedResult<InvoiceDto>>(url, ct)
+            ?? new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
+    }
+
+    public async Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<InvoiceDto>($"api/invoices/{id}", ct);
+
+    public async Task<ApiResult<InvoiceDto>> CreateInvoiceAsync(
+        CreateInvoiceRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync("api/invoices", request, ct);
+        return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
+    public async Task<ApiResult<InvoiceDto>> VoidInvoiceAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/invoices/{id}/void", null, ct);
+        return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
+    public async Task<ApiResult<ReceiptDto>> RecordReceiptAsync(
+        string invoiceId,
+        RecordReceiptRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/invoices/{invoiceId}/receipts", request, ct);
+        return await ToApiResultAsync<ReceiptDto>(response, ct);
+    }
+
+    public async Task<List<AuditLogDto>> GetAuditLogsAsync(
+        string? customerId = null,
+        string? licenseId = null,
+        AuditAction? action = null,
+        int limit = 100,
+        CancellationToken ct = default)
+    {
+        var url = $"api/audit-logs?limit={limit}";
+        if (!string.IsNullOrEmpty(customerId))
+            url += $"&customerId={Uri.EscapeDataString(customerId)}";
+        if (!string.IsNullOrEmpty(licenseId))
+            url += $"&licenseId={Uri.EscapeDataString(licenseId)}";
+        if (action is not null)
+            url += $"&action={action}";
+
+        return await http.GetFromJsonAsync<List<AuditLogDto>>(url, ct) ?? [];
+    }
 
     public async Task<ApiResult<ValidateLicenseResponse>> ValidateLicenseAsync(
         string integrationKey,
@@ -143,8 +219,16 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<ValidateLicenseResponse>(response, ct);
     }
 
-    public async Task<List<IntegrationKeyDto>> GetIntegrationKeysAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<List<IntegrationKeyDto>>("api/integration-keys", ct) ?? [];
+    public async Task<List<IntegrationKeyDto>> GetIntegrationKeysAsync(
+        string? serviceProductId = null,
+        CancellationToken ct = default)
+    {
+        var url = "api/integration-keys";
+        if (!string.IsNullOrEmpty(serviceProductId))
+            url += $"?serviceProductId={Uri.EscapeDataString(serviceProductId)}";
+
+        return await http.GetFromJsonAsync<List<IntegrationKeyDto>>(url, ct) ?? [];
+    }
 
     public async Task<ApiResult<CreateIntegrationKeyResponse>> CreateIntegrationKeyAsync(
         string serviceProductId,
@@ -154,16 +238,51 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<CreateIntegrationKeyResponse>(response, ct);
     }
 
-    public async Task<string?> GetErrorMessageAsync(HttpResponseMessage response, CancellationToken ct = default)
+    public async Task<ApiResult<IntegrationKeyDto>> RevokeIntegrationKeyAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/integration-keys/{id}/revoke", null, ct);
+        return await ToApiResultAsync<IntegrationKeyDto>(response, ct);
+    }
+
+    private async Task<ApiResult<T>> ToApiResultAsync<T>(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            var data = await response.Content.ReadFromJsonAsync<T>(ct);
+            return data is null
+                ? ApiResult<T>.Fail("Empty response from server.")
+                : ApiResult<T>.Ok(data);
+        }
+
+        var (message, fieldErrors) = await ParseErrorAsync(response, ct);
+        return ApiResult<T>.Fail(message ?? "Request failed.", fieldErrors);
+    }
+
+    public async Task<(string? Message, IReadOnlyDictionary<string, string[]>? FieldErrors)> ParseErrorAsync(
+        HttpResponseMessage response,
+        CancellationToken ct = default)
     {
         try
         {
-            var err = await response.Content.ReadFromJsonAsync<Dictionary<string, string>>(ct);
-            return err?.GetValueOrDefault("message") ?? response.ReasonPhrase;
+            var err = await response.Content.ReadFromJsonAsync<ApiErrorResponse>(ct);
+            if (err is null)
+                return (response.ReasonPhrase, null);
+
+            IReadOnlyDictionary<string, string[]>? fieldErrors = err.Errors is { Count: > 0 }
+                ? err.Errors
+                : null;
+
+            return (err.Message ?? response.ReasonPhrase, fieldErrors);
         }
         catch
         {
-            return response.ReasonPhrase;
+            return (response.ReasonPhrase, null);
         }
+    }
+
+    public async Task<string?> GetErrorMessageAsync(HttpResponseMessage response, CancellationToken ct = default)
+    {
+        var (message, _) = await ParseErrorAsync(response, ct);
+        return message;
     }
 }

@@ -1,0 +1,141 @@
+@inject PlatformApiClient Api
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<MudDrawer @bind-Open="Open" Anchor="Anchor.Right" Elevation="2" Width="480px" Overlay="true">
+    @if (Customer is not null)
+    {
+        <div class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">@Customer.Name</MudText>
+            <MudChip T="string" Size="Size.Small" Class="@(Customer.IsSuspended ? "chip-suspended" : "")" Color="@(Customer.IsSuspended ? Color.Default : Color.Success)">
+                @(Customer.IsSuspended ? "Suspended" : "Active")
+            </MudChip>
+            <MudButton Variant="Variant.Text" Size="Size.Small" Class="ml-2" OnClick="EditAsync">Edit</MudButton>
+
+            <MudTabs Class="mt-4" ActivePanelIndex="_tab" ActivePanelIndexChanged="OnTabChanged">
+                <MudTabPanel Text="Profile">
+                    <MudText Typo="Typo.body2" Class="mt-2"><strong>Email:</strong> @Customer.ContactEmail</MudText>
+                    <MudText Typo="Typo.body2"><strong>Phone:</strong> @(Customer.ContactPhone ?? "—")</MudText>
+                    <MudText Typo="Typo.body2"><strong>Created:</strong> @Customer.CreatedAt.ToString("g")</MudText>
+                    @if (!string.IsNullOrEmpty(Customer.InternalNotes))
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-2"><strong>Notes:</strong> @Customer.InternalNotes</MudText>
+                    }
+                </MudTabPanel>
+                <MudTabPanel Text="Licenses">
+                    @if (_loadingTab) { <MudProgressLinear Indeterminate="true" Class="mt-2" /> }
+                    else if (_licenses.Count == 0) { <MudText Typo="Typo.body2" Class="mt-2">No licenses.</MudText> }
+                    else
+                    {
+                        <MudTable Items="_licenses" Dense="true" Hover="true" Class="mt-2">
+                            <RowTemplate>
+                                <MudTd>@context.ServiceProductCode</MudTd>
+                                <MudTd><LicenseStatusChip Status="context.Status" /></MudTd>
+                                <MudTd>@(context.ExpiresAt?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                </MudTabPanel>
+                <MudTabPanel Text="Invoices">
+                    @if (_loadingTab) { <MudProgressLinear Indeterminate="true" Class="mt-2" /> }
+                    else if (_invoices.Count == 0) { <MudText Typo="Typo.body2" Class="mt-2">No invoices.</MudText> }
+                    else
+                    {
+                        <MudTable Items="_invoices" Dense="true" Hover="true" Class="mt-2">
+                            <RowTemplate>
+                                <MudTd><MudLink Href="@($"/invoices/{context.Id}")">@context.InvoiceNumber</MudLink></MudTd>
+                                <MudTd>@context.Status</MudTd>
+                                <MudTd>@context.TotalAmount.ToString("N2")</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                </MudTabPanel>
+                <MudTabPanel Text="Audit">
+                    @if (_loadingTab) { <MudProgressLinear Indeterminate="true" Class="mt-2" /> }
+                    else if (_audit.Count == 0) { <MudText Typo="Typo.body2" Class="mt-2">No audit events.</MudText> }
+                    else
+                    {
+                        <MudTable Items="_audit" Dense="true" Hover="true" Class="mt-2">
+                            <RowTemplate>
+                                <MudTd>@context.Timestamp.ToString("g")</MudTd>
+                                <MudTd>@context.Action</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                </MudTabPanel>
+            </MudTabs>
+        </div>
+    }
+</MudDrawer>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter] public CustomerDto? Customer { get; set; }
+
+    [Parameter] public EventCallback OnCustomerUpdated { get; set; }
+
+    private int _tab;
+    private bool _loadingTab;
+    private List<LicenseDto> _licenses = [];
+    private List<InvoiceDto> _invoices = [];
+    private List<AuditLogDto> _audit = [];
+
+    private async Task OnTabChanged(int index)
+    {
+        _tab = index;
+        if (index > 0)
+            await LoadTabAsync();
+    }
+
+    private async Task LoadTabAsync()
+    {
+        if (Customer is null)
+            return;
+
+        _loadingTab = true;
+        StateHasChanged();
+
+        switch (_tab)
+        {
+            case 1:
+                _licenses = (await Api.GetLicensesPagedAsync(Customer.Id, page: 1, pageSize: 50)).Items.ToList();
+                break;
+            case 2:
+                _invoices = (await Api.GetInvoicesPagedAsync(Customer.Id, page: 1, pageSize: 50)).Items.ToList();
+                break;
+            case 3:
+                _audit = await Api.GetAuditLogsAsync(customerId: Customer.Id, limit: 50);
+                break;
+        }
+
+        _loadingTab = false;
+        StateHasChanged();
+    }
+
+    private async Task EditAsync()
+    {
+        if (Customer is null)
+            return;
+
+        var dialog = await DialogService.ShowAsync<CustomerEditDialog>("Edit Customer", new DialogParameters
+        {
+            [nameof(CustomerEditDialog.Customer)] = Customer
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not UpdateCustomerRequest request)
+            return;
+
+        var update = await Api.UpdateCustomerAsync(Customer.Id, request);
+        if (!update.IsSuccess)
+        {
+            Snackbar.Add(update.ErrorMessage ?? "Update failed.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Customer updated.", Severity.Success);
+        await OnCustomerUpdated.InvokeAsync();
+    }
+}

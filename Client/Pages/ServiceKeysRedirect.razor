@@ -1,0 +1,9 @@
+@page "/services/{ServiceId}/keys"
+@inject NavigationManager Navigation
+
+@code {
+    [Parameter] public string ServiceId { get; set; } = "";
+
+    protected override void OnInitialized() =>
+        Navigation.NavigateTo($"/integration-keys?productId={Uri.EscapeDataString(ServiceId)}", replace: true);
+}

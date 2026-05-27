@@ -2,6 +2,7 @@
 @inject NavigationManager Navigation
 @inject TokenStorage TokenStorage
 @inject JwtAuthenticationStateProvider AuthState
+@inject IJSRuntime JSRuntime
 
 <MudLayout>
     <MudAppBar Elevation="0" Color="Color.Dark">
@@ -14,7 +15,11 @@
         <MudText Typo="Typo.body2" Class="mr-4">@(_email ?? "")</MudText>
         <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Logout">Logout</MudButton>
     </MudAppBar>
-    <MudDrawer @bind-Open="_drawerOpen" Elevation="0" Variant="DrawerVariant.Mini" ClipMode="DrawerClipMode.Always">
+    <MudDrawer @bind-Open="_drawerOpen"
+               Elevation="0"
+               Variant="DrawerVariant.Mini"
+               ClipMode="DrawerClipMode.Always"
+               Breakpoint="Breakpoint.Md">
         <NavMenu />
     </MudDrawer>
     <MudMainContent Class="pa-6">
@@ -29,6 +34,16 @@
     protected override async Task OnInitializedAsync()
     {
         _email = await TokenStorage.GetEmailAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        var width = await JSRuntime.InvokeAsync<int>("eval", "window.innerWidth");
+        _drawerOpen = width >= 1200;
+        StateHasChanged();
     }
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;

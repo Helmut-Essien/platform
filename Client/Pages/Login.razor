@@ -16,28 +16,36 @@
         </MudText>
     </div>
 
+    @if (_hasError)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="login-error mb-4"
+                  CloseIconClicked="@(() => _hasError = false)">
+            @_errorMessage
+        </MudAlert>
+    }
+
     <MudForm @ref="_form" Model="_login" @bind-IsValid="_formValid" Class="login-form">
         <MudTextField @bind-Value="_login.Email"
                       For="@(() => _login.Email)"
                       Label="Email"
                       Variant="Variant.Outlined"
                       InputType="InputType.Email"
-                      Required="true"
-                      RequiredError="Email is required"
                       FullWidth="true"
                       Disabled="_busy"
-                      Class="mb-2"
+                      autocomplete="email"
+                      spellcheck="false"
                       OnKeyUp="OnKeyUp" />
         <MudTextField @bind-Value="_login.Password"
                       For="@(() => _login.Password)"
                       Label="Password"
                       Variant="Variant.Outlined"
-                      InputType="InputType.Password"
-                      Required="true"
-                      RequiredError="Password is required"
+                      InputType="@(_passwordVisible ? InputType.Text : InputType.Password)"
+                      autocomplete="current-password"
+                      Adornment="Adornment.End"
+                      AdornmentIcon="@(_passwordVisible ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                      OnAdornmentClick="TogglePasswordVisibility"
                       FullWidth="true"
                       Disabled="_busy"
-                      Class="mb-2"
                       OnKeyUp="OnKeyUp" />
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
@@ -45,7 +53,15 @@
                    Class="login-submit"
                    Disabled="_busy"
                    OnClick="LoginAsync">
-            @(_busy ? "Signing in..." : "Sign in")
+            @if (_busy)
+            {
+                <MudProgressCircular Color="Color.Inherit" Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                <span>Signing in...</span>
+            }
+            else
+            {
+                <span>Sign in</span>
+            }
         </MudButton>
     </MudForm>
 </MudPaper>
@@ -54,10 +70,16 @@
     private MudForm? _form;
     private bool _formValid;
     private bool _busy;
+    private bool _passwordVisible;
+    private bool _hasError;
+    private string _errorMessage = "";
     private LoginRequest _login = new() { Email = "", Password = "" };
+
+    private void TogglePasswordVisibility() => _passwordVisible = !_passwordVisible;
 
     private async Task OnKeyUp(KeyboardEventArgs e)
     {
+        _hasError = false;
         if (e.Key is "Enter" && !_busy)
             await LoginAsync();
     }
@@ -72,12 +94,14 @@
             return;
 
         _busy = true;
+        _hasError = false;
         try
         {
             var result = await Api.LoginAsync(_login);
             if (!result.IsSuccess)
             {
-                Snackbar.Add(result.ErrorMessage ?? "Invalid email or password.", Severity.Error);
+                _hasError = true;
+                _errorMessage = result.ErrorMessage ?? "Invalid email or password.";
                 return;
             }
 

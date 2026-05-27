@@ -1,10 +1,37 @@
 @page "/audit"
 @attribute [Authorize]
 @inject PlatformApiClient Api
+@inject IJSRuntime JSRuntime
+@inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h4" Class="mb-4">Audit Log</MudText>
+<PageHeader Title="Audit Log">
+    <MudButton Variant="Variant.Outlined" Disabled="_loading || _logs.Count == 0" OnClick="ExportCsvAsync">Export CSV</MudButton>
+</PageHeader>
 
-<MudTextField @bind-Value="_search" Label="Search" Variant="Variant.Outlined" Class="mb-4" Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+<MudGrid Class="mb-4">
+    <MudItem xs="12" sm="6" md="3">
+        <MudSelect T="AuditAction?" @bind-Value="_actionFilter" Label="Action" Variant="Variant.Outlined" Clearable="true">
+            @foreach (var action in Enum.GetValues<AuditAction>())
+            {
+                <MudSelectItem Value="@((AuditAction?)action)">@action</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudSelect T="string" @bind-Value="_customerFilter" Label="Customer" Variant="Variant.Outlined" Clearable="true">
+            @foreach (var c in _customers)
+            {
+                <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudTextField @bind-Value="_search" Label="Search" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3" Class="d-flex align-end gap-2">
+        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Apply filters</MudButton>
+    </MudItem>
+</MudGrid>
 
 @if (_loading)
 {
@@ -14,71 +41,102 @@
         <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
     }
 }
+else if (FilteredLogs.Count == 0)
+{
+    <MudText Typo="Typo.subtitle1" Class="pa-4">@(_logs.Count == 0 ? "No audit events recorded yet." : "No results match your filters.")</MudText>
+    @if (_logs.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="px-4 pb-4">Audit events are logged automatically when licenses and customers are managed.</MudText>
+    }
+}
 else
 {
-    var filtered = string.IsNullOrWhiteSpace(_search)
-        ? _logs
-        : _logs.Where(l =>
-            l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase) ||
-            (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (ResolveCustomer(l.CustomerId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-            (ResolveLicense(l.LicenseId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
-
-    if (filtered.Count == 0)
-    {
-        <MudText Typo="Typo.subtitle1" Class="pa-4">@(string.IsNullOrWhiteSpace(_search) ? "No audit events recorded yet." : "No results match your search.")</MudText>
-        @if (string.IsNullOrWhiteSpace(_search))
+    <MudExpansionPanels MultiExpansion="true">
+        @foreach (var log in FilteredLogs)
         {
-            <MudText Typo="Typo.body2" Class="px-4 pb-4">Audit events are logged automatically when licenses and customers are managed.</MudText>
+            <MudExpansionPanel Text="@($"{log.Timestamp:g} — {log.Action}")">
+                <MudText Typo="Typo.body2"><strong>By:</strong> @log.PerformedBy</MudText>
+                <MudText Typo="Typo.body2"><strong>Customer:</strong> @ResolveCustomer(log.CustomerId)</MudText>
+                <MudText Typo="Typo.body2"><strong>License:</strong> @ResolveLicense(log.LicenseId)</MudText>
+                @if (!string.IsNullOrEmpty(log.DetailsJson))
+                {
+                    <pre class="license-key mt-2">@log.DetailsJson</pre>
+                }
+            </MudExpansionPanel>
         }
-    }
-    else
-    {
-        <MudTable Items="filtered" Hover="true" Dense="true">
-            <HeaderContent>
-                <MudTh>Time</MudTh>
-                <MudTh>Action</MudTh>
-                <MudTh>By</MudTh>
-                <MudTh>Customer</MudTh>
-                <MudTh>License</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd>@context.Timestamp.ToString("g")</MudTd>
-                <MudTd>@context.Action</MudTd>
-                <MudTd>@context.PerformedBy</MudTd>
-                <MudTd>@ResolveCustomer(context.CustomerId)</MudTd>
-                <MudTd>@ResolveLicense(context.LicenseId)</MudTd>
-            </RowTemplate>
-        </MudTable>
-    }
+    </MudExpansionPanels>
 }
 
 @code {
     private bool _loading = true;
     private List<AuditLogDto> _logs = [];
+    private List<CustomerDto> _customers = [];
     private Dictionary<string, string> _customerNames = [];
     private Dictionary<string, string> _licenseLabels = [];
+    private AuditAction? _actionFilter;
+    private string? _customerFilter;
     private string _search = "";
 
-    protected override async Task OnInitializedAsync()
+    private List<AuditLogDto> FilteredLogs
     {
-        var logsTask = Api.GetAuditLogsAsync(100);
-        var customersTask = Api.GetCustomersPagedAsync(1, 500);
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_search))
+                return _logs;
+
+            return _logs.Where(l =>
+                l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (ResolveCustomer(l.CustomerId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (ResolveLicense(l.LicenseId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 500);
         var licensesTask = Api.GetLicensesPagedAsync(page: 1, pageSize: 500);
+        var logsTask = Api.GetAuditLogsAsync(
+            customerId: _customerFilter,
+            action: _actionFilter,
+            limit: 200);
 
-        await Task.WhenAll(logsTask, customersTask, licensesTask);
+        await Task.WhenAll(customersTask, licensesTask, logsTask);
 
-        _logs = await logsTask;
-        var customers = await customersTask;
+        _customers = customersTask.Result.Items.ToList();
+        _customerNames = _customers.ToDictionary(c => c.Id, c => c.Name);
         var licenses = await licensesTask;
-
-        _customerNames = customers.Items.ToDictionary(c => c.Id, c => c.Name);
         _licenseLabels = licenses.Items.ToDictionary(
             l => l.Id,
             l => $"{l.CustomerName} / {l.ServiceProductCode}");
+        _logs = await logsTask;
 
         _loading = false;
     }
+
+    private async Task ExportCsvAsync()
+    {
+        var rows = FilteredLogs;
+        if (rows.Count == 0)
+            return;
+
+        var csv = "Timestamp,Action,PerformedBy,Customer,License,Details\n";
+        foreach (var log in rows)
+        {
+            csv += $"\"{log.Timestamp:O}\",\"{log.Action}\",\"{Escape(log.PerformedBy)}\",\"{Escape(ResolveCustomer(log.CustomerId))}\",\"{Escape(ResolveLicense(log.LicenseId))}\",\"{Escape(log.DetailsJson)}\"\n";
+        }
+
+        await JSRuntime.InvokeVoidAsync("platformDownloadText", "audit-log.csv", csv);
+        Snackbar.Add("CSV exported.", Severity.Success);
+    }
+
+    private static string Escape(string? value) =>
+        (value ?? "").Replace("\"", "\"\"");
 
     private string ResolveCustomer(string? id) =>
         string.IsNullOrEmpty(id) ? "—"
