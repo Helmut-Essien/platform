@@ -13,6 +13,7 @@
                           RequiredError="Name is required"
                           MaxLength="200"
                           Counter="200"
+                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.Description"
                           For="@(() => _model.Description)"
@@ -21,13 +22,16 @@
                           Lines="3"
                           MaxLength="2000"
                           Counter="2000"
+                         
                           Class="mb-2" />
             <MudSwitch @bind-Value="_model.IsAvailableForSale" Label="Available for sale" Color="Color.Primary" />
         </MudForm>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
+            Save
+        </MudButton>
     </DialogActions>
 </MudDialog>
 

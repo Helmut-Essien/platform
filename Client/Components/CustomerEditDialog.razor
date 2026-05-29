@@ -12,6 +12,7 @@
                           RequiredError="Name is required"
                           MaxLength="200"
                           Counter="200"
+                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.ContactEmail"
                           For="@(() => _model.ContactEmail)"
@@ -20,6 +21,7 @@
                           InputType="InputType.Email"
                           Required="true"
                           RequiredError="Email is required"
+                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.ContactPhone"
                           For="@(() => _model.ContactPhone)"
@@ -27,6 +29,7 @@
                           Variant="Variant.Outlined"
                           MaxLength="50"
                           Counter="50"
+                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.InternalNotes"
                           For="@(() => _model.InternalNotes)"
@@ -34,12 +37,15 @@
                           Variant="Variant.Outlined"
                           Lines="3"
                           MaxLength="4000"
-                          Counter="4000" />
+                          Counter="4000"
+                          />
         </MudForm>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
+            Save
+        </MudButton>
     </DialogActions>
 </MudDialog>
 

@@ -1,3 +1,12 @@
+::deep .app-bar {
+    background-color: var(--bg-base) !important;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+::deep .app-drawer .mud-drawer-content {
+    background-color: var(--bg-surface);
+}
+
 .brand-logo {
     height: 36px;
     width: auto;

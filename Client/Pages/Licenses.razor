@@ -5,7 +5,9 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<PageHeader Title="Licenses" />
+<PageHeader Title="Licenses">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">Issue License</MudButton>
+</PageHeader>
 
 <MudExpansionPanels Class="mb-4">
     <MudExpansionPanel Text="Issue license" Expanded="_addPanelExpanded">
@@ -51,7 +53,7 @@
                            Class="mb-2" />
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
-                       Disabled="_busy"
+                       Disabled="@(!_formValid || _busy)"
                        OnClick="IssueAsync">
                 @(_busy ? "Issuing..." : "Issue (Pending)")
             </MudButton>
@@ -91,7 +93,7 @@
         <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply filters</MudButton>
         @if (_selected.Count > 0)
         {
-            <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="BulkSuspendAsync">Suspend selected (@_selected.Count)</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="BulkSuspendAsync">Suspend selected (@_selected.Count)</MudButton>
         }
     </MudItem>
 </MudGrid>
@@ -129,7 +131,7 @@
                 @{
                     var license = context.Item;
                 }
-                @if (license.Status == LicenseStatus.Pending)
+                @if (license.Status == LicenseStatus.Pending || license.Status == LicenseStatus.Suspended || license.Status == LicenseStatus.Expired)
                 {
                     <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => ActivateAsync(license))">Activate</MudButton>
                 }
@@ -137,8 +139,8 @@
                 {
                     <MudButton Size="Size.Small" OnClick="@(() => RenewAsync(license))">Renew</MudButton>
                     <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => EditAsync(license))">Edit</MudButton>
-                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => SuspendAsync(license.Id))">Suspend</MudButton>
-                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => RevokeAsync(license.Id))">Revoke</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => SuspendAsync(license.Id))">Suspend</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => RevokeAsync(license.Id))">Revoke</MudButton>
                 }
             </CellTemplate>
         </TemplateColumn>
@@ -176,21 +178,13 @@
     private LicenseStatus? _filterStatus;
     private string _search = "";
 
+    [SupplyParameterFromQuery] public string? Add { get; set; }
+    [SupplyParameterFromQuery] public string? CustomerId { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
-        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
-        if (uri.Query.Contains("add=", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(Add))
             _addPanelExpanded = true;
-
-        if (uri.Query.Contains("customerId=", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var part in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var kv = part.Split('=', 2);
-                if (kv.Length == 2 && kv[0].Equals("customerId", StringComparison.OrdinalIgnoreCase))
-                    _filterCustomerId = Uri.UnescapeDataString(kv[1]);
-            }
-        }
 
         var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 200);
         var productsTask = Api.GetServiceProductsAsync();
@@ -198,6 +192,10 @@
 
         _customers = customersTask.Result.Items.ToList();
         _products = await productsTask;
+
+        if (!string.IsNullOrEmpty(CustomerId))
+            _filterCustomerId = CustomerId;
+
         _issue.CustomerId ??= _customers.FirstOrDefault()?.Id;
         _issue.ServiceProductId ??= _products.FirstOrDefault()?.Id;
     }
@@ -300,7 +298,7 @@
             return;
         }
 
-        await ShowResultDialog(apiResult.Data!, "License activated");
+        await ShowResultDialog(apiResult.Data!, "License Activated");
         await ReloadGrid();
     }
 
@@ -321,7 +319,7 @@
             return;
         }
 
-        await ShowResultDialog(apiResult.Data!, "License renewed");
+        await ShowResultDialog(apiResult.Data!, "License Renewed");
         await ReloadGrid();
     }
 
@@ -360,7 +358,7 @@
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Suspend License", new DialogParameters
         {
             ["Title"] = "Suspend License",
-            ["Message"] = "This will temporarily disable this license. Continue?",
+            ["Message"] = "This license will be denied immediately. Continue?",
             ["ConfirmText"] = "Suspend"
         });
         var dialogResult = await dialog.Result;
@@ -374,7 +372,7 @@
             return;
         }
 
-        Snackbar.Add("License suspended.", Severity.Warning);
+        Snackbar.Add("License suspended.", Severity.Success);
         await ReloadGrid();
     }
 
@@ -397,7 +395,7 @@
             return;
         }
 
-        Snackbar.Add("License revoked.", Severity.Error);
+        Snackbar.Add("License revoked.", Severity.Success);
         await ReloadGrid();
     }
 
@@ -420,13 +418,9 @@
         if (dialogResult?.Canceled is not false)
             return;
 
-        var success = 0;
-        foreach (var license in active)
-        {
-            var apiResult = await Api.SuspendLicenseAsync(license.Id);
-            if (apiResult.IsSuccess)
-                success++;
-        }
+        var tasks = active.Select(l => Api.SuspendLicenseAsync(l.Id)).ToList();
+        var results = await Task.WhenAll(tasks);
+        var success = results.Count(r => r.IsSuccess);
 
         Snackbar.Add($"Suspended {success} of {active.Count} license(s).", success == active.Count ? Severity.Success : Severity.Warning);
         _selected.Clear();

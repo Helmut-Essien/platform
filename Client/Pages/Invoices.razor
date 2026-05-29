@@ -6,7 +6,7 @@
 @inject NavigationManager Navigation
 
 <PageHeader Title="Invoices">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateInvoiceAsync">+ New Invoice</MudButton>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateInvoiceAsync">New Invoice</MudButton>
 </PageHeader>
 
 <MudGrid Class="mb-4">
@@ -31,7 +31,7 @@
     </MudItem>
 </MudGrid>
 
-@if (_initialLoading)
+@if (_loading)
 {
     <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
     @for (var i = 0; i < 6; i++)
@@ -53,7 +53,7 @@ else
             <PropertyColumn Property="x => x.CustomerName" Title="Customer" />
             <TemplateColumn Title="Status">
                 <CellTemplate>
-                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(context.Item.Status)">
+                    <MudChip T="string" Size="Size.Small" Variant="@GetStatusVariant(context.Item.Status)" Color="Color.Primary">
                         @context.Item.Status
                     </MudChip>
                 </CellTemplate>
@@ -82,7 +82,7 @@ else
         <NoRecordsContent>
             <MudText Typo="Typo.subtitle1" Class="pa-4">No invoices found.</MudText>
             <MudText Typo="Typo.body2" Class="px-4 pb-2">Create an invoice or activate a license to generate billing.</MudText>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="CreateInvoiceAsync">+ New Invoice</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="CreateInvoiceAsync">New Invoice</MudButton>
         </NoRecordsContent>
         <PagerContent>
             <MudDataGridPager T="InvoiceDto" />
@@ -91,7 +91,7 @@ else
 }
 
 @code {
-    private bool _initialLoading = true;
+    private bool _loading = true;
     private MudDataGrid<InvoiceDto>? _grid;
     private List<CustomerDto> _customers = [];
     private InvoiceStatus? _statusFilter;
@@ -100,7 +100,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         _customers = (await Api.GetCustomersPagedAsync(page: 1, pageSize: 500)).Items.ToList();
-        _initialLoading = false;
+        _loading = false;
     }
 
     private async Task<GridData<InvoiceDto>> LoadServerData(GridState<InvoiceDto> state)
@@ -151,14 +151,14 @@ else
         Navigation.NavigateTo($"/invoices/{apiResult.Data!.Id}");
     }
 
-    private static Color GetStatusColor(InvoiceStatus status) => status switch
+    private static Variant GetStatusVariant(InvoiceStatus status) => status switch
     {
-        InvoiceStatus.Paid => Color.Success,
-        InvoiceStatus.Sent => Color.Info,
-        InvoiceStatus.PartiallyPaid => Color.Warning,
-        InvoiceStatus.Overdue => Color.Error,
-        InvoiceStatus.Void => Color.Default,
-        InvoiceStatus.Draft => Color.Default,
-        _ => Color.Default
+        InvoiceStatus.Paid => Variant.Filled,
+        InvoiceStatus.Sent => Variant.Outlined,
+        InvoiceStatus.PartiallyPaid => Variant.Outlined,
+        InvoiceStatus.Overdue => Variant.Filled,
+        InvoiceStatus.Void => Variant.Text,
+        InvoiceStatus.Draft => Variant.Text,
+        _ => Variant.Text
     };
 }

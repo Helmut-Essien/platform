@@ -1,8 +1,8 @@
 .login-card.mud-paper {
     width: 100%;
-    border: 1px solid rgba(113, 226, 21, 0.1);
+    border: 1px solid rgba(92, 159, 36, 0.1);
     border-radius: 1.5rem;
-    background: rgba(12, 20, 8, 0.85);
+    background: rgba(30, 30, 30, 0.85);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     animation: loginCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -33,23 +33,17 @@
 }
 
 .login-logo {
-    width: 5rem;
-    height: 5rem;
+    width: 5.5rem;
+    height: 5.5rem;
     border-radius: 1.25rem;
-    object-fit: cover;
+    object-fit: contain;
     box-shadow:
-        0 4px 24px rgba(113, 226, 21, 0.15),
+        0 4px 24px rgba(92, 159, 36, 0.15),
         0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
-.login-title {
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    font-size: 1.5rem;
-}
-
 .login-subtitle {
-    color: rgba(250, 245, 233, 0.5);
+    color: var(--text-secondary);
     max-width: 18rem;
     line-height: 1.6;
     font-size: 0.875rem;
@@ -57,7 +51,7 @@
 
 .login-divider {
     margin: 0 0 1.5rem !important;
-    border-color: rgba(113, 226, 21, 0.08) !important;
+    border-color: rgba(92, 159, 36, 0.08) !important;
 }
 
 .login-error {
@@ -85,7 +79,7 @@
 }
 
 .login-submit:hover:not(:disabled) {
-    box-shadow: 0 4px 20px rgba(113, 226, 21, 0.25);
+    box-shadow: 0 4px 20px rgba(92, 159, 36, 0.25);
     transform: translateY(-1px);
 }
 
@@ -96,9 +90,9 @@
     }
 
     .login-logo {
-        width: 3.75rem;
-        height: 3.75rem;
-        border-radius: 1rem;
+        width: 4.25rem;
+        height: 4.25rem;
+        border-radius: 1.125rem;
     }
 
     .login-brand {
@@ -117,24 +111,31 @@
 
 @media (min-width: 480px) {
     .login-logo {
-        width: 6rem;
-        height: 6rem;
-        border-radius: 1.5rem;
+        width: 7rem;
+        height: 7rem;
+        border-radius: 1.75rem;
     }
 
     .login-card.mud-paper {
         border-radius: 1.75rem;
     }
+}
 
-    .login-title {
-        font-size: 1.75rem;
+@media (min-width: 960px) {
+    .login-logo {
+        width: 8.5rem;
+        height: 8.5rem;
+    }
+
+    .login-card.mud-paper {
+        border-radius: 2rem;
     }
 }
 
 @media (max-height: 500px) {
     .login-logo {
-        width: 2.75rem;
-        height: 2.75rem;
+        width: 3rem;
+        height: 3rem;
         border-radius: 0.75rem;
     }
 
@@ -145,10 +146,6 @@
 
     .login-subtitle {
         display: none;
-    }
-
-    .login-title {
-        font-size: 1.125rem !important;
     }
 
     .login-divider {

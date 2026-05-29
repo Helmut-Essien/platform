@@ -3,39 +3,55 @@
         <MudText Typo="Typo.h6">Renew License</MudText>
     </TitleContent>
     <DialogContent>
+        <MudText Typo="Typo.caption" Class="mb-4">A new license key will be generated, the expiry extended, and a new invoice created.</MudText>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudDatePicker @bind-Date="_expiresAt"
                            Label="New expiry date"
                            Variant="Variant.Outlined"
                            Required="true"
+                           RequiredError="Expiry date is required"
+                          
                            Class="mb-2" />
             <MudNumericField @bind-Value="_model.Subtotal"
                              Label="Subtotal"
                              Variant="Variant.Outlined"
                              Min="0m"
+                             Required="true"
+                             RequiredError="Subtotal is required"
+                            
                              Class="mb-2" />
             <MudNumericField @bind-Value="_model.TaxAmount"
                              Label="Tax"
                              Variant="Variant.Outlined"
                              Min="0m"
+                             Required="true"
+                             RequiredError="Tax is required"
+                            
                              Class="mb-2" />
             <MudTextField @bind-Value="_model.Currency"
                           Label="Currency"
                           Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Currency is required"
+                         
                           Class="mb-2" />
             <MudDatePicker @bind-Date="_dueDate"
                            Label="Invoice due date"
                            Variant="Variant.Outlined"
+                          
                            Class="mb-2" />
             <MudTextField @bind-Value="_model.Description"
                           Label="Description (optional)"
                           Variant="Variant.Outlined"
-                          Lines="2" />
+                          Lines="2"
+                          />
         </MudForm>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Renew</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
+            Renew
+        </MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -48,7 +64,7 @@
     private bool _formValid;
     private DateTime? _expiresAt;
     private DateTime? _dueDate = DateTime.UtcNow.AddDays(30);
-    private RenewLicenseRequest _model = new() { Subtotal = 99m, Currency = "USD", Description = "Renewal" };
+    private RenewLicenseRequest _model = new() { Subtotal = 99m, Currency = "USD" };
 
     protected override void OnInitialized()
     {

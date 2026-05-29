@@ -5,7 +5,9 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<PageHeader Title="Customers" />
+<PageHeader Title="Customers">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">New Customer</MudButton>
+</PageHeader>
 
 <MudExpansionPanels Class="mb-4">
     <MudExpansionPanel Text="Add customer" Expanded="_addPanelExpanded">
@@ -27,8 +29,6 @@
                           InputType="InputType.Email"
                           Required="true"
                           RequiredError="Email is required"
-                          Error="@(!string.IsNullOrEmpty(_emailFieldError))"
-                          ErrorText="@_emailFieldError"
                           Disabled="_busy"
                           Class="mb-2" />
             <MudTextField @bind-Value="_newCustomer.ContactPhone"
@@ -50,7 +50,7 @@
                           Class="mb-2" />
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
-                       Disabled="_busy"
+                       Disabled="@(!_formValid || _busy)"
                        OnClick="CreateAsync">
                 @(_busy ? "Creating..." : "Create")
             </MudButton>
@@ -90,7 +90,7 @@
         <PropertyColumn Property="x => x.ContactPhone" Title="Phone" />
         <TemplateColumn Title="Status">
             <CellTemplate>
-                <MudChip T="string" Size="Size.Small" Class="@(context.Item.IsSuspended ? "chip-suspended" : "")" Color="@(context.Item.IsSuspended ? Color.Default : Color.Success)">
+                <MudChip T="string" Size="Size.Small" Variant="@(context.Item.IsSuspended ? Variant.Outlined : Variant.Filled)" Color="Color.Primary">
                     @(context.Item.IsSuspended ? "Suspended" : "Active")
                 </MudChip>
             </CellTemplate>
@@ -111,11 +111,11 @@
                 <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"/licenses?customerId={customer.Id}")">Licenses</MudButton>
                 @if (customer.IsSuspended)
                 {
-                    <MudButton Size="Size.Small" OnClick="@(() => ReactivateAsync(customer.Id))">Reactivate</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => ReactivateAsync(customer.Id))">Reactivate</MudButton>
                 }
                 else
                 {
-                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => SuspendAsync(customer.Id))">Suspend</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => SuspendAsync(customer.Id))">Suspend</MudButton>
                 }
             </CellTemplate>
         </TemplateColumn>
@@ -139,7 +139,6 @@
     private bool _formValid;
     private bool _addPanelExpanded;
     private bool _drawerOpen;
-    private string? _emailFieldError;
     private string _search = "";
     private string? _statusFilter;
     private MudForm? _form;
@@ -147,10 +146,11 @@
     private CustomerDto? _selectedCustomer;
     private CreateCustomerRequest _newCustomer = new() { Name = "", ContactEmail = "" };
 
+    [SupplyParameterFromQuery] public string? Add { get; set; }
+
     protected override void OnInitialized()
     {
-        var query = Navigation.ToAbsoluteUri(Navigation.Uri).Query;
-        if (query.Contains("add=", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(Add))
             _addPanelExpanded = true;
     }
 
@@ -203,13 +203,10 @@
 
     private async Task CreateAsync()
     {
-        _emailFieldError = null;
-
         if (_form is null)
             return;
 
         await _form.Validate();
-
         if (!_formValid)
         {
             Snackbar.Add("Please fix the errors in the form.", Severity.Warning);
@@ -220,16 +217,9 @@
         try
         {
             var result = await Api.CreateCustomerAsync(_newCustomer);
-
             if (!result.IsSuccess)
             {
-                var message = result.ErrorMessage ?? "Failed to create customer.";
-                Snackbar.Add(message, Severity.Error);
-
-                _emailFieldError = FieldErrorHelper.GetFieldError(result.FieldErrors, "ContactEmail", "request.ContactEmail")
-                    ?? FieldErrorHelper.GetFieldError(result.FieldErrors, "Name", "request.Name")
-                    ?? (message.Contains("email", StringComparison.OrdinalIgnoreCase) ? message : null);
-
+                Snackbar.Add(result.ErrorMessage ?? "Failed to create customer.", Severity.Error);
                 return;
             }
 
@@ -259,9 +249,7 @@
         var result = await Api.UpdateCustomerAsync(customer.Id, request);
         if (!result.IsSuccess)
         {
-            var fieldMessage = FieldErrorHelper.GetFieldError(result.FieldErrors, "ContactEmail", "Name")
-                ?? result.ErrorMessage;
-            Snackbar.Add(fieldMessage ?? "Failed to update customer.", Severity.Error);
+            Snackbar.Add(result.ErrorMessage ?? "Failed to update customer.", Severity.Error);
             return;
         }
 
@@ -274,7 +262,7 @@
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Suspend Customer", new DialogParameters
         {
             ["Title"] = "Suspend Customer",
-            ["Message"] = "This will block all licenses for this customer. Continue?",
+            ["Message"] = "All licenses for this customer will be denied immediately. Continue?",
             ["ConfirmText"] = "Suspend"
         });
         var dialogResult = await dialog.Result;

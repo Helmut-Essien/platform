@@ -21,16 +21,16 @@ else
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
         }
-        @if (_invoice.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
+        @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue)
         {
-            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="VoidAsync">Void</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="VoidAsync">Void</MudButton>
         }
     </PageHeader>
 
     <MudGrid Class="mb-4">
         <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4" Elevation="1">
-                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(_invoice.Status)" Class="mb-2">@_invoice.Status</MudChip>
+            <MudPaper Class="pa-4" Elevation="0">
+                <MudChip T="string" Size="Size.Small" Variant="@GetStatusVariant(_invoice.Status)" Color="Color.Primary" Class="mb-2">@_invoice.Status</MudChip>
                 <MudText><strong>Customer:</strong> @_invoice.CustomerName</MudText>
                 @if (!string.IsNullOrEmpty(_invoice.ServiceProductCode))
                 {
@@ -41,7 +41,7 @@ else
             </MudPaper>
         </MudItem>
         <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4" Elevation="1">
+            <MudPaper Class="pa-4" Elevation="0">
                 <MudText>Subtotal: @_invoice.Subtotal.ToString("N2") @_invoice.Currency</MudText>
                 <MudText>Tax: @_invoice.TaxAmount.ToString("N2")</MudText>
                 <MudText><strong>Total: @_invoice.TotalAmount.ToString("N2")</strong></MudText>
@@ -81,15 +81,23 @@ else
     [Parameter] public string Id { get; set; } = "";
 
     private bool _loading = true;
+    private bool _loaded;
     private InvoiceDto? _invoice;
 
-    protected override async Task OnParametersSetAsync() => await LoadAsync();
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded)
+            await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
         _loading = true;
         _invoice = await Api.GetInvoiceAsync(Id);
         _loading = false;
+        _loaded = true;
     }
 
     private async Task RecordPaymentAsync()
@@ -142,12 +150,14 @@ else
         await LoadAsync();
     }
 
-    private static Color GetStatusColor(InvoiceStatus status) => status switch
+    private static Variant GetStatusVariant(InvoiceStatus status) => status switch
     {
-        InvoiceStatus.Paid => Color.Success,
-        InvoiceStatus.Sent => Color.Info,
-        InvoiceStatus.PartiallyPaid => Color.Warning,
-        InvoiceStatus.Overdue => Color.Error,
-        _ => Color.Default
+        InvoiceStatus.Paid => Variant.Filled,
+        InvoiceStatus.Sent => Variant.Outlined,
+        InvoiceStatus.PartiallyPaid => Variant.Outlined,
+        InvoiceStatus.Overdue => Variant.Filled,
+        InvoiceStatus.Void => Variant.Text,
+        InvoiceStatus.Draft => Variant.Text,
+        _ => Variant.Text
     };
 }

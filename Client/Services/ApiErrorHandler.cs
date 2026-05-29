@@ -15,7 +15,7 @@ public class ApiErrorHandler(
         var response = await base.SendAsync(request, cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized
-            && !request.RequestUri?.AbsolutePath.Contains("/api/auth/login", StringComparison.OrdinalIgnoreCase) == true)
+            && request.RequestUri?.AbsolutePath.Contains("/api/auth/login", StringComparison.OrdinalIgnoreCase) != true)
         {
             await tokenStorage.ClearAsync();
             authState.NotifyStateChanged();

@@ -22,28 +22,28 @@ else
 {
     <MudGrid>
         <MudItem xs="12" sm="6" md="3">
-            <div class="pa-4 dashboard-card mud-paper mud-elevation-2" @onclick="GoToCustomers">
-                <MudText Typo="Typo.subtitle2">Customers</MudText>
+            <MudCard Class="pa-4 dashboard-card" @onclick="GoToCustomers">
+                <MudText Typo="Typo.subtitle2">Total Customers</MudText>
                 <MudText Typo="Typo.h4" Color="Color.Primary">@_customerCount</MudText>
-            </div>
+            </MudCard>
         </MudItem>
         <MudItem xs="12" sm="6" md="3">
-            <div class="pa-4 dashboard-card mud-paper mud-elevation-2" @onclick="GoToLicenses">
-                <MudText Typo="Typo.subtitle2">Active licenses</MudText>
+            <MudCard Class="pa-4 dashboard-card" @onclick="GoToLicenses">
+                <MudText Typo="Typo.subtitle2">Active Licenses</MudText>
                 <MudText Typo="Typo.h4" Color="Color.Primary">@_activeLicenses</MudText>
-            </div>
+            </MudCard>
         </MudItem>
         <MudItem xs="12" sm="6" md="3">
-            <div class="pa-4 dashboard-card warning-card mud-paper mud-elevation-2" @onclick="GoToLicenses">
-                <MudText Typo="Typo.subtitle2">Expiring in 30 days</MudText>
-                <MudText Typo="Typo.h4" Color="Color.Warning">@_expiringSoon</MudText>
-            </div>
+            <MudCard Class="pa-4 dashboard-card" @onclick="GoToLicenses">
+                <MudText Typo="Typo.subtitle2">Expiring in 30 Days</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Primary">@_expiringSoon</MudText>
+            </MudCard>
         </MudItem>
         <MudItem xs="12" sm="6" md="3">
-            <div class="pa-4 dashboard-card error-card mud-paper mud-elevation-2" @onclick="GoToInvoices">
-                <MudText Typo="Typo.subtitle2">Unpaid invoices</MudText>
-                <MudText Typo="Typo.h4" Color="Color.Error">@_unpaidInvoices</MudText>
-            </div>
+            <MudCard Class="pa-4 dashboard-card" @onclick="GoToInvoices">
+                <MudText Typo="Typo.subtitle2">Unpaid Invoices</MudText>
+                <MudText Typo="Typo.h4" Color="Color.Primary">@_unpaidInvoices</MudText>
+            </MudCard>
         </MudItem>
     </MudGrid>
 

@@ -1,27 +1,27 @@
-using Blazored.LocalStorage;
+using Microsoft.JSInterop;
 
 namespace Platform.Client.Services;
 
-public class TokenStorage(ILocalStorageService localStorage)
+public class TokenStorage(IJSRuntime js)
 {
     public const string TokenKey = "platform.auth.token";
     public const string EmailKey = "platform.auth.email";
 
     public async Task<string?> GetTokenAsync() =>
-        await localStorage.GetItemAsync<string>(TokenKey);
+        await js.InvokeAsync<string?>("localStorage.getItem", TokenKey);
 
     public async Task SetAsync(string token, string email)
     {
-        await localStorage.SetItemAsync(TokenKey, token);
-        await localStorage.SetItemAsync(EmailKey, email);
+        await js.InvokeVoidAsync("localStorage.setItem", TokenKey, token);
+        await js.InvokeVoidAsync("localStorage.setItem", EmailKey, email);
     }
 
     public async Task ClearAsync()
     {
-        await localStorage.RemoveItemAsync(TokenKey);
-        await localStorage.RemoveItemAsync(EmailKey);
+        await js.InvokeVoidAsync("localStorage.removeItem", TokenKey);
+        await js.InvokeVoidAsync("localStorage.removeItem", EmailKey);
     }
 
     public async Task<string?> GetEmailAsync() =>
-        await localStorage.GetItemAsync<string>(EmailKey);
+        await js.InvokeAsync<string?>("localStorage.getItem", EmailKey);
 }

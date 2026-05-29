@@ -10,10 +10,14 @@
                              Min="0.01m"
                              Required="true"
                              RequiredError="Amount is required"
+                            
                              Class="mb-2" />
             <MudSelect T="PaymentMethod" @bind-Value="_model.PaymentMethod"
                        Label="Payment method"
                        Variant="Variant.Outlined"
+                       Required="true"
+                       RequiredError="Payment method is required"
+                      
                        Class="mb-2">
                 @foreach (var method in Enum.GetValues<PaymentMethod>())
                 {
@@ -23,20 +27,25 @@
             <MudTextField @bind-Value="_model.PaymentReference"
                           Label="Reference (optional)"
                           Variant="Variant.Outlined"
+                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.Notes"
                           Label="Notes (optional)"
                           Variant="Variant.Outlined"
                           Lines="2"
+                         
                           Class="mb-2" />
             <MudDatePicker @bind-Date="_paidAt"
                            Label="Paid at"
-                           Variant="Variant.Outlined" />
+                           Variant="Variant.Outlined"
+                           />
         </MudForm>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Record</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
+            Record
+        </MudButton>
     </DialogActions>
 </MudDialog>
 

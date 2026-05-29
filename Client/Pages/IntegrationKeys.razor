@@ -7,12 +7,12 @@
 
 <PageHeader Title="Integration Keys" />
 
-<MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
-    Copy integration keys immediately after creation — they cannot be recovered.
+<MudAlert Severity="Severity.Warning" Class="mb-4">
+    Integration keys cannot be recovered after creation. Copy them immediately and store them securely.
 </MudAlert>
 
 <MudForm @ref="_form" @bind-IsValid="_formValid" Class="mb-4">
-    <MudSelect T="string" Value="_productId" ValueChanged="OnProductChanged"
+    <MudSelect T="string" Value="_selectedProductId" ValueChanged="OnProductChanged"
                Label="Service product"
                Variant="Variant.Outlined"
                Required="true"
@@ -24,15 +24,15 @@
             <MudSelectItem Value="@p.Id">@p.Code — @p.Name</MudSelectItem>
         }
     </MudSelect>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RotateAsync">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_formValid || _busy)" OnClick="RotateAsync">
         @(_busy ? "Creating..." : "Rotate / create key")
     </MudButton>
 </MudForm>
 
 @if (!string.IsNullOrEmpty(_plainKey))
 {
-    <MudAlert Severity="Severity.Warning" Class="mb-4">
-        Copy this key now — it will not be shown again:
+    <MudAlert Severity="Severity.Success" Class="mb-4">
+        <MudText Class="mb-2">Copy this key now — it will not be shown again:</MudText>
         <div class="d-flex align-center mt-2">
             <span class="license-key mr-2">@_plainKey</span>
             <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" Color="Color.Inherit"
@@ -66,13 +66,17 @@ else
         </HeaderContent>
         <RowTemplate>
             <MudTd>@context.ServiceProductCode</MudTd>
-            <MudTd>@(context.IsActive ? "Yes" : "No")</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Variant="@(context.IsActive ? Variant.Filled : Variant.Text)" Color="Color.Primary">
+                    @(context.IsActive ? "Active" : "Revoked")
+                </MudChip>
+            </MudTd>
             <MudTd>@context.CreatedAt.ToString("g")</MudTd>
             <MudTd>@(context.LastUsedAt?.ToString("g") ?? "—")</MudTd>
             <MudTd>
                 @if (context.IsActive)
                 {
-                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="() => RevokeAsync(context.Id)">Revoke</MudButton>
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="() => RevokeAsync(context.Id)">Revoke</MudButton>
                 }
             </MudTd>
         </RowTemplate>
@@ -89,42 +93,30 @@ else
     private MudForm? _form;
     private List<IntegrationKeyDto> _keys = [];
     private List<ServiceProductDto> _products = [];
-    private string? _productId;
+    private string? _selectedProductId;
     private string? _plainKey;
 
-    protected override async Task OnInitializedAsync() => await ReloadAsync();
-
-    protected override async Task OnParametersSetAsync()
+    protected override async Task OnInitializedAsync()
     {
-        if (!string.IsNullOrEmpty(ProductId) && _products.Any(p => p.Id == ProductId))
-        {
-            _productId = ProductId;
-            await ReloadKeysAsync();
-        }
-    }
-
-    private async Task ReloadAsync()
-    {
-        _loading = true;
         _products = await Api.GetServiceProductsAsync();
-        _productId ??= _products.FirstOrDefault()?.Id;
 
         if (!string.IsNullOrEmpty(ProductId) && _products.Any(p => p.Id == ProductId))
-            _productId = ProductId;
+            _selectedProductId = ProductId;
 
+        _selectedProductId ??= _products.FirstOrDefault()?.Id;
         await ReloadKeysAsync();
         _loading = false;
     }
 
     private async Task OnProductChanged(string? productId)
     {
-        _productId = productId;
+        _selectedProductId = productId;
         await ReloadKeysAsync();
     }
 
     private async Task ReloadKeysAsync()
     {
-        _keys = await Api.GetIntegrationKeysAsync(_productId);
+        _keys = await Api.GetIntegrationKeysAsync(_selectedProductId);
     }
 
     private async Task RotateAsync()
@@ -136,7 +128,7 @@ else
                 return;
         }
 
-        if (string.IsNullOrEmpty(_productId))
+        if (string.IsNullOrEmpty(_selectedProductId))
         {
             Snackbar.Add("Please select a service product.", Severity.Warning);
             return;
@@ -145,7 +137,7 @@ else
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Rotate Integration Key", new DialogParameters
         {
             ["Title"] = "Rotate Integration Key",
-            ["Message"] = "This will invalidate the existing key for this service. Continue?",
+            ["Message"] = "Creating a new key will revoke the existing active key for this service. Any app using the old key will fail validation. Continue?",
             ["ConfirmText"] = "Rotate"
         });
         var dialogResult = await dialog.Result;
@@ -155,7 +147,7 @@ else
         _busy = true;
         try
         {
-            var result = await Api.CreateIntegrationKeyAsync(_productId);
+            var result = await Api.CreateIntegrationKeyAsync(_selectedProductId);
             if (!result.IsSuccess)
             {
                 Snackbar.Add(result.ErrorMessage ?? "Failed to create integration key.", Severity.Error);
@@ -177,7 +169,7 @@ else
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Revoke Integration Key", new DialogParameters
         {
             ["Title"] = "Revoke Integration Key",
-            ["Message"] = "This will revoke the integration key. Continue?",
+            ["Message"] = "External apps using this key will fail validation. This cannot be undone. Continue?",
             ["ConfirmText"] = "Revoke"
         });
         var dialogResult = await dialog.Result;

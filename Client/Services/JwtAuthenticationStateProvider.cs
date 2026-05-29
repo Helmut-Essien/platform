@@ -18,7 +18,7 @@ public class JwtAuthenticationStateProvider(TokenStorage tokenStorage) : Authent
             return Anonymous();
         }
 
-        var email = await tokenStorage.GetEmailAsync() ?? "admin";
+        var email = await tokenStorage.GetEmailAsync() ?? "";
         var claims = new[]
         {
             new Claim(ClaimTypes.Name, email),

@@ -5,12 +5,14 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<PageHeader Title="Service Catalog" />
+<PageHeader Title="Service Catalog">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">Add Service</MudButton>
+</PageHeader>
 
 <MudExpansionPanels Class="mb-4">
     <MudExpansionPanel Text="Add service" Expanded="_addPanelExpanded">
         <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
-            Integration keys cannot be recovered after generation. Create the service first, then use View Keys.
+            Integration keys cannot be recovered after generation. You'll be prompted to generate one after creating the service.
         </MudAlert>
         <MudForm @ref="_form" Model="_newProduct" @bind-IsValid="_formValid">
             <MudTextField @bind-Value="_newProduct.Name"
@@ -32,8 +34,6 @@
                           HelperText="Uppercase identifier, e.g. HOSTEL"
                           MaxLength="50"
                           Counter="50"
-                          Error="@(!string.IsNullOrEmpty(_codeFieldError))"
-                          ErrorText="@_codeFieldError"
                           Disabled="_busy"
                           Class="mb-2"
                           @bind-Value:after="OnCodeChanged" />
@@ -53,13 +53,23 @@
                        Class="mb-4" />
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
-                       Disabled="_busy"
+                       Disabled="@(!_formValid || _busy)"
                        OnClick="CreateAsync">
                 @(_busy ? "Creating..." : "Add Service")
             </MudButton>
         </MudForm>
     </MudExpansionPanel>
 </MudExpansionPanels>
+
+@if (_showKeyPrompt)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4" Dense="false">
+        <MudText Typo="Typo.body1" Class="mb-2">Service "@_createdServiceName" created successfully.</MudText>
+        <MudText Typo="Typo.body2" Class="mb-4">An integration key is required for external apps to validate licenses.</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateKeyForServiceAsync" Class="mr-2">Generate Integration Key</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="DismissKeyPrompt">Skip</MudButton>
+    </MudAlert>
+}
 
 @if (_loading)
 {
@@ -91,12 +101,12 @@ else
             <MudTd><span class="license-key">@context.Code</span></MudTd>
             <MudTd>@(context.Description ?? "—")</MudTd>
             <MudTd>
-                <MudChip T="string" Size="Size.Small" Color="@(context.IsAvailableForSale ? Color.Success : Color.Default)">
+                <MudChip T="string" Size="Size.Small" Variant="@(context.IsAvailableForSale ? Variant.Filled : Variant.Outlined)" Color="Color.Primary">
                     @(context.IsAvailableForSale ? "Yes" : "No")
                 </MudChip>
             </MudTd>
             <MudTd>
-                <MudChip T="string" Size="Size.Small" Color="@(context.HasActiveIntegrationKey ? Color.Success : Color.Default)">
+                <MudChip T="string" Size="Size.Small" Variant="@(context.HasActiveIntegrationKey ? Variant.Filled : Variant.Outlined)" Color="Color.Primary">
                     @(context.HasActiveIntegrationKey ? "Active" : "None")
                 </MudChip>
             </MudTd>
@@ -113,15 +123,18 @@ else
     private bool _busy;
     private bool _formValid;
     private bool _addPanelExpanded;
-    private string? _codeFieldError;
+    private bool _showKeyPrompt;
+    private string? _createdServiceName;
+    private string? _createdServiceId;
     private MudForm? _form;
     private List<ServiceProductDto> _products = [];
     private CreateServiceProductRequest _newProduct = new() { Name = "", Code = "" };
 
+    [SupplyParameterFromQuery] public string? Add { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
-        var query = Navigation.ToAbsoluteUri(Navigation.Uri).Query;
-        if (query.Contains("add=", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(Add))
             _addPanelExpanded = true;
 
         await ReloadAsync();
@@ -144,7 +157,6 @@ else
 
     private async Task CreateAsync()
     {
-        _codeFieldError = null;
         OnCodeChanged();
 
         if (_form is null)
@@ -163,14 +175,14 @@ else
             var result = await Api.CreateServiceProductAsync(_newProduct);
             if (!result.IsSuccess)
             {
-                var message = result.ErrorMessage ?? "Failed to create service.";
-                Snackbar.Add(message, Severity.Error);
-                if (message.Contains("code", StringComparison.OrdinalIgnoreCase))
-                    _codeFieldError = message;
+                Snackbar.Add(result.ErrorMessage ?? "Failed to create service.", Severity.Error);
                 return;
             }
 
             Snackbar.Add("Service created.", Severity.Success);
+            _createdServiceName = result.Data!.Name;
+            _createdServiceId = result.Data.Id;
+            _showKeyPrompt = true;
             _newProduct = new CreateServiceProductRequest { Name = "", Code = "" };
             _form.ResetValidation();
             _addPanelExpanded = false;
@@ -181,6 +193,14 @@ else
             _busy = false;
         }
     }
+
+    private async Task GenerateKeyForServiceAsync()
+    {
+        _showKeyPrompt = false;
+        Navigation.NavigateTo($"/integration-keys?productId={Uri.EscapeDataString(_createdServiceId!)}");
+    }
+
+    private void DismissKeyPrompt() => _showKeyPrompt = false;
 
     private async Task EditAsync(ServiceProductDto product)
     {

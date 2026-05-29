@@ -4,8 +4,8 @@
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
 
-<PageHeader Title="Validate License (dev tool)" />
-<MudText Typo="Typo.body2" Class="mb-4">Tests the public validation API with an integration key header.</MudText>
+<PageHeader Title="Validate License" />
+<MudText Typo="Typo.body2" Class="mb-4">Tests the public license validation API with an integration key header. Rate-limited to 60 requests per minute.</MudText>
 
 <MudForm @ref="_form" Model="_request" @bind-IsValid="_formValid">
     <MudTextField @bind-Value="_integrationKey"
@@ -32,15 +32,17 @@
                   Disabled="_busy"
                   Class="mb-2"
                   OnKeyUp="OnKeyUp" />
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync" Disabled="_busy">
-        @(_busy ? "Validating..." : "Validate")
-    </MudButton>
-    <MudButton Variant="Variant.Text" Color="Color.Default" Class="ml-2" Disabled="_busy" OnClick="Clear">Clear</MudButton>
+    <div class="d-flex gap-2">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync" Disabled="@(!_formValid || _busy)">
+            @(_busy ? "Validating..." : "Test Validation")
+        </MudButton>
+        <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="Clear">Clear</MudButton>
+    </div>
 </MudForm>
 
 @if (_result is not null)
 {
-    <MudPaper Class="pa-4 mt-4" Style="@(_result.IsValid ? "border-left:4px solid #71e215" : "border-left:4px solid #ef4444")">
+    <MudPaper Class="@GetResultCardClass()">
         <MudText Typo="Typo.subtitle1">Valid: <strong>@_result.IsValid</strong></MudText>
         @if (!string.IsNullOrEmpty(_result.Message))
         {
@@ -101,6 +103,9 @@
             _busy = false;
         }
     }
+
+    private string GetResultCardClass() =>
+        _result?.IsValid == true ? "pa-4 mt-4 result-card result-valid" : "pa-4 mt-4 result-card result-invalid";
 
     private void Clear()
     {

@@ -1,20 +1,22 @@
 :root {
-    --primary: #71e215;
-    --primary-hover: #5c9f24;
-    --background: #000000;
-    --surface: #0c1408;
-    --text-body: #FAF5E9;
-    --border-color: #333333;
+    --accent: #5c9f24;
+    --accent-hover: #7ccf2e;
+    --accent-active: #3a7014;
+    --bg-base: #121212;
+    --bg-surface: #1e1e1e;
+    --bg-elevated: #2a2a2a;
+    --text-primary: #ededed;
+    --text-secondary: #a0a0a0;
+    --border-subtle: #2c2c2c;
 }
 
 html, body {
     font-family: 'Inter', system-ui, sans-serif;
-    background-color: var(--background);
-    color: var(--text-body);
+    background-color: var(--bg-base);
+    color: var(--text-primary);
     -webkit-text-size-adjust: 100%;
 }
 
-/* Mobile-first: comfortable tap targets on small screens */
 @media (max-width: 599px) {
     .mud-button-root {
         min-height: 2.75rem;
@@ -35,16 +37,28 @@ html, body {
 
 .license-key {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    color: var(--primary);
-    background: #1a1a1a;
+    color: var(--accent);
+    background: var(--bg-elevated);
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-subtle);
+}
+
+.text-code {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    padding: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    font-size: 0.8125rem;
 }
 
 #blazor-error-ui {
-    background: #ef4444;
-    color: #fff;
+    background: var(--accent);
+    color: var(--bg-base);
     bottom: 0;
     display: none;
     left: 0;
@@ -64,14 +78,14 @@ html, body {
 
 .loading-progress circle {
     fill: none;
-    stroke: #71e215;
+    stroke: var(--accent);
     stroke-width: 0.6rem;
     transform-origin: 50% 50%;
     transform: rotate(-90deg);
 }
 
 .loading-progress circle:last-child {
-    stroke: #333333;
+    stroke: var(--border-subtle);
     stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
 }
 
@@ -80,10 +94,50 @@ html, body {
     text-align: center;
     font-weight: bold;
     inset: calc(20vh + 3.25rem) 0 auto 0.2rem;
+    color: var(--text-primary);
 }
 
 .loading-progress-text:after {
     content: var(--blazor-load-percentage-text, "Loading");
+}
+
+*:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.mud-input-root:focus-within,
+.mud-button-root:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.mud-navmenu .mud-nav-link.active {
+    color: var(--accent) !important;
+    border-left: 3px solid var(--accent);
+}
+
+.mud-navmenu .mud-nav-link {
+    border-left: 3px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.mud-navmenu .mud-nav-link:not(.active):hover {
+    color: var(--text-primary) !important;
+}
+
+.data-card {
+    cursor: pointer;
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.data-card:hover {
+    box-shadow: 0 0 20px rgba(92, 159, 36, 0.2);
+    transform: translateY(-1px);
 }
 
 .dashboard-card {
@@ -92,41 +146,14 @@ html, body {
 }
 
 .dashboard-card:hover {
-    box-shadow: 0 0 20px rgba(113, 226, 21, 0.3) !important;
+    box-shadow: 0 0 20px rgba(92, 159, 36, 0.2);
     transform: translateY(-2px);
 }
 
-.warning-card:hover {
-    box-shadow: 0 0 20px rgba(255, 204, 0, 0.3) !important;
+.result-card {
+    border-left: 4px solid var(--accent);
 }
 
-.error-card:hover {
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3) !important;
-}
-
-/* Active nav — lime text + accent underline per design spec */
-.mud-navmenu .mud-nav-link.active {
-    color: #71e215 !important;
-    border-bottom: 2px solid #5c9f24;
-}
-
-.mud-navmenu .mud-nav-link {
-    border-bottom: 2px solid transparent;
-    transition: color 0.2s ease, border-color 0.2s ease;
-}
-
-.mud-navmenu .mud-nav-link:not(.active):hover {
-    color: #ffffff !important;
-}
-
-/* Focus ring for keyboard navigation */
-.mud-input-root:focus-within,
-.mud-button-root:focus-visible {
-    outline: 2px solid #FFCC00;
-    outline-offset: 2px;
-}
-
-.chip-suspended {
-    background-color: #f59e0b !important;
-    color: #000 !important;
+.result-card.result-invalid {
+    border-left-color: var(--text-secondary);
 }

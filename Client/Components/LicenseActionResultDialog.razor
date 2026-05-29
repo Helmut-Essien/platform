@@ -6,7 +6,8 @@
         <MudText Class="mb-2">License is now <strong>@License.Status</strong>.</MudText>
         @if (License.LicenseKeySentAt is not null)
         {
-            <MudText Class="mb-2">License key emailed at @License.LicenseKeySentAt.Value.ToString("g") UTC.</MudText>
+            <MudText Class="mb-2">License key was generated at @License.LicenseKeySentAt.Value.ToString("g") UTC.</MudText>
+            <MudText Class="mb-2"><strong>Copy this key now — it cannot be retrieved again after closing this dialog.</strong></MudText>
         }
         else
         {
@@ -22,7 +23,7 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">I've Saved It</MudButton>
     </DialogActions>
 </MudDialog>
 

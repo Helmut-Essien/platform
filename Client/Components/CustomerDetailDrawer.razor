@@ -2,12 +2,12 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
-<MudDrawer @bind-Open="Open" Anchor="Anchor.Right" Elevation="2" Width="480px" Overlay="true">
+<MudDrawer @bind-Open="Open" Anchor="Anchor.Right" Elevation="0" Width="480px" Overlay="true">
     @if (Customer is not null)
     {
         <div class="pa-4">
             <MudText Typo="Typo.h6" Class="mb-2">@Customer.Name</MudText>
-            <MudChip T="string" Size="Size.Small" Class="@(Customer.IsSuspended ? "chip-suspended" : "")" Color="@(Customer.IsSuspended ? Color.Default : Color.Success)">
+            <MudChip T="string" Size="Size.Small" Variant="@(Customer.IsSuspended ? Variant.Outlined : Variant.Filled)" Color="Color.Primary">
                 @(Customer.IsSuspended ? "Suspended" : "Active")
             </MudChip>
             <MudButton Variant="Variant.Text" Size="Size.Small" Class="ml-2" OnClick="EditAsync">Edit</MudButton>
@@ -82,6 +82,19 @@
     private List<LicenseDto> _licenses = [];
     private List<InvoiceDto> _invoices = [];
     private List<AuditLogDto> _audit = [];
+    private string? _lastCustomerId;
+
+    protected override void OnParametersSet()
+    {
+        if (Customer?.Id != _lastCustomerId)
+        {
+            _lastCustomerId = Customer?.Id;
+            _licenses = [];
+            _invoices = [];
+            _audit = [];
+            _tab = 0;
+        }
+    }
 
     private async Task OnTabChanged(int index)
     {

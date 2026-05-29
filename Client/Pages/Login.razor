@@ -9,16 +9,17 @@
 
 <MudPaper Class="login-card pa-5 pa-sm-8" Elevation="0">
     <div class="login-brand">
-        <img src="images/helmutcode-icon.png" alt="HelmutCode" class="login-logo" width="88" height="88" />
-        <MudText Typo="Typo.h5" Class="login-title">HelmutCode</MudText>
+        <img src="images/login-logo.png" alt="HelmutCode" class="login-logo" />
         <MudText Typo="Typo.body2" Class="login-subtitle">
-            Platform Admin — sign in to manage licenses and customers
+            Sign in to manage licenses and customers
         </MudText>
     </div>
 
+    <MudDivider Class="login-divider" />
+
     @if (_hasError)
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="login-error mb-4"
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="login-error"
                   CloseIconClicked="@(() => _hasError = false)">
             @_errorMessage
         </MudAlert>
@@ -40,12 +41,12 @@
                       Label="Password"
                       Variant="Variant.Outlined"
                       InputType="@(_passwordVisible ? InputType.Text : InputType.Password)"
-                      autocomplete="current-password"
                       Adornment="Adornment.End"
                       AdornmentIcon="@(_passwordVisible ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
                       OnAdornmentClick="TogglePasswordVisibility"
                       FullWidth="true"
                       Disabled="_busy"
+                      autocomplete="current-password"
                       OnKeyUp="OnKeyUp" />
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"

@@ -41,7 +41,7 @@
         <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
     }
 }
-else if (FilteredLogs.Count == 0)
+else if (_filteredLogs.Count == 0)
 {
     <MudText Typo="Typo.subtitle1" Class="pa-4">@(_logs.Count == 0 ? "No audit events recorded yet." : "No results match your filters.")</MudText>
     @if (_logs.Count == 0)
@@ -52,7 +52,7 @@ else if (FilteredLogs.Count == 0)
 else
 {
     <MudExpansionPanels MultiExpansion="true">
-        @foreach (var log in FilteredLogs)
+        @foreach (var log in _filteredLogs)
         {
             <MudExpansionPanel Text="@($"{log.Timestamp:g} — {log.Action}")">
                 <MudText Typo="Typo.body2"><strong>By:</strong> @log.PerformedBy</MudText>
@@ -60,7 +60,7 @@ else
                 <MudText Typo="Typo.body2"><strong>License:</strong> @ResolveLicense(log.LicenseId)</MudText>
                 @if (!string.IsNullOrEmpty(log.DetailsJson))
                 {
-                    <pre class="license-key mt-2">@log.DetailsJson</pre>
+                    <pre class="text-code mt-2">@log.DetailsJson</pre>
                 }
             </MudExpansionPanel>
         }
@@ -76,19 +76,31 @@ else
     private AuditAction? _actionFilter;
     private string? _customerFilter;
     private string _search = "";
+    private List<AuditLogDto>? _cachedFilteredLogs;
+    private bool _filterDirty = true;
 
-    private List<AuditLogDto> FilteredLogs
+    private List<AuditLogDto> _filteredLogs
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(_search))
-                return _logs;
+            if (!_filterDirty)
+                return _cachedFilteredLogs!;
 
-            return _logs.Where(l =>
-                l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase) ||
-                (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (ResolveCustomer(l.CustomerId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (ResolveLicense(l.LicenseId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+            List<AuditLogDto> result;
+            if (string.IsNullOrWhiteSpace(_search))
+                result = _logs;
+            else
+            {
+                result = _logs.Where(l =>
+                    l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                    (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (ResolveCustomer(l.CustomerId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (ResolveLicense(l.LicenseId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+            }
+
+            _cachedFilteredLogs = result;
+            _filterDirty = false;
+            return result;
         }
     }
 
@@ -116,12 +128,13 @@ else
             l => $"{l.CustomerName} / {l.ServiceProductCode}");
         _logs = await logsTask;
 
+        _filterDirty = true;
         _loading = false;
     }
 
     private async Task ExportCsvAsync()
     {
-        var rows = FilteredLogs;
+        var rows = _filteredLogs;
         if (rows.Count == 0)
             return;
 

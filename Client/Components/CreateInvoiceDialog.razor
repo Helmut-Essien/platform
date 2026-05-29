@@ -9,6 +9,7 @@
                        Variant="Variant.Outlined"
                        Required="true"
                        RequiredError="Customer is required"
+                      
                        Class="mb-2">
                 @foreach (var c in Customers)
                 {
@@ -19,34 +20,47 @@
                           Label="Currency"
                           Variant="Variant.Outlined"
                           Required="true"
+                          RequiredError="Currency is required"
+                         
                           Class="mb-2" />
             <MudNumericField @bind-Value="_model.Subtotal"
                              Label="Subtotal"
                              Variant="Variant.Outlined"
                              Min="0m"
+                             Required="true"
+                             RequiredError="Subtotal is required"
+                            
                              Class="mb-2" />
             <MudNumericField @bind-Value="_model.TaxAmount"
                              Label="Tax"
                              Variant="Variant.Outlined"
                              Min="0m"
+                             Required="true"
+                             RequiredError="Tax is required"
+                            
                              Class="mb-2" />
             <MudDatePicker @bind-Date="_dueDate"
                            Label="Due date"
                            Variant="Variant.Outlined"
+                          
                            Class="mb-2" />
             <MudTextField @bind-Value="_model.PlanName"
                           Label="Plan (optional)"
                           Variant="Variant.Outlined"
+                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.Description"
                           Label="Description (optional)"
                           Variant="Variant.Outlined"
-                          Lines="2" />
+                          Lines="2"
+                          />
         </MudForm>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Create</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
+            Create
+        </MudButton>
     </DialogActions>
 </MudDialog>
 

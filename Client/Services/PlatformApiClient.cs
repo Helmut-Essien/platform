@@ -20,8 +20,8 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<LoginResponse>(response, ct);
     }
 
-    public async Task<object?> GetMeAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<object>("api/auth/me", ct);
+    public async Task<LoginResponse?> GetMeAsync(CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<LoginResponse>("api/auth/me", ct);
 
     public async Task<DashboardStatsDto?> GetDashboardStatsAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<DashboardStatsDto>("api/dashboard/stats", ct);

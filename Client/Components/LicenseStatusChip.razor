@@ -1,19 +1,17 @@
 @using Platform.Shared.Enums
 
-<MudChip T="string" Size="Size.Small" Color="@GetColor()" Class="@GetClass()">@Status</MudChip>
+<MudChip T="string" Size="Size.Small" Variant="@GetVariant()" Color="Color.Primary">@Status</MudChip>
 
 @code {
     [Parameter] public LicenseStatus Status { get; set; }
 
-    private Color GetColor() => Status switch
+    private Variant GetVariant() => Status switch
     {
-        LicenseStatus.Active => Color.Success,
-        LicenseStatus.Pending => Color.Warning,
-        LicenseStatus.Suspended => Color.Default,
-        LicenseStatus.Revoked => Color.Error,
-        LicenseStatus.Expired => Color.Default,
-        _ => Color.Default
+        LicenseStatus.Active => Variant.Filled,
+        LicenseStatus.Pending => Variant.Outlined,
+        LicenseStatus.Suspended => Variant.Outlined,
+        LicenseStatus.Revoked => Variant.Text,
+        LicenseStatus.Expired => Variant.Text,
+        _ => Variant.Text
     };
-
-    private string GetClass() => Status == LicenseStatus.Suspended ? "chip-suspended" : "";
 }

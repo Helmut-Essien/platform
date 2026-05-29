@@ -1,8 +1,8 @@
 ---
 name: platform-admin-ui
 description: >-
-  Dark-theme MudBlazor UI/UX for the Platform admin hub (Blazor WASM). Portfolio-inspired
-  palette (#71e215 on black), Inter + JetBrains Mono, wireframes, and component specs.
+  Minimalist dark-theme MudBlazor UI/UX for the Platform admin hub (Blazor WASM).
+  Single lime accent (#5c9f24), Inter + JetBrains Mono, wireframes, and component specs.
   Use when building Client layouts, pages, dialogs, grids, or Phase 6 UI. Pair with
   platform-license-hub for API and domain rules.
 ---
@@ -19,8 +19,8 @@ description: >-
 
 ## Design identity
 
-- **Dark-first** admin console inspired by [helmut-essien.github.io/portfolio](https://helmut-essien.github.io/portfolio/)
-- **Primary:** lime `#71e215` on black `#000000` — not indigo/teal
+- **Minimalist dark** admin console inspired by [helmut-essien.github.io/portfolio](https://helmut-essien.github.io/portfolio/)
+- **Single accent:** `#5c9f24` — no secondary colors, no semantic palette
 - **Fonts:** Inter (UI), JetBrains Mono (keys, JSON)
 - **Framework:** Blazor WASM + MudBlazor v7+
 
@@ -34,9 +34,9 @@ Human-readable export: [docs/SaaS-Admin-Hub-UI-Spec.md](../../../docs/SaaS-Admin
 Replace default Bootstrap layout in `Client/Layout/` with:
 
 - `MudLayout` + `MudThemeProvider` (dark palette from design-system)
-- `MudAppBar` — `#000000`, title "Platform Admin", user menu / logout
-- `MudDrawer` — `#0c1408`, collapsible, nav from IA below
-- `MudMainContent` — `#000000`, padding 24px
+- `MudAppBar` — `var(--bg-base)`, title "Platform Admin", user menu / logout
+- `MudDrawer` — `var(--bg-surface)`, collapsible, nav from IA below
+- `MudMainContent` — `var(--bg-base)`, padding 24px
 
 ### Navigation
 
@@ -51,30 +51,32 @@ Replace default Bootstrap layout in `Client/Layout/` with:
 | `/tools/validate` | Validate License | Icons.Material.Filled.Science |
 | `/login` | (no drawer) | — |
 
-Active nav: text `#71e215`, bottom border `#5c9f24`. Inactive: `rgba(255,255,255,0.7)`, hover `#ffffff`.
+Active nav: text `--accent`, bottom border `--accent-active`. Inactive: `--text-secondary`, hover `--text-primary`.
 
 ## License status chips (`MudChip`)
 
-| Status | Color | Enum |
-|--------|-------|------|
-| Active | `#71e215` | `LicenseStatus.Active` |
-| Pending | `#FFCC00` | `Pending` |
-| Suspended | `#f59e0b` | `Suspended` |
-| Revoked | `#ef4444` | `Revoked` |
-| Expired | `#64748b` | `Expired` |
+All chips use `--accent` (`#5c9f24`). Differentiate by MudBlazor variant:
 
-Customer row: **Suspended** → chip `#f59e0b`; **Active** → `#71e215`.
+| Status | Variant | Enum |
+|--------|---------|------|
+| Active | Filled | `LicenseStatus.Active` |
+| Pending | Outlined | `Pending` |
+| Suspended | Outlined | `Suspended` |
+| Revoked | Text | `Revoked` |
+| Expired | Text | `Expired` |
+
+Customer row: **Suspended** → Outlined; **Active** → Filled.
 
 ## UX rules (mandatory)
 
-1. **Destructive actions** (delete, revoke, suspend) → `MudDialog` confirm, error accent `#ef4444`
-2. **Keys** — license/integration plain text shown **once** in modal; copy button; success glow `rgba(113,226,21,0.3)`; never list plain keys in grids
+1. **Destructive actions** (delete, revoke, suspend) → `MudDialog` confirm, accent `--accent`
+2. **Keys** — license/integration plain text shown **once** in modal; copy button; success glow `rgba(92,159,36,0.3)`; never list plain keys in grids
 3. **Progressive disclosure** — summary in `MudDataGrid`; detail in drawer or expandable row
-4. **Empty states** — illustration/message + primary CTA (`#71e215` button, text `#000000`)
-5. **Loading** — `MudSkeleton` on `#0c1408`; avoid blank screens
-6. **Errors** — inline `ErrorText` `#ef4444`; API errors → `MudSnackbar`
-7. **Keyboard** — Tab order; Escape closes dialog; Enter submits primary form; focus `2px solid #FFCC00` offset 2px
-8. **Grids** — virtualize large datasets; dark header `#0c1408`, row hover `#1a1a1a`
+4. **Empty states** — illustration/message + primary CTA (`--accent` button, text `--bg-base`)
+5. **Loading** — `MudSkeleton` on `--bg-surface`; avoid blank screens
+6. **Errors** — inline `ErrorText` `--accent`; API errors → `MudSnackbar`
+7. **Keyboard** — Tab order; Escape closes dialog; Enter submits primary form; focus `2px solid --accent` offset 2px
+8. **Grids** — virtualize large datasets; dark header `--bg-surface`, row hover `--bg-elevated`
 
 ## UI implementation phases (deliver one at a time)
 
@@ -96,7 +98,7 @@ Confirm with user before next UI phase. Match backend Phase 6 in `platform-licen
 | Data tables | `MudDataGrid<T>` |
 | Forms | `MudForm`, `MudTextField`, `MudAutocomplete`, `MudDatePicker` |
 | Confirm | `MudDialog` / `DialogService.ShowMessageBox` |
-| Toast | `ISnackbar` — success use `#71e215` bg, `#000000` text |
+| Toast | `ISnackbar` — success use `--accent` bg, `--bg-base` text |
 | Code/JSON | `MudCodeBlock` or `<pre class="text-code">` |
 | Keys | `<code class="license-key">` + `MudIconButton` copy |
 
@@ -111,6 +113,6 @@ Confirm with user before next UI phase. Match backend Phase 6 in `platform-licen
 ## Quick token reference
 
 ```
-primary #71e215 | background #000000 | surface #0c1408 | body #FAF5E9
-accent #FFCC00 | error #ef4444 | border #333333
+accent #5c9f24 | base #121212 | surface #1e1e1e | elevated #2a2a2a
+text-primary #ededed | text-secondary #a0a0a0 | border #2c2c2c
 ```
