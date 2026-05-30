@@ -52,7 +52,7 @@
                    Color="Color.Primary"
                    FullWidth="true"
                    Class="login-submit"
-                   Disabled="_busy"
+                   Disabled="@(_busy || !_formValid)"
                    OnClick="LoginAsync">
             @if (_busy)
             {

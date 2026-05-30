@@ -5,46 +5,38 @@
     <DialogContent>
         <MudText Typo="Typo.caption" Class="mb-4">A new license key will be generated, the expiry extended, and a new invoice created.</MudText>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
-            <MudDatePicker @bind-Date="_expiresAt"
+            <MudDatePicker @bind-Date="_model.ExpiresAt"
+                           For="@(() => _model.ExpiresAt)"
                            Label="New expiry date"
                            Variant="Variant.Outlined"
-                           Required="true"
-                           RequiredError="Expiry date is required"
-                          
                            Class="mb-2" />
             <MudNumericField @bind-Value="_model.Subtotal"
+                             For="@(() => _model.Subtotal)"
                              Label="Subtotal"
                              Variant="Variant.Outlined"
                              Min="0m"
-                             Required="true"
-                             RequiredError="Subtotal is required"
-                            
                              Class="mb-2" />
             <MudNumericField @bind-Value="_model.TaxAmount"
+                             For="@(() => _model.TaxAmount)"
                              Label="Tax"
                              Variant="Variant.Outlined"
                              Min="0m"
-                             Required="true"
-                             RequiredError="Tax is required"
-                            
                              Class="mb-2" />
             <MudTextField @bind-Value="_model.Currency"
+                          For="@(() => _model.Currency)"
                           Label="Currency"
                           Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Currency is required"
-                         
                           Class="mb-2" />
-            <MudDatePicker @bind-Date="_dueDate"
+            <MudDatePicker @bind-Date="_model.DueDate"
+                           For="@(() => _model.DueDate)"
                            Label="Invoice due date"
                            Variant="Variant.Outlined"
-                          
                            Class="mb-2" />
             <MudTextField @bind-Value="_model.Description"
+                          For="@(() => _model.Description)"
                           Label="Description (optional)"
                           Variant="Variant.Outlined"
-                          Lines="2"
-                          />
+                          Lines="2" />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -62,13 +54,16 @@
 
     private MudForm? _form;
     private bool _formValid;
-    private DateTime? _expiresAt;
-    private DateTime? _dueDate = DateTime.UtcNow.AddDays(30);
-    private RenewLicenseRequest _model = new() { Subtotal = 99m, Currency = "USD" };
+    private RenewLicenseRequest _model = new()
+    {
+        Subtotal = 99m,
+        Currency = "USD",
+        DueDate = DateTime.UtcNow.AddDays(30)
+    };
 
     protected override void OnInitialized()
     {
-        _expiresAt = CurrentExpiresAt?.AddYears(1) ?? DateTime.UtcNow.AddYears(1);
+        _model.ExpiresAt = CurrentExpiresAt?.AddYears(1) ?? DateTime.UtcNow.AddYears(1);
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -82,8 +77,6 @@
         if (!_formValid)
             return;
 
-        _model.ExpiresAt = _expiresAt;
-        _model.DueDate = _dueDate;
         MudDialog.Close(DialogResult.Ok(_model));
     }
 }

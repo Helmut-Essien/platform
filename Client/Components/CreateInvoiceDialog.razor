@@ -5,11 +5,9 @@
     <DialogContent>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudSelect T="string" @bind-Value="_model.CustomerId"
+                       For="@(() => _model.CustomerId)"
                        Label="Customer"
                        Variant="Variant.Outlined"
-                       Required="true"
-                       RequiredError="Customer is required"
-                      
                        Class="mb-2">
                 @foreach (var c in Customers)
                 {
@@ -17,43 +15,37 @@
                 }
             </MudSelect>
             <MudTextField @bind-Value="_model.Currency"
+                          For="@(() => _model.Currency)"
                           Label="Currency"
                           Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Currency is required"
-                         
                           Class="mb-2" />
             <MudNumericField @bind-Value="_model.Subtotal"
+                             For="@(() => _model.Subtotal)"
                              Label="Subtotal"
                              Variant="Variant.Outlined"
                              Min="0m"
-                             Required="true"
-                             RequiredError="Subtotal is required"
-                            
                              Class="mb-2" />
             <MudNumericField @bind-Value="_model.TaxAmount"
+                             For="@(() => _model.TaxAmount)"
                              Label="Tax"
                              Variant="Variant.Outlined"
                              Min="0m"
-                             Required="true"
-                             RequiredError="Tax is required"
-                            
                              Class="mb-2" />
-            <MudDatePicker @bind-Date="_dueDate"
+            <MudDatePicker @bind-Date="_model.DueDate"
+                           For="@(() => _model.DueDate)"
                            Label="Due date"
                            Variant="Variant.Outlined"
-                          
                            Class="mb-2" />
             <MudTextField @bind-Value="_model.PlanName"
+                          For="@(() => _model.PlanName)"
                           Label="Plan (optional)"
                           Variant="Variant.Outlined"
-                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.Description"
+                          For="@(() => _model.Description)"
                           Label="Description (optional)"
                           Variant="Variant.Outlined"
-                          Lines="2"
-                          />
+                          Lines="2" />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -71,8 +63,12 @@
 
     private MudForm? _form;
     private bool _formValid;
-    private DateTime? _dueDate = DateTime.UtcNow.AddDays(30);
-    private CreateInvoiceRequest _model = new() { CustomerId = "", Currency = "USD" };
+    private CreateInvoiceRequest _model = new()
+    {
+        CustomerId = "",
+        Currency = "USD",
+        DueDate = DateTime.UtcNow.AddDays(30)
+    };
 
     protected override void OnInitialized()
     {
@@ -90,7 +86,6 @@
         if (!_formValid)
             return;
 
-        _model.DueDate = _dueDate;
         _model.Status = InvoiceStatus.Sent;
         MudDialog.Close(DialogResult.Ok(_model));
     }

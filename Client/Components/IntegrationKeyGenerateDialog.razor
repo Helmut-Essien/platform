@@ -1,0 +1,60 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Generate Integration Key</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
+            Creating a new key will revoke the previous active key for this service. Any app using the old key will fail validation.
+        </MudAlert>
+        <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
+            <MudSelect T="string" @bind-Value="_model.ServiceProductId"
+                       For="@(() => _model.ServiceProductId)"
+                       Label="Service"
+                       Variant="Variant.Outlined">
+                @foreach (var p in Products)
+                {
+                    <MudSelectItem Value="@p.Id">@p.Code — @p.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateAsync" Disabled="@(!_formValid)">
+            Generate
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public List<ServiceProductDto> Products { get; set; } = [];
+    [Parameter] public string? DefaultProductId { get; set; }
+
+    private MudForm? _form;
+    private bool _formValid;
+    private GenerateIntegrationKeyRequest _model = new();
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrEmpty(DefaultProductId) && Products.Any(p => p.Id == DefaultProductId))
+            _model.ServiceProductId = DefaultProductId;
+        else if (Products.Count > 0)
+            _model.ServiceProductId = Products[0].Id;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task GenerateAsync()
+    {
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+        if (!_formValid)
+            return;
+
+        MudDialog.Close(DialogResult.Ok(_model.ServiceProductId));
+    }
+}

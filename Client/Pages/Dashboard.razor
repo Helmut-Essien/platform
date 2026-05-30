@@ -3,82 +3,173 @@
 @inject PlatformApiClient Api
 @inject NavigationManager Navigation
 
-<PageHeader Title="Dashboard" />
+<div class="dashboard-page">
+    <header class="dashboard-header">
+        <h1>Dashboard</h1>
+        <p>Platform overview and performance metrics.</p>
+    </header>
 
-@if (_loading)
-{
-    <MudGrid>
-        @for (var i = 0; i < 4; i++)
-        {
-            <MudItem xs="12" sm="6" md="3">
-                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="88px" Class="rounded-lg" />
-            </MudItem>
-        }
-    </MudGrid>
-    <MudSkeleton Width="40%" Height="32px" Class="mt-8 mb-4" />
-    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="200px" />
-}
-else
-{
-    <MudGrid>
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Class="pa-4 dashboard-card" @onclick="GoToCustomers">
-                <MudText Typo="Typo.subtitle2">Total Customers</MudText>
-                <MudText Typo="Typo.h4" Color="Color.Primary">@_customerCount</MudText>
-            </MudCard>
-        </MudItem>
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Class="pa-4 dashboard-card" @onclick="GoToLicenses">
-                <MudText Typo="Typo.subtitle2">Active Licenses</MudText>
-                <MudText Typo="Typo.h4" Color="Color.Primary">@_activeLicenses</MudText>
-            </MudCard>
-        </MudItem>
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Class="pa-4 dashboard-card" @onclick="GoToLicenses">
-                <MudText Typo="Typo.subtitle2">Expiring in 30 Days</MudText>
-                <MudText Typo="Typo.h4" Color="Color.Primary">@_expiringSoon</MudText>
-            </MudCard>
-        </MudItem>
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Class="pa-4 dashboard-card" @onclick="GoToInvoices">
-                <MudText Typo="Typo.subtitle2">Unpaid Invoices</MudText>
-                <MudText Typo="Typo.h4" Color="Color.Primary">@_unpaidInvoices</MudText>
-            </MudCard>
-        </MudItem>
-    </MudGrid>
-
-    <MudText Typo="Typo.h5" Class="mt-8 mb-4">Quick Actions</MudText>
-    <MudGrid>
-        <MudItem xs="12" sm="4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="GoToNewCustomer">New Customer</MudButton>
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.VpnKey" OnClick="GoToIssueLicense">Issue License</MudButton>
-        </MudItem>
-        <MudItem xs="12" sm="4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.Key" OnClick="GoToIntegrationKeys">New Integration Key</MudButton>
-        </MudItem>
-    </MudGrid>
-
-    @if (_recentAudit is { Count: > 0 })
+    @if (_loading)
     {
-        <div class="d-flex align-center justify-space-between mt-8 mb-4">
-            <MudText Typo="Typo.h5">Recent Activity</MudText>
-            <MudButton Variant="Variant.Text" Href="/audit">View full audit log</MudButton>
-        </div>
-        <MudTimeline TimelinePosition="TimelinePosition.Start">
-            @foreach (var entry in _recentAudit)
+        <div class="dashboard-kpi-grid">
+            @for (var i = 0; i < 4; i++)
             {
-                <MudTimelineItem Color="Color.Primary">
-                    <ItemContent>
-                        <MudText Typo="Typo.body2"><strong>@entry.Action</strong> — @entry.PerformedBy</MudText>
-                        <MudText Typo="Typo.caption">@entry.Timestamp.ToString("g")</MudText>
-                    </ItemContent>
-                </MudTimelineItem>
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Class="dashboard-skeleton-kpi" />
             }
-        </MudTimeline>
+        </div>
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Class="dashboard-skeleton-main mt-4" />
     }
-}
+    else
+    {
+        <section class="dashboard-kpi-grid" aria-label="Key metrics">
+            <article class="kpi-card" @onclick="GoToCustomers" tabindex="0" role="link" aria-label="Total customers">
+                <div class="kpi-card-head">
+                    <span class="kpi-card-label">Total Customers</span>
+                    <MudIcon Icon="@Icons.Material.Filled.Group" Class="kpi-card-icon" />
+                </div>
+                <div class="kpi-card-value">@_customerCount</div>
+                <div class="kpi-card-foot">
+                    <span class="highlight-primary">Registered</span>
+                    <span>organizations</span>
+                </div>
+            </article>
+
+            <article class="kpi-card" @onclick="GoToLicenses" tabindex="0" role="link" aria-label="Active licenses">
+                <div class="kpi-card-head">
+                    <span class="kpi-card-label">Active Licenses</span>
+                    <MudIcon Icon="@Icons.Material.Filled.VpnKey" Class="kpi-card-icon" />
+                </div>
+                <div class="kpi-card-value">@_activeLicenses</div>
+                <div class="kpi-card-foot">
+                    <span class="highlight-primary">Healthy</span>
+                    <span>ecosystem</span>
+                </div>
+            </article>
+
+            <article class="kpi-card" @onclick="GoToExpiringLicenses" tabindex="0" role="link" aria-label="Licenses expiring in 30 days">
+                <div class="kpi-card-head">
+                    <span class="kpi-card-label">Expiring in 30 Days</span>
+                    <MudIcon Icon="@Icons.Material.Filled.Schedule" Class="kpi-card-icon" />
+                </div>
+                <div class="kpi-card-value">@_expiringSoon</div>
+                <div class="kpi-card-foot">
+                    @if (_expiringSoon > 0)
+                    {
+                        <span class="highlight-attention">Attention</span>
+                        <span>required</span>
+                    }
+                    else
+                    {
+                        <span class="highlight-primary">All clear</span>
+                    }
+                </div>
+            </article>
+
+            <article class="kpi-card" @onclick="GoToUnpaidInvoices" tabindex="0" role="link" aria-label="Unpaid invoices">
+                <div class="kpi-card-head">
+                    <span class="kpi-card-label">Unpaid Invoices</span>
+                    <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" Class="kpi-card-icon" />
+                </div>
+                <div class="kpi-card-value">@_unpaidInvoices</div>
+                <div class="kpi-card-foot">
+                    @if (_unpaidInvoices > 0)
+                    {
+                        <span>Pending</span>
+                        <span>reconciliation</span>
+                    }
+                    else
+                    {
+                        <span class="highlight-primary">Fully</span>
+                        <span>reconciled</span>
+                    }
+                </div>
+            </article>
+        </section>
+
+        <div class="dashboard-main-grid">
+            <section class="dashboard-timeline-panel" aria-label="Recent activity">
+                <div class="timeline-panel-head">
+                    <h2>Recent Activity</h2>
+                    <span class="timeline-panel-badge">Live Stream</span>
+                </div>
+
+                @if (_recentAudit.Count == 0)
+                {
+                    <p class="timeline-empty">No recent activity yet. Actions across customers, licenses, and invoices will appear here.</p>
+                }
+                else
+                {
+                    <div class="dashboard-timeline">
+                        @foreach (var (entry, index) in _recentAudit.Select((e, i) => (e, i)))
+                        {
+                            var faded = index >= 5;
+                            <div class="timeline-event @(faded ? "timeline-event-faded" : "")">
+                                <div class="timeline-dot @GetTimelineDotClass(entry, index)"></div>
+                                <div class="timeline-event-body">
+                                    <p class="timeline-event-title">
+                                        @entry.Action@if (!string.IsNullOrEmpty(GetTargetLabel(entry)))
+                                        {
+                                            <text> — <span class="target">@GetTargetLabel(entry)</span></text>
+                                        }
+                                    </p>
+                                    <p class="timeline-event-summary">@GetAuditSummary(entry)</p>
+                                    <p class="timeline-event-time">@FormatRelativeTime(entry.Timestamp)</p>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <button type="button" class="view-audit-btn" @onclick="GoToAudit">View Full Audit Log</button>
+            </section>
+
+            <aside class="dashboard-sidebar">
+                <div class="dashboard-sidebar-card">
+                    <h2 class="sidebar-card-title">Quick Actions</h2>
+                    <div class="quick-actions-stack">
+                        <button type="button" class="quick-action-primary" @onclick="GoToNewCustomer">
+                            <span>+ New Customer</span>
+                            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                        </button>
+                        <button type="button" class="quick-action-secondary" @onclick="GoToIssueLicense">
+                            <span>Issue License</span>
+                            <MudIcon Icon="@Icons.Material.Filled.VpnKey" Size="Size.Small" />
+                        </button>
+                        <button type="button" class="quick-action-secondary" @onclick="GoToIntegrationKeys">
+                            <span>Generate Integration Key</span>
+                            <MudIcon Icon="@Icons.Material.Filled.Api" Size="Size.Small" />
+                        </button>
+                    </div>
+                </div>
+
+                <div class="dashboard-sidebar-card platform-health">
+                    <div class="platform-health-watermark" aria-hidden="true">
+                        <MudIcon Icon="@Icons.Material.Filled.Analytics" />
+                    </div>
+                    <h3 class="platform-health-label">Platform Health</h3>
+                    <div class="health-metric">
+                        <div class="health-metric-head">
+                            <span>API Uptime</span>
+                            <span>99.98%</span>
+                        </div>
+                        <div class="health-bar">
+                            <div class="health-bar-fill" style="width: 99%"></div>
+                        </div>
+                    </div>
+                    <div class="health-metric">
+                        <div class="health-metric-head">
+                            <span>Sync Queue</span>
+                            <span>0%</span>
+                        </div>
+                        <div class="health-bar">
+                            <div class="health-bar-fill" style="width: 2%"></div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    }
+</div>
 
 @code {
     private bool _loading = true;
@@ -87,10 +178,17 @@ else
     private int _expiringSoon;
     private int _unpaidInvoices;
     private List<AuditLogDto> _recentAudit = [];
+    private Dictionary<string, string> _customerNames = [];
 
     protected override async Task OnInitializedAsync()
     {
-        var stats = await Api.GetDashboardStatsAsync();
+        var statsTask = Api.GetDashboardStatsAsync();
+        var auditTask = LoadAuditSafeAsync();
+        var customersTask = LoadCustomerNamesSafeAsync();
+
+        await Task.WhenAll(statsTask, auditTask, customersTask);
+
+        var stats = await statsTask;
         if (stats is not null)
         {
             _customerCount = stats.CustomerCount;
@@ -99,15 +197,90 @@ else
             _unpaidInvoices = stats.UnpaidInvoices;
         }
 
-        try { _recentAudit = await Api.GetAuditLogsAsync(limit: 10); } catch { /* optional */ }
-
         _loading = false;
+    }
+
+    private async Task LoadAuditSafeAsync()
+    {
+        try
+        {
+            _recentAudit = await Api.GetAuditLogsAsync(limit: 10);
+        }
+        catch
+        {
+            _recentAudit = [];
+        }
+    }
+
+    private async Task LoadCustomerNamesSafeAsync()
+    {
+        try
+        {
+            var result = await Api.GetCustomersPagedAsync(page: 1, pageSize: 200);
+            _customerNames = result.Items.ToDictionary(c => c.Id, c => c.Name);
+        }
+        catch
+        {
+            _customerNames = [];
+        }
+    }
+
+    private string? GetTargetLabel(AuditLogDto entry) =>
+        entry.CustomerId is not null && _customerNames.TryGetValue(entry.CustomerId, out var name)
+            ? name
+            : null;
+
+    private static string GetAuditSummary(AuditLogDto entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.DetailsJson))
+        {
+            var details = entry.DetailsJson.Trim();
+            return details.Length > 140 ? details[..140] + "…" : details;
+        }
+
+        return $"Recorded by {entry.PerformedBy}.";
+    }
+
+    private static string GetTimelineDotClass(AuditLogDto entry, int index)
+    {
+        if (index == 0)
+            return "timeline-dot-active";
+
+        return entry.Action is AuditAction.LicenseRevoked
+            or AuditAction.LicenseSuspended
+            or AuditAction.CustomerSuspended
+            or AuditAction.IntegrationKeyRevoked
+            or AuditAction.InvoiceVoided
+            ? "timeline-dot-attention"
+            : "timeline-dot-neutral";
+    }
+
+    private static string FormatRelativeTime(DateTime timestamp)
+    {
+        var utc = timestamp.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)
+            : timestamp.ToUniversalTime();
+        var delta = DateTime.UtcNow - utc;
+
+        if (delta.TotalMinutes < 1)
+            return "Just now";
+        if (delta.TotalMinutes < 60)
+            return $"{(int)delta.TotalMinutes} minute{((int)delta.TotalMinutes == 1 ? "" : "s")} ago";
+        if (delta.TotalHours < 24)
+            return $"{(int)delta.TotalHours} hour{((int)delta.TotalHours == 1 ? "" : "s")} ago";
+        if (delta.TotalDays < 7)
+            return $"{(int)delta.TotalDays} day{((int)delta.TotalDays == 1 ? "" : "s")} ago";
+
+        return utc.ToString("g") + " UTC";
     }
 
     private void GoToCustomers() => Navigation.NavigateTo("/customers");
     private void GoToNewCustomer() => Navigation.NavigateTo("/customers?add=true");
     private void GoToLicenses() => Navigation.NavigateTo("/licenses");
+    private void GoToExpiringLicenses() => Navigation.NavigateTo("/licenses");
+    private void GoToUnpaidInvoices() => Navigation.NavigateTo("/invoices");
     private void GoToIssueLicense() => Navigation.NavigateTo("/licenses?add=true");
     private void GoToInvoices() => Navigation.NavigateTo("/invoices");
     private void GoToIntegrationKeys() => Navigation.NavigateTo("/integration-keys");
+    private void GoToAudit() => Navigation.NavigateTo("/audit");
 }

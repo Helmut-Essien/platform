@@ -1,9 +1,11 @@
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">Edit Service</MudText>
+        <MudText Typo="Typo.h6">Add Service</MudText>
     </TitleContent>
     <DialogContent>
-        <MudText Typo="Typo.caption" Class="mb-2">Code: <span class="license-key">@Product.Code</span></MudText>
+        <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
+            Integration keys cannot be recovered after generation. You'll be prompted to generate one after creating the service.
+        </MudAlert>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudTextField @bind-Value="_model.Name"
                           For="@(() => _model.Name)"
@@ -12,21 +14,32 @@
                           MaxLength="200"
                           Counter="200"
                           Class="mb-2" />
+            <MudTextField @bind-Value="_model.Code"
+                          For="@(() => _model.Code)"
+                          Label="Code"
+                          Variant="Variant.Outlined"
+                          HelperText="Uppercase identifier, e.g. HOSTEL"
+                          MaxLength="50"
+                          Counter="50"
+                          Class="mb-2"
+                          @bind-Value:after="OnCodeChanged" />
             <MudTextField @bind-Value="_model.Description"
                           For="@(() => _model.Description)"
-                          Label="Description"
+                          Label="Description (optional)"
                           Variant="Variant.Outlined"
-                          Lines="3"
+                          Lines="2"
                           MaxLength="2000"
                           Counter="2000"
                           Class="mb-2" />
-            <MudSwitch @bind-Value="_model.IsAvailableForSale" Label="Available for sale" Color="Color.Primary" />
+            <MudSwitch @bind-Value="_model.IsAvailableForSale"
+                       Label="Available for sale"
+                       Color="Color.Primary" />
         </MudForm>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
-            Save
+            Add Service
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -34,26 +47,22 @@
 @code {
     [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
 
-    [Parameter] public required ServiceProductDto Product { get; set; }
-
     private MudForm? _form;
     private bool _formValid;
-    private UpdateServiceProductRequest _model = new() { Name = "" };
+    private CreateServiceProductRequest _model = new() { Name = "", Code = "" };
 
-    protected override void OnInitialized()
+    private void OnCodeChanged()
     {
-        _model = new UpdateServiceProductRequest
-        {
-            Name = Product.Name,
-            Description = Product.Description,
-            IsAvailableForSale = Product.IsAvailableForSale
-        };
+        if (!string.IsNullOrEmpty(_model.Code))
+            _model.Code = _model.Code.Trim().ToUpperInvariant();
     }
 
     private void Cancel() => MudDialog.Cancel();
 
     private async Task SaveAsync()
     {
+        OnCodeChanged();
+
         if (_form is null)
             return;
 

@@ -2,35 +2,129 @@
 @inject NavigationManager Navigation
 @inject TokenStorage TokenStorage
 @inject JwtAuthenticationStateProvider AuthState
-@inject IJSRuntime JSRuntime
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
-<MudLayout>
-    <MudAppBar Elevation="0" Class="app-bar">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" aria-label="Toggle navigation menu" />
-        <MudLink Href="/" Underline="Underline.None" Class="d-flex align-center">
-            <MudImage Src="images/helmutcode-icon.png" Alt="HelmutCode" Class="brand-logo mr-2" />
-            <MudText Typo="Typo.h6" Color="Color.Inherit">Platform Admin</MudText>
-        </MudLink>
-        <MudSpacer />
-        <MudText Typo="Typo.body2" Class="mr-4">@(_email ?? "")</MudText>
-        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Logout">Logout</MudButton>
+<a href="#main-content" class="skip-link">Skip to content</a>
+
+<MudLayout Class="platform-shell">
+    <MudAppBar Elevation="0" Class="app-bar" Dense="true">
+        @* Compact app bar (< 1024px) *@
+        <div class="app-bar-compact">
+            <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                           Color="Color.Primary"
+                           Edge="Edge.Start"
+                           OnClick="ToggleDrawer"
+                           aria-label="Open navigation menu"
+                           aria-expanded="@_drawerOpen"
+                           Class="menu-btn overlay-menu-btn" />
+            <MudLink Href="/" Underline="Underline.None" Class="app-bar-brand">
+                <MudText Typo="Typo.h6" Class="app-bar-title">Platform Admin</MudText>
+            </MudLink>
+            <MudSpacer />
+            <div class="app-bar-actions">
+                <MudButton Variant="Variant.Text" Class="logout-btn" OnClick="Logout">Logout</MudButton>
+                <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
+                               Color="Color.Primary"
+                               aria-label="Account"
+                               Class="account-btn" />
+            </div>
+        </div>
+
+        @* Desktop app bar (≥ 1024px) *@
+        <div class="app-bar-desktop">
+            <div class="app-bar-desktop-start">
+                <div class="app-bar-logo-badge" aria-hidden="true">
+                    <MudIcon Icon="@Icons.Material.Filled.Terminal" Size="Size.Medium" />
+                </div>
+                <MudLink Href="/" Underline="Underline.None" Class="app-bar-brand">
+                    <MudText Typo="Typo.h6" Class="app-bar-title">Platform Admin</MudText>
+                </MudLink>
+            </div>
+            <MudSpacer />
+            <div class="app-bar-desktop-end">
+                <button type="button" class="app-bar-search-chip" @onclick="OpenSearchPlaceholder" aria-label="Open search (Cmd+K)">
+                    <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" Class="search-chip-icon" />
+                    <span class="search-chip-label">Cmd + K</span>
+                </button>
+                <MudIconButton Icon="@Icons.Material.Filled.Notifications"
+                               Color="Color.Inherit"
+                               aria-label="Notifications"
+                               Class="notifications-btn" />
+                <div class="app-bar-user-cluster">
+                    <div class="app-bar-user-meta">
+                        <p class="app-bar-user-name">@DisplayName</p>
+                        <p class="app-bar-user-role">Superuser</p>
+                    </div>
+                    <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
+                                   Color="Color.Primary"
+                                   aria-label="Account"
+                                   Class="account-btn account-btn-filled" />
+                    <MudButton Variant="Variant.Text" Class="logout-btn" OnClick="Logout">Logout</MudButton>
+                </div>
+            </div>
+        </div>
     </MudAppBar>
+
     <MudDrawer @bind-Open="_drawerOpen"
+               Variant="DrawerVariant.Mini"
+               Breakpoint="Breakpoint.Lg"
+               OpenMiniOnHover="false"
                Elevation="0"
-               Variant="_drawerVariant"
                ClipMode="DrawerClipMode.Always"
-               Class="app-drawer">
-        <NavMenu />
+               Class="platform-sidebar"
+               MiniWidth="64px"
+               Width="240px">
+        @* Mobile overlay header (< 768px) *@
+        <div class="drawer-header drawer-header-mobile">
+            <div class="drawer-header-profile">
+                <div class="drawer-header-avatar" aria-hidden="true">
+                    <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Medium" />
+                </div>
+                <div class="drawer-header-meta">
+                    <p class="drawer-header-name">@DisplayName</p>
+                    <p class="drawer-header-role">Superuser</p>
+                </div>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                           Color="Color.Inherit"
+                           OnClick="CloseOverlayDrawer"
+                           aria-label="Close navigation menu"
+                           Class="drawer-close-btn" />
+        </div>
+
+        @* Tablet overlay header (768–1023px) *@
+        <div class="drawer-header drawer-header-tablet">
+            <div class="drawer-header-profile">
+                <div class="drawer-header-avatar" aria-hidden="true">
+                    <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Medium" />
+                </div>
+                <div class="drawer-header-meta">
+                    <p class="drawer-header-name">@DisplayName</p>
+                    <p class="drawer-header-role">Superuser</p>
+                </div>
+            </div>
+        </div>
+
+        <NavMenu Email="@(_email ?? "")"
+                 OnNavigate="CloseDrawerIfOverlay"
+                 OnLogout="Logout" />
     </MudDrawer>
-    <MudMainContent Class="pa-6">
-        @Body
+
+    <MudMainContent Class="platform-main-content">
+        <div id="main-content" class="platform-main-inner" tabindex="-1">
+            @Body
+        </div>
     </MudMainContent>
 </MudLayout>
 
 @code {
     private bool _drawerOpen;
-    private DrawerVariant _drawerVariant = DrawerVariant.Temporary;
     private string? _email;
+    private DotNetObjectReference<MainLayout>? _dotNetRef;
+
+    private string DisplayName =>
+        string.IsNullOrWhiteSpace(_email) ? "Admin" : _email.Split('@')[0];
 
     protected override async Task OnInitializedAsync()
     {
@@ -39,26 +133,81 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender)
-            return;
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("platformShell.registerNavShell", _dotNetRef);
+            await SyncDrawerToViewportAsync();
+        }
+    }
 
-        var width = await JSRuntime.InvokeAsync<int>("eval", "window.innerWidth");
-        if (width >= 1280)
-        {
-            _drawerOpen = true;
-            _drawerVariant = DrawerVariant.Mini;
-        }
-        else
-        {
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private async Task CloseDrawerIfOverlay()
+    {
+        if (await IsNavOverlayAsync())
             _drawerOpen = false;
-            _drawerVariant = DrawerVariant.Temporary;
-        }
+    }
+
+    private async Task CloseOverlayDrawer()
+    {
+        if (await IsNavOverlayAsync())
+            _drawerOpen = false;
+    }
+
+    [JSInvokable]
+    public void CloseDrawerFromEscape()
+    {
+        _drawerOpen = false;
         StateHasChanged();
     }
 
-    private void ToggleDrawer()
+    [JSInvokable]
+    public async Task SyncDrawerFromViewport(bool isDesktop)
     {
-        _drawerOpen = !_drawerOpen;
+        var shouldOpen = isDesktop;
+        if (_drawerOpen != shouldOpen)
+        {
+            _drawerOpen = shouldOpen;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SyncDrawerToViewportAsync()
+    {
+        try
+        {
+            var isDesktop = await JS.InvokeAsync<bool>("platformShell.isDesktopNav");
+            _drawerOpen = isDesktop;
+        }
+        catch
+        {
+            // JS not ready
+        }
+    }
+
+    private async Task<bool> IsNavOverlayAsync()
+    {
+        try
+        {
+            return await JS.InvokeAsync<bool>("platformShell.isNavOverlay");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task OpenSearchPlaceholder()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("platformShell.openSearchPlaceholder");
+        }
+        catch
+        {
+            // stub unavailable
+        }
     }
 
     private async Task Logout()
@@ -66,5 +215,21 @@
         await TokenStorage.ClearAsync();
         AuthState.NotifyStateChanged();
         Navigation.NavigateTo("/login");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_dotNetRef is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("platformShell.unregisterNavShell");
+            }
+            catch
+            {
+                // component teardown
+            }
+            _dotNetRef.Dispose();
+        }
     }
 }

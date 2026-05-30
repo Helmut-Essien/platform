@@ -1,72 +1,171 @@
 @page "/validate"
 @page "/tools/validate"
 @attribute [Authorize]
+@using System.Text.Json
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
+@inject IJSRuntime JSRuntime
 
-<PageHeader Title="Validate License" />
-<MudText Typo="Typo.body2" Class="mb-4">Tests the public license validation API with an integration key header. Rate-limited to 60 requests per minute.</MudText>
+<div class="validate-page">
+    <header class="validate-header">
+        <h1>License Debugger</h1>
+        <p>Low-level validation tool for verifying license key integrity and service integration keys.</p>
+    </header>
 
-<MudForm @ref="_form" Model="_request" @bind-IsValid="_formValid">
-    <MudTextField @bind-Value="_integrationKey"
-                  Label="X-Integration-Key"
-                  Variant="Variant.Outlined"
-                  Required="true"
-                  RequiredError="Integration key is required"
-                  Disabled="_busy"
-                  Class="mb-2"
-                  OnKeyUp="OnKeyUp" />
-    <MudTextField @bind-Value="_request.LicenseKey"
-                  For="@(() => _request.LicenseKey)"
-                  Label="License key"
-                  Variant="Variant.Outlined"
-                  Required="true"
-                  RequiredError="License key is required"
-                  Disabled="_busy"
-                  Class="mb-2"
-                  OnKeyUp="OnKeyUp" />
-    <MudTextField @bind-Value="_request.ServiceCode"
-                  For="@(() => _request.ServiceCode)"
-                  Label="Service code (optional)"
-                  Variant="Variant.Outlined"
-                  Disabled="_busy"
-                  Class="mb-2"
-                  OnKeyUp="OnKeyUp" />
-    <div class="d-flex gap-2">
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ValidateAsync" Disabled="@(!_formValid || _busy)">
-            @(_busy ? "Validating..." : "Test Validation")
-        </MudButton>
-        <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="Clear">Clear</MudButton>
+    <div class="validate-layout">
+        <section class="validate-form-column" aria-label="Validation input">
+            <div class="validate-input-panel">
+                <h2>
+                    <MudIcon Icon="@Icons.Material.Filled.Terminal" Size="Size.Small" />
+                    Input Parameters
+                </h2>
+                <MudForm @ref="_form" Model="_formModel" @bind-IsValid="_formValid">
+                    <div class="validate-field">
+                        <label class="validate-field-label" for="license-key-input">License Key</label>
+                        <MudTextField @bind-Value="_formModel.LicenseKey"
+                                      id="license-key-input"
+                                      For="@(() => _formModel.LicenseKey)"
+                                      Variant="Variant.Outlined"
+                                      Lines="8"
+                                      Disabled="_busy"
+                                      Placeholder="pk_HOSTEL_xxxxxxxx or paste full license key"
+                                      Class="validate-license-input"
+                                      OnKeyUp="OnKeyUp" />
+                    </div>
+                    <div class="validate-field">
+                        <label class="validate-field-label" for="service-select">Service Context</label>
+                        <MudSelect T="string" @bind-Value="_selectedServiceCode"
+                                   id="service-select"
+                                   Variant="Variant.Outlined"
+                                   Disabled="_busy"
+                                   Clearable="true"
+                                   Placeholder="Auto-detect if empty">
+                            @foreach (var product in _products)
+                            {
+                                <MudSelectItem Value="@product.Code">@product.Code — @product.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </div>
+                    <div class="validate-field">
+                        <label class="validate-field-label" for="integration-key-input">X-Integration-Key</label>
+                        <div class="validate-integration-wrap">
+                            <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" />
+                            <MudTextField @bind-Value="_formModel.IntegrationKey"
+                                          id="integration-key-input"
+                                          For="@(() => _formModel.IntegrationKey)"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          Disabled="_busy"
+                                          Placeholder="pk_service_xxxxxxxx"
+                                          OnKeyUp="OnKeyUp" />
+                        </div>
+                    </div>
+                    <button type="button"
+                            class="btn-test-validation"
+                            disabled="@(!_formValid || _busy)"
+                            @onclick="ValidateAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.Bolt" Size="Size.Small" />
+                        @(_busy ? "Validating..." : "Test Validation")
+                    </button>
+                </MudForm>
+            </div>
+
+            <aside class="validate-info-card">
+                <MudIcon Icon="@Icons.Material.Filled.Info" />
+                <div>
+                    <h4>Validation API</h4>
+                    <p>
+                        Sends to <code>POST /api/licenses/validate</code> with the <code>X-Integration-Key</code> header.
+                        Rate limited to 60 requests per minute. Service context is optional when auto-detect is enabled.
+                    </p>
+                </div>
+            </aside>
+        </section>
+
+        <section class="validate-results-column" aria-label="Validation response">
+            <div class="validate-terminal">
+                <div class="validate-terminal-toolbar">
+                    <div class="validate-terminal-dots">
+                        <span class="validate-terminal-dot red"></span>
+                        <span class="validate-terminal-dot yellow"></span>
+                        <span class="validate-terminal-dot green"></span>
+                        <span class="validate-terminal-filename">response_log.json</span>
+                    </div>
+                    <div class="validate-terminal-actions">
+                        <button type="button" class="validate-terminal-btn" disabled="@string.IsNullOrEmpty(_responseJson)" @onclick="CopyResponseAsync">
+                            <MudIcon Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" />
+                            Copy
+                        </button>
+                        <button type="button" class="validate-terminal-btn danger" disabled="@(string.IsNullOrEmpty(_responseJson) && !_busy)" @onclick="ClearResponse">
+                            <MudIcon Icon="@Icons.Material.Filled.Delete" Size="Size.Small" />
+                            Clear
+                        </button>
+                    </div>
+                </div>
+                <div class="validate-terminal-body">
+                    @if (_busy)
+                    {
+                        <div class="validate-terminal-loading">
+                            <MudProgressCircular Color="Color.Primary" Size="Size.Small" Indeterminate="true" />
+                            <span>Fetching validation results...</span>
+                        </div>
+                    }
+                    else if (string.IsNullOrEmpty(_responseJson))
+                    {
+                        <div class="validate-terminal-empty">
+                            <MudIcon Icon="@Icons.Material.Filled.DataObject" />
+                            <span>Awaiting execution...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <pre class="validate-json-pre @(_lastValid == true ? "valid" : _lastValid == false ? "invalid" : "")">@_responseJson</pre>
+                    }
+                </div>
+                <div class="validate-terminal-statusbar">
+                    <div class="d-flex gap-4 flex-wrap">
+                        <span>Status: <span class="@GetStatusClass()">@_statusText</span></span>
+                        <span>Latency: <span>@_latencyText</span></span>
+                    </div>
+                    <span>UTF-8 // JSON // PRETTY_PRINT</span>
+                </div>
+            </div>
+
+            <div class="validate-decorative-card">
+                <div class="validate-decorative-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Verified" />
+                </div>
+                <h5>License validation</h5>
+                <p>
+                    Integration keys are verified before license lookup. Invalid keys return immediately without exposing license state.
+                </p>
+            </div>
+        </section>
     </div>
-</MudForm>
-
-@if (_result is not null)
-{
-    <MudPaper Class="@GetResultCardClass()">
-        <MudText Typo="Typo.subtitle1">Valid: <strong>@_result.IsValid</strong></MudText>
-        @if (!string.IsNullOrEmpty(_result.Message))
-        {
-            <MudText>@_result.Message</MudText>
-        }
-        @if (_result.IsValid)
-        {
-            <MudText>Plan: @_result.PlanName</MudText>
-            <MudText>Expires: @_result.ExpiresAt</MudText>
-        }
-    </MudPaper>
-}
+</div>
 
 @code {
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
     private MudForm? _form;
     private bool _formValid;
-    private string _integrationKey = "";
-    private ValidateLicenseRequest _request = new() { LicenseKey = "" };
-    private ValidateLicenseResponse? _result;
     private bool _busy;
+    private string? _selectedServiceCode;
+    private string _responseJson = "";
+    private string _statusText = "Idle";
+    private string _latencyText = "--ms";
+    private bool? _lastValid;
+    private List<ServiceProductDto> _products = [];
+    private ValidateLicenseFormRequest _formModel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _products = (await Api.GetServiceProductsAsync()).ToList();
+    }
 
     private async Task OnKeyUp(KeyboardEventArgs e)
     {
-        if (e.Key is "Enter" && !_busy)
+        if (e.Key is "Enter" && e.CtrlKey && !_busy)
             await ValidateAsync();
     }
 
@@ -80,23 +179,38 @@
             return;
 
         _busy = true;
+        _statusText = "Processing...";
+        _responseJson = "";
+        StateHasChanged();
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var payload = new ValidateLicenseRequest
             {
-                LicenseKey = _request.LicenseKey,
-                ServiceCode = string.IsNullOrWhiteSpace(_request.ServiceCode) ? null : _request.ServiceCode.Trim()
+                LicenseKey = _formModel.LicenseKey.Trim(),
+                ServiceCode = string.IsNullOrWhiteSpace(_selectedServiceCode) ? null : _selectedServiceCode.Trim()
             };
 
-            var result = await Api.ValidateLicenseAsync(_integrationKey.Trim(), payload);
+            var result = await Api.ValidateLicenseAsync(_formModel.IntegrationKey.Trim(), payload);
+            stopwatch.Stop();
+            _latencyText = $"{stopwatch.ElapsedMilliseconds}ms";
+
             if (!result.IsSuccess)
             {
+                _lastValid = false;
+                _statusText = "Error";
+                _responseJson = JsonSerializer.Serialize(new
+                {
+                    isValid = false,
+                    message = result.ErrorMessage ?? "Validation request failed."
+                }, JsonOptions);
                 Snackbar.Add(result.ErrorMessage ?? "Validation request failed.", Severity.Error);
-                _result = null;
                 return;
             }
 
-            _result = result.Data;
+            SetResponseDisplay(result.Data!);
+            _statusText = result.Data!.IsValid ? "200 OK" : "403 Invalid";
         }
         finally
         {
@@ -104,14 +218,43 @@
         }
     }
 
-    private string GetResultCardClass() =>
-        _result?.IsValid == true ? "pa-4 mt-4 result-card result-valid" : "pa-4 mt-4 result-card result-invalid";
-
-    private void Clear()
+    private void SetResponseDisplay(ValidateLicenseResponse response)
     {
-        _integrationKey = "";
-        _request = new ValidateLicenseRequest { LicenseKey = "" };
-        _result = null;
+        _lastValid = response.IsValid;
+        _responseJson = JsonSerializer.Serialize(new
+        {
+            isValid = response.IsValid,
+            planName = response.PlanName,
+            expiresAt = response.ExpiresAt,
+            message = response.Message
+        }, JsonOptions);
+    }
+
+    private string GetStatusClass() => _statusText switch
+    {
+        "Processing..." => "status-busy",
+        "200 OK" => "status-ok",
+        _ when _statusText.Contains("Invalid", StringComparison.OrdinalIgnoreCase) || _statusText == "Error" => "status-error",
+        _ => ""
+    };
+
+    private async Task CopyResponseAsync()
+    {
+        if (string.IsNullOrEmpty(_responseJson))
+            return;
+
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _responseJson);
+        Snackbar.Add("Response copied.", Severity.Success);
+    }
+
+    private void ClearResponse()
+    {
+        _responseJson = "";
+        _statusText = "Idle";
+        _latencyText = "--ms";
+        _lastValid = null;
+        _formModel = new ValidateLicenseFormRequest();
+        _selectedServiceCode = null;
         _form?.ResetValidation();
     }
 }

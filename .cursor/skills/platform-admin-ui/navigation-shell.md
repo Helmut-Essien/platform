@@ -1,0 +1,264 @@
+---
+title: "Platform Admin — Responsive Navigation Shell"
+version: "2.0.0"
+source: "Three-tier nav mocks (May 2026)"
+last_updated: "2026-05-30"
+---
+
+# Responsive navigation shell
+
+Canonical reference for the **app shell** (`Client/Layout/MainLayout.razor`, `NavMenu.razor`).  
+Page content breakpoints (grids, DataGrid) may use MudBlazor `md` (960px); **navigation** uses **`nav-lg` = 1024px** for rail vs overlay, and **`nav-md` = 768px** to split mobile vs tablet overlay styling.
+
+---
+
+## 1. Viewport modes
+
+| Mode | CSS width | Shell behavior |
+|------|-----------|----------------|
+| **Mobile overlay** | `< 768px` | Hamburger → **left** overlay **280px** (max **85vw**); profile header + **close**; **Logout** footer |
+| **Tablet overlay** | `768px – 1023px` | Hamburger → **left** overlay **280px**; profile header (no close); **System Status** footer |
+| **Desktop mini-drawer** | `≥ 1024px` | Persistent **64px** icon rail; hover/focus-within → **240px** overlay; **Settings** footer; rich app bar |
+
+### Breakpoint tokens
+
+| Token | Value | Used for |
+|-------|-------|----------|
+| `nav-md` | **768px** | Mobile vs tablet overlay styling (both are overlay until 1024) |
+| `nav-lg` | **1024px** | Persistent rail vs overlay; hamburger visibility; main `margin-left` |
+
+---
+
+## 2. App bar
+
+Shared tokens: height **64px**, background `--bg-base`, border-bottom `--border-subtle`, sticky `z-index: 40`.
+
+### Compact app bar (`< 1024px`) — mobile + tablet
+
+| Element | Spec |
+|---------|------|
+| Hamburger | Material `menu`, `--primary`; visible **< 1024px** |
+| Brand | **Platform Admin**, Inter **700**, `--primary` |
+| Logout | Inter 14px, `--text-secondary`, hover `--accent-hover` |
+| Account | `account_circle` icon, `--primary` |
+
+### Desktop app bar (`≥ 1024px`)
+
+| Element | Spec |
+|---------|------|
+| Logo badge | **32×32px**, `--primary-container` bg, `terminal` icon (filled), `--on-primary-container` |
+| Brand | **Platform Admin**, Inter **700**, `--primary` |
+| Search chip | `--surface-container-low` bg, border `--border-subtle`; search icon + **Cmd + K** label (JetBrains Mono 13px); click or **Cmd/Ctrl+K** opens search placeholder |
+| Notifications | `notifications` icon, `--text-secondary`, hover `--accent-hover` |
+| User cluster | Right-aligned; border-left `--border-subtle`; Admin name (Inter 14px) + Superuser (JetBrains Mono 12px); filled `account_circle`; Logout link |
+| Hamburger | **Hidden** |
+
+---
+
+## 3. Desktop mini-drawer (`≥ 1024px`)
+
+### Structure
+
+```
+fixed left-0 top-0 h-full pt-16 z-30
+width: 64px → 240px on :hover / :focus-within
+overflow: hidden
+background: --surface-container-low
+border-right: 1px --border-subtle
+```
+
+Main content: **`margin-left: 64px` always** — hover expansion is an **overlay**, not a layout push.
+
+### Transitions
+
+| Property | Value |
+|----------|-------|
+| Duration | **300ms** |
+| Easing | `cubic-bezier(0.4, 0, 0.2, 1)` |
+| Properties | `width`, `opacity`, `box-shadow` |
+
+### Nav item (desktop)
+
+| Token | Value |
+|-------|-------|
+| Height | **40px** (`h-10`) |
+| Padding | `px-2` (8px) |
+| Border radius | **2px** (`rounded-sm`) |
+| Icon column | **32px** fixed |
+| Label | JetBrains Mono **13px**; `margin-left: 12px`; hidden until sidebar expand |
+| Gap between items | **8px** (`space-y-2`) |
+
+**Inactive:** `--text-secondary`; hover → `--on-surface` + `--surface-container`.
+
+**Active:**
+
+| Property | Token |
+|----------|-------|
+| Text / icon | `--primary` |
+| Left border | **2px** solid `--accent` |
+| Background | `--surface-container-highest` |
+| Label weight | **600** |
+
+### Desktop footer — Settings
+
+| Token | Value |
+|-------|-------|
+| Item | `settings` icon + **Settings** label |
+| Style | Same as inactive nav row; no route until settings page exists |
+| Label reveal | Same hover/focus-within opacity rule as nav labels |
+
+User identity (Admin / Superuser) lives in the **desktop app bar**, not the drawer footer.
+
+### Label reveal (desktop)
+
+| Element | Trigger | Behavior |
+|---------|---------|----------|
+| Nav labels | Sidebar `:hover` or `:focus-within` | `opacity: 0 → 1` |
+| Settings label | Sidebar `:hover` or `:focus-within` | `opacity: 0 → 1` |
+
+Collapsed rail shows **icons only**. Each `NavLink` includes a **`title`** attribute.
+
+### Hover expand
+
+- Width **64px → 240px**
+- `box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35)`
+- `z-index: 35`
+
+---
+
+## 4. Tablet overlay (`768px – 1023px`)
+
+### Scrim
+
+- `background: rgba(0, 0, 0, 0.6)`
+- `backdrop-filter: blur(4px)`
+- Closes drawer on overlay click
+
+### Drawer panel
+
+| Token | Value |
+|-------|------|
+| Anchor | **Left** |
+| Width | **280px** (`17.5rem`) |
+| Background | `--surface-container-low` |
+| Header | **40px** avatar circle + Admin / Superuser; bottom border; **no close button** |
+| Nav items | `py-3 px-4`, gap **16px**, min height **48px** |
+| Labels | Always visible; JetBrains Mono **13px** |
+| Active item | **2px** left border `--accent`, `--primary` text, `--surface-container-highest` bg |
+| Footer | **System Status** card — `--primary/10` bg, `--primary/20` border; pulsing dot + **Node: 01-PROD (OK)** |
+| Close on navigate | Yes |
+| Escape | Yes |
+
+---
+
+## 5. Mobile overlay (`< 768px`)
+
+### Scrim
+
+- `background: rgba(16, 21, 12, 0.9)` (≈ `--background` at 90%)
+- `backdrop-filter: blur(4px)`
+
+### Drawer panel
+
+| Token | Value |
+|-------|------|
+| Anchor | **Left** |
+| Width | **280px**, max **85vw** |
+| Background | `--surface-container-low` |
+| Header | Avatar + Admin / Superuser + **close** (`×`) button |
+| Nav items | Height **56px**, `px-4`, gap **16px** |
+| Labels | Always visible; Inter **14px** |
+| Active item | **2px** left border `--accent`, `--primary` text, `--surface-container-highest` bg |
+| Footer | Full-width **LOGOUT** button — `--primary-container` bg, `--on-primary` text, JetBrains Mono bold |
+| Close on navigate | Yes |
+| Escape | Yes |
+
+---
+
+## 6. Close behavior matrix
+
+| Action | Mobile | Tablet | Desktop |
+|--------|--------|--------|---------|
+| Hamburger toggle | Open/close | Open/close | N/A (hidden) |
+| Close button | Yes | No | N/A |
+| Overlay click | Close | Close | N/A |
+| Escape | Close | Close | N/A |
+| Navigate link | Close | Close | N/A (rail stays) |
+
+---
+
+## 7. Navigation IA
+
+| Route | Label | Material icon |
+|-------|-------|---------------|
+| `/` | Dashboard | `dashboard` |
+| `/customers` | Customers | `group` |
+| `/services` | Service Catalog | `inventory_2` |
+| `/licenses` | Licenses | `vpn_key` |
+| `/invoices` | Invoices | `receipt_long` |
+| `/integration-keys` | Integration Keys | `key` |
+| `/audit` | Audit Log | `history` |
+| `/validate` | Validate License | `verified_user` |
+| `/tools/validate` | *(alias → `/validate`)* | Redirect or same component |
+| `/login` | — | No shell / no drawer |
+
+---
+
+## 8. MudBlazor implementation map
+
+| Reference | Blazor |
+|-----------|--------|
+| Fixed `<aside>` | `MudDrawer` `Variant="Mini"`, `Breakpoint="Lg"`, `OpenMiniOnHover="false"` |
+| `nav-lg` rail | CSS `@media (min-width: 1024px)` on `.platform-sidebar` |
+| Overlay tiers | Mud temporary drawer below `Lg`; `@bind-Open` toggles overlay |
+| Hamburger visibility | CSS hide `.overlay-menu-btn` at `min-width: 1024px` |
+| App bar variants | `.app-bar-compact` / `.app-bar-desktop` in `MainLayout.razor` |
+| Custom nav markup | `NavMenu.razor` with tier-specific footers |
+| Clip below app bar | `ClipMode="DrawerClipMode.Always"` |
+| Mini / expanded width | `MiniWidth="64px"`, `Width="240px"` |
+| Viewport sync | `platformShell.syncNavMode()` — auto-open drawer on desktop, close on overlay |
+
+**Do not** use `OpenMiniOnHover` — hover expand is **CSS-only** with fixed `margin-left: 64px` on `MudMainContent`.
+
+### Key files
+
+- `Client/Layout/MainLayout.razor` / `.razor.css`
+- `Client/Layout/NavMenu.razor` / `.razor.css`
+- `Client/wwwroot/index.html` — `platformShell` helpers
+
+### platformShell JS API
+
+```js
+platformShell.isNavOverlay()   // max-width 1023.98px
+platformShell.isMobileNav()    // max-width 767.98px
+platformShell.isTabletNav()    // 768–1023px
+platformShell.isDesktopNav()   // min-width 1024px
+platformShell.openSearchPlaceholder()  // Cmd+K stub
+```
+
+---
+
+## 9. Accessibility
+
+See [design-system.md](design-system.md#accessibility) for global focus, contrast, and motion rules.
+
+- Nav: `<nav aria-label="Main navigation">`
+- Icon-only collapsed state: **`title`** on each `NavLink`
+- Active route: `aria-current="page"` (Blazor `NavLink` default)
+- Focus: `2px solid --accent`, inset −2px offset on nav items
+- Hamburger / close: `aria-label` + `aria-expanded` on menu button
+- Minimum touch target **48px** on mobile nav rows; **56px** row height on mobile overlay
+- Sidebar expand: **`:hover` and `:focus-within`** — never hover-only
+- Escape closes overlay tiers (mobile + tablet)
+- Skip link to `#main-content` on `MudMainContent`
+
+---
+
+## 10. Do not
+
+- Push main content when sidebar expands on desktop
+- Use MudBlazor default Bootstrap navbar
+- Show plain labels in 64px collapsed rail (icons only)
+- Use `OpenMiniOnHover` with layout-shifting drawer open state
+- Anchor overlay drawers to the **right** (always **left**)
+- Show hamburger on desktop (`≥ 1024px`)

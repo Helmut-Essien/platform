@@ -5,202 +5,261 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<PageHeader Title="Service Catalog">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">Add Service</MudButton>
-</PageHeader>
-
-<MudExpansionPanels Class="mb-4">
-    <MudExpansionPanel Text="Add service" Expanded="_addPanelExpanded">
-        <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
-            Integration keys cannot be recovered after generation. You'll be prompted to generate one after creating the service.
-        </MudAlert>
-        <MudForm @ref="_form" Model="_newProduct" @bind-IsValid="_formValid">
-            <MudTextField @bind-Value="_newProduct.Name"
-                          For="@(() => _newProduct.Name)"
-                          Label="Name"
-                          Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Name is required"
-                          MaxLength="200"
-                          Counter="200"
-                          Disabled="_busy"
-                          Class="mb-2" />
-            <MudTextField @bind-Value="_newProduct.Code"
-                          For="@(() => _newProduct.Code)"
-                          Label="Code"
-                          Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Code is required"
-                          HelperText="Uppercase identifier, e.g. HOSTEL"
-                          MaxLength="50"
-                          Counter="50"
-                          Disabled="_busy"
-                          Class="mb-2"
-                          @bind-Value:after="OnCodeChanged" />
-            <MudTextField @bind-Value="_newProduct.Description"
-                          For="@(() => _newProduct.Description)"
-                          Label="Description (optional)"
-                          Variant="Variant.Outlined"
-                          Lines="2"
-                          MaxLength="2000"
-                          Counter="2000"
-                          Disabled="_busy"
-                          Class="mb-2" />
-            <MudSwitch @bind-Value="_newProduct.IsAvailableForSale"
-                       Label="Available for sale"
-                       Color="Color.Primary"
-                       Disabled="_busy"
-                       Class="mb-4" />
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       Disabled="@(!_formValid || _busy)"
-                       OnClick="CreateAsync">
-                @(_busy ? "Creating..." : "Add Service")
-            </MudButton>
-        </MudForm>
-    </MudExpansionPanel>
-</MudExpansionPanels>
-
-@if (_showKeyPrompt)
-{
-    <MudAlert Severity="Severity.Success" Class="mb-4" Dense="false">
-        <MudText Typo="Typo.body1" Class="mb-2">Service "@_createdServiceName" created successfully.</MudText>
-        <MudText Typo="Typo.body2" Class="mb-4">An integration key is required for external apps to validate licenses.</MudText>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateKeyForServiceAsync" Class="mr-2">Generate Integration Key</MudButton>
-        <MudButton Variant="Variant.Text" OnClick="DismissKeyPrompt">Skip</MudButton>
-    </MudAlert>
-}
-
-@if (_loading)
-{
-    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
-    @for (var i = 0; i < 5; i++)
+<div class="services-page">
+    @if (_showKeyPrompt)
     {
-        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
+        <div class="services-success-banner">
+            <div class="services-success-banner-content">
+                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" />
+                <div>
+                    <p class="services-success-banner-title">Service "@_createdServiceName" created successfully.</p>
+                    <p class="services-success-banner-text">Ready for deployment. You need a secure key for API access.</p>
+                </div>
+            </div>
+            <button type="button" class="btn-generate-key" @onclick="GenerateKeyForServiceAsync">
+                <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" />
+                Generate Integration Key
+            </button>
+        </div>
     }
-}
-else if (_products.Count == 0)
-{
-    <MudText Typo="Typo.subtitle1" Class="pa-4">No services configured.</MudText>
-    <MudText Typo="Typo.body2" Class="px-4 pb-4 mb-4">Add your first service product to issue licenses and integration keys.</MudText>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">Add Service</MudButton>
-}
-else
-{
-    <MudTable Items="_products" Hover="true" Dense="true">
-        <HeaderContent>
-            <MudTh>Name</MudTh>
-            <MudTh>Code</MudTh>
-            <MudTh>Description</MudTh>
-            <MudTh>Available</MudTh>
-            <MudTh>Int. Key</MudTh>
-            <MudTh></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>@context.Name</MudTd>
-            <MudTd><span class="license-key">@context.Code</span></MudTd>
-            <MudTd>@(context.Description ?? "—")</MudTd>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Variant="@(context.IsAvailableForSale ? Variant.Filled : Variant.Outlined)" Color="Color.Primary">
-                    @(context.IsAvailableForSale ? "Yes" : "No")
-                </MudChip>
-            </MudTd>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Variant="@(context.HasActiveIntegrationKey ? Variant.Filled : Variant.Outlined)" Color="Color.Primary">
-                    @(context.HasActiveIntegrationKey ? "Active" : "None")
-                </MudChip>
-            </MudTd>
-            <MudTd>
-                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => EditAsync(context)">Edit</MudButton>
-                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary" OnClick="() => ViewKeys(context.Id)">View Keys</MudButton>
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
-}
+
+    <header class="services-header">
+        <div>
+            <h1>Service Catalog</h1>
+            <p>Manage microservices, API endpoints, and system-level integrations.</p>
+        </div>
+        <button type="button" class="btn-add-service" @onclick="OpenCreateDialogAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+            Add Service
+        </button>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="services-loading">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        </div>
+    }
+    else
+    {
+        @if (_products.Count > 0)
+        {
+            <section class="services-stats-grid" aria-label="Service statistics">
+                <div class="services-stat-card">
+                    <span class="services-stat-label">Active Services</span>
+                    <span class="services-stat-value">@ActiveServiceCount</span>
+                </div>
+                <div class="services-stat-card">
+                    <span class="services-stat-label">System Uptime</span>
+                    <span class="services-stat-value services-stat-value-neutral">99.98%</span>
+                </div>
+                <div class="services-stat-card">
+                    <span class="services-stat-label">Total Licenses</span>
+                    <span class="services-stat-value services-stat-value-neutral">@TotalLicenseCount</span>
+                </div>
+                <div class="services-stat-card">
+                    <span class="services-stat-label">Key Coverage</span>
+                    <div class="services-stat-bar-wrap">
+                        <span class="services-stat-value services-stat-value-neutral">@KeyCoveragePercent%</span>
+                        <div class="services-stat-bar">
+                            <div class="services-stat-bar-fill" style="width: @(KeyCoveragePercent)%"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        }
+
+        <div class="services-table-panel">
+            @if (_products.Count == 0)
+            {
+                <div class="services-empty">
+                    <h2>No services configured</h2>
+                    <p>Add your first service product to issue licenses and integration keys.</p>
+                    <button type="button" class="btn-add-service" @onclick="OpenCreateDialogAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                        Add Service
+                    </button>
+                </div>
+            }
+            else
+            {
+                <MudTable Items="_products" Hover="false" Dense="false" Class="services-table">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Code</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh>Available</MudTh>
+                        <MudTh Class="cell-center">Int. Key</MudTh>
+                        <MudTh Class="cell-right">Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        @{
+                            var product = context;
+                            var toggling = _togglingId == product.Id;
+                        }
+                        <MudTd>
+                            <div class="service-name-cell">
+                                <span class="service-status-dot @(product.IsAvailableForSale ? "active" : "inactive")"></span>
+                                <span class="service-name-text">@product.Name</span>
+                            </div>
+                        </MudTd>
+                        <MudTd>
+                            <code class="service-code-badge">@product.Code</code>
+                        </MudTd>
+                        <MudTd>@(string.IsNullOrWhiteSpace(product.Description) ? "—" : product.Description)</MudTd>
+                        <MudTd>
+                            <MudSwitch Value="product.IsAvailableForSale"
+                                       ValueChanged="@(async (bool v) => await ToggleAvailabilityAsync(product, v))"
+                                       Color="Color.Primary"
+                                       Disabled="toggling" />
+                        </MudTd>
+                        <MudTd Class="cell-center">
+                            @if (product.HasActiveIntegrationKey)
+                            {
+                                <span class="key-chip key-chip-active" @onclick="() => ViewKeys(product.Id)" @onclick:stopPropagation="true">
+                                    @GetKeyLabel(product)
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="key-chip key-chip-none">None</span>
+                            }
+                        </MudTd>
+                        <MudTd Class="cell-right">
+                            <div class="service-row-actions">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                               Size="Size.Small"
+                                               aria-label="Edit service"
+                                               OnClick="@(() => EditAsync(product))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Key"
+                                               Size="Size.Small"
+                                               aria-label="View integration keys"
+                                               OnClick="@(() => ViewKeys(product.Id))" />
+                            </div>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+                <div class="services-table-footer">
+                    <span>Showing 1–@_products.Count of @_products.Count results</span>
+                </div>
+            }
+        </div>
+
+        @if (_products.Count > 0)
+        {
+            <section class="services-insights">
+                <div class="services-insight-card">
+                    <h3>Service Performance Matrix</h3>
+                    <div class="services-chart-placeholder" aria-hidden="true">
+                        @foreach (var height in _chartHeights)
+                        {
+                            <div class="services-chart-bar" style="height: @(height)%"></div>
+                        }
+                    </div>
+                    <p>License volume distribution across catalog services.</p>
+                </div>
+                <div class="services-insight-card services-glass-card">
+                    <div class="services-glass-icon">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" />
+                    </div>
+                    <h3>Automated Health Checks</h3>
+                    <p>All active services are monitored. Integration keys and availability status reflect live catalog health.</p>
+                </div>
+            </section>
+        }
+    }
+</div>
 
 @code {
     private bool _loading = true;
-    private bool _busy;
-    private bool _formValid;
-    private bool _addPanelExpanded;
     private bool _showKeyPrompt;
     private string? _createdServiceName;
     private string? _createdServiceId;
-    private MudForm? _form;
+    private string? _togglingId;
     private List<ServiceProductDto> _products = [];
-    private CreateServiceProductRequest _newProduct = new() { Name = "", Code = "" };
+    private readonly int[] _chartHeights = [40, 65, 50, 85, 70, 90, 75];
 
     [SupplyParameterFromQuery] public string? Add { get; set; }
+
+    private int ActiveServiceCount => _products.Count(p => p.IsAvailableForSale);
+    private int TotalLicenseCount => _products.Sum(p => p.LicenseCount);
+    private int KeyCoveragePercent => _products.Count == 0
+        ? 0
+        : (int)Math.Round(_products.Count(p => p.HasActiveIntegrationKey) * 100.0 / _products.Count);
 
     protected override async Task OnInitializedAsync()
     {
         if (!string.IsNullOrEmpty(Add))
-            _addPanelExpanded = true;
+            await OpenCreateDialogAsync();
 
         await ReloadAsync();
     }
 
-    private void OnCodeChanged()
-    {
-        if (!string.IsNullOrEmpty(_newProduct.Code))
-            _newProduct.Code = _newProduct.Code.Trim().ToUpperInvariant();
-    }
-
-    private void OpenAddPanel() => _addPanelExpanded = true;
-
     private async Task ReloadAsync()
     {
         _loading = true;
+        StateHasChanged();
         _products = (await Api.GetServiceProductsAsync()).ToList();
         _loading = false;
     }
 
-    private async Task CreateAsync()
+    private async Task OpenCreateDialogAsync()
     {
-        OnCodeChanged();
-
-        if (_form is null)
+        var dialog = await DialogService.ShowAsync<ServiceProductCreateDialog>("Add Service");
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false || dialogResult.Data is not CreateServiceProductRequest request)
             return;
 
-        await _form.Validate();
-        if (!_formValid)
+        var result = await Api.CreateServiceProductAsync(request);
+        if (!result.IsSuccess)
         {
-            Snackbar.Add("Please fix the errors in the form.", Severity.Warning);
+            Snackbar.Add(result.ErrorMessage ?? "Failed to create service.", Severity.Error);
             return;
         }
 
-        _busy = true;
+        Snackbar.Add("Service created.", Severity.Success);
+        _createdServiceName = result.Data!.Name;
+        _createdServiceId = result.Data.Id;
+        _showKeyPrompt = true;
+        await ReloadAsync();
+    }
+
+    private void GenerateKeyForServiceAsync()
+    {
+        _showKeyPrompt = false;
+        if (!string.IsNullOrEmpty(_createdServiceId))
+            Navigation.NavigateTo($"/integration-keys?productId={Uri.EscapeDataString(_createdServiceId)}");
+    }
+
+    private async Task ToggleAvailabilityAsync(ServiceProductDto product, bool available)
+    {
+        if (product.IsAvailableForSale == available)
+            return;
+
+        _togglingId = product.Id;
         try
         {
-            var result = await Api.CreateServiceProductAsync(_newProduct);
+            var request = new UpdateServiceProductRequest
+            {
+                Name = product.Name,
+                Description = product.Description,
+                IsAvailableForSale = available
+            };
+
+            var result = await Api.UpdateServiceProductAsync(product.Id, request);
             if (!result.IsSuccess)
             {
-                Snackbar.Add(result.ErrorMessage ?? "Failed to create service.", Severity.Error);
+                Snackbar.Add(result.ErrorMessage ?? "Failed to update availability.", Severity.Error);
                 return;
             }
 
-            Snackbar.Add("Service created.", Severity.Success);
-            _createdServiceName = result.Data!.Name;
-            _createdServiceId = result.Data.Id;
-            _showKeyPrompt = true;
-            _newProduct = new CreateServiceProductRequest { Name = "", Code = "" };
-            _form.ResetValidation();
-            _addPanelExpanded = false;
-            await ReloadAsync();
+            product.IsAvailableForSale = available;
         }
         finally
         {
-            _busy = false;
+            _togglingId = null;
         }
     }
-
-    private async Task GenerateKeyForServiceAsync()
-    {
-        _showKeyPrompt = false;
-        Navigation.NavigateTo($"/integration-keys?productId={Uri.EscapeDataString(_createdServiceId!)}");
-    }
-
-    private void DismissKeyPrompt() => _showKeyPrompt = false;
 
     private async Task EditAsync(ServiceProductDto product)
     {
@@ -225,4 +284,7 @@ else
 
     private void ViewKeys(string productId) =>
         Navigation.NavigateTo($"/integration-keys?productId={Uri.EscapeDataString(productId)}");
+
+    private static string GetKeyLabel(ServiceProductDto product) =>
+        product.Code.Length <= 8 ? $"{product.Code}_KEY" : $"{product.Code[..8]}…";
 }

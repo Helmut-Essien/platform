@@ -1,6 +1,6 @@
 # Wireframes — Platform Admin UI
 
-All screens use [design-system.md](design-system.md) tokens. Mobile-first, responsive across all viewports.
+All screens use [design-system.md](design-system.md) tokens. **Mobile-ready, desktop-optimized** — responsive across all viewports.
 
 ---
 
@@ -76,7 +76,7 @@ Platform Admin
 │   └── /invoices/{id}      (detail page)
 ├── Integration Keys        /integration-keys
 ├── Audit Log               /audit
-└── Validate License        /tools/validate
+└── Validate License        /validate  (alias: /tools/validate)
 ```
 
 `/customers/{id}/licenses` is resolved by navigating `/licenses?customerId={id}` — no dedicated page needed.
@@ -87,13 +87,17 @@ Platform Admin
 
 ### Breakpoints
 
+Full cheat sheet (shell vs page vs MudBlazor): [design-system.md](design-system.md#breakpoint-cheat-sheet).
+
 | Token | Width | Role |
 |-------|-------|------|
 | `xs` | <600px | Default mobile base — all styles start here |
 | `sm` | ≥600px | Small tablet — widens layouts, 2-column grids |
 | `md` | ≥960px | Desktop — multi-column, DataGrid, inline filters |
-| `lg` | ≥1280px | Wide desktop — persistent open drawer |
+| `lg` | ≥1280px | Wide desktop — 4-column KPIs, 48px page padding |
 | `xl` | ≥1920px | Ultra-wide — centered content, outer max-width |
+
+> **Navigation shell** uses **`nav-lg` = 1024px** (rail vs overlay) and **`nav-md` = 768px** (mobile vs tablet overlay styling). See [navigation-shell.md](navigation-shell.md). Page layout breakpoints above still apply to grids and content.
 
 ### Typography scale
 
@@ -124,146 +128,82 @@ Platform Admin
 
 ### Navigation / Drawer
 
-| Screen | xs (<600px) | sm–md (600–1279px) | lg+ (≥1280px) |
-|--------|------------|--------------------|----------------|
-| Drawer | Hidden, hamburger opens full-screen overlay | Mini variant (icons+tips), closed by default | Open, persistent mini drawer |
-| Drawer width | 280px (overlay) | 64px (mini) | 64px (mini) |
-| Active nav | Filled background, `--accent` | Same | Same |
-| Inactive nav | `--text-secondary`, hover `--text-primary` | Same | Same |
+Canonical spec: [navigation-shell.md](navigation-shell.md).
+
+| Screen | < 768px (mobile) | 768–1023px (tablet) | ≥ 1024px (desktop) |
+|--------|------------------|---------------------|---------------------|
+| Rail | Hidden; hamburger | Hidden; hamburger | **64px** icon rail always visible |
+| Overlay | **Left 280px** (max 85vw) | **Left 280px** | — |
+| Main offset | None | None | Fixed **`margin-left: 64px`** |
+| Hamburger | Visible | Visible | Hidden |
+| Scrim | `rgba(16,21,12,0.9)` + blur | `rgba(0,0,0,0.6)` + blur | — |
+| Drawer header | Avatar + close | Avatar only | — |
+| Drawer footer | Logout button | System Status card | Settings row |
+| Active nav | 2px `--accent` border, `--primary` text | Same | Same |
+| Nav labels | Inter 14px, always visible | JetBrains Mono 13px | JetBrains Mono 13px; hidden until sidebar hover/focus-within |
 
 ---
 
 ## Form patterns
 
-Every form across all screens follows these rules. Deviate only with explicit reason.
+**Canonical source:** [screens.md](screens.md#form-patterns) — MudForm validation, password toggle, keyboard, loading, errors, and snackbar rules. Do not duplicate here; wireframes reference that section only.
 
-### MudForm + client-side validation
-
-- All forms wrap in `<MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">`.
-- Every input uses `@bind-Value="_model.Field"` + `For="@(() => _model.Field)"` for inline error display.
-- Required fields: `Required="true"` on component + `[Required(ErrorMessage = "...")]` on model property.
-- Email fields: `[EmailAddress]` annotation + `InputType="InputType.Email"`.
-- Numeric fields: `[Range]` or `InputType="InputType.Number"`.
-- **Submit button is disabled** until all fields pass validation: `Disabled="@(!_formValid || _busy)"`.
-- API call **only proceeds after client-side validation passes**: `await _form.Validate(); if (!_formValid) return;`.
-- MudBlazor renders validation errors **inline below each field** automatically via `For` binding.
-- Error text color: `--accent`.
-
-### Password fields
-
-Every password field uses a visibility toggle:
-
-```
-┌─ Password hidden ────────────────┐  ┌─ Password visible ──────────────┐
-│ Password                         │  │ Password                        │
-│ ●●●●●●●●●●        [visibility]   │  │ Admin123!       [visibilityOff]  │
-└──────────────────────────────────┘  └─────────────────────────────────┘
-```
-
-Razor pattern:
-```razor
-<MudTextField @bind-Value="_model.Password"
-              For="@(() => _model.Password)"
-              Label="Password"
-              Variant="Variant.Outlined"
-              InputType="@(_passwordVisible ? InputType.Text : InputType.Password)"
-              Adornment="Adornment.End"
-              AdornmentIcon="@(_passwordVisible ? Icons.Material.Filled.VisibilityOff
-                                                : Icons.Material.Filled.Visibility)"
-              OnAdornmentClick="TogglePasswordVisibility"
-              FullWidth="true"
-              Disabled="_busy" />
-```
-
-```csharp
-private bool _passwordVisible;
-private void TogglePasswordVisibility() => _passwordVisible = !_passwordVisible;
-```
-
-### Error display
-
-| Error type | Display |
-|-----------|---------|
-| Inline field validation | MudBlazor renders below field via `For` — no custom code needed |
-| Server API error (400/401/409) | `MudAlert` Severity.Error at top of form, closable, shows server `message` |
-| Transient success | `Snackbar.Add("Saved", Severity.Success)` after API success |
-| Transient failure | `Snackbar.Add(error, Severity.Error)` |
-
-### Keyboard rules
-
-- Enter key submits the primary form action. `MudTextField` has `OnKeyUp` → check `e.Key == "Enter"` and `!_busy`.
-- Tab order follows visual field order (DOM order).
-- Focus ring: `2px solid --accent` offset 2px (set globally in `app.css` via `*:focus-visible`).
-- Escape closes dialogs (MudBlazor default for `MudDialog`).
-
-### Loading state
-
-- On submit: `_busy = true`, button shows `MudProgressCircular` Size.Small + "Processing..." text.
-- All inputs set `Disabled="_busy"`.
-- On completion: `_busy = false` in `finally` block.
-
-### Model annotations example
-
-```csharp
-private class LoginModel
-{
-    [Required(ErrorMessage = "Email is required")]
-    [EmailAddress(ErrorMessage = "Enter a valid email")]
-    public string Email { get; set; } = "";
-
-    [Required(ErrorMessage = "Password is required")]
-    [MinLength(8, ErrorMessage = "Password must be at least 8 characters")]
-    public string Password { get; set; } = "";
-}
-```
+Also see [design-system.md](design-system.md#destructive-confirmation-dialog) for destructive confirms and [design-system.md](design-system.md#feedback-states) for empty/loading/error/snackbar patterns.
 
 ---
 
 ## 4. Shell wireframe
 
-### Desktop (md+, ≥960px)
+See [navigation-shell.md](navigation-shell.md) for tokens and MudBlazor mapping.
+
+### Desktop mini-drawer (≥ 1024px)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ APP BAR  var(--bg-base)                                                   │
-│ [logo] Platform Admin                                [avatar] Logout     │
+│ APP BAR  sticky z-40  var(--bg-base)  64px                                │
+│ [▣] Platform Admin          [Cmd+K] [🔔]     Admin/Superuser  Logout [👤]│
 ├──────┬───────────────────────────────────────────────────────────────────┤
-│DRAWER│ MAIN  var(--bg-base)  padding: md+ 2rem / sm 1.5rem / xs 1rem     │
-│64px  │                                                                    │
-│      │  @Body                                                            │
-│ [≡]  │                                                                    │
-│ [⏐] │                                                                    │
-│ [👤] │                                                                    │
-│ [⚙] │                                                                    │
-│ [🔑] │                                                                    │
-│ [📋] │                                                                    │
-│ [📜] │                                                                    │
-│ [🔬] │                                                                    │
+│RAIL  │ MAIN  var(--bg-base)  margin-left: 64px (fixed)                    │
+│64px  │ padding: 24px → 48px (lg+)                                        │
+│ hover│  @Body                                                            │
+│ →240 │  (sidebar hover expands OVER content, no layout push)             │
+│ [≡] │                                                                    │
+│ [⚙] │  Settings footer                                                   │
 └──────┴───────────────────────────────────────────────────────────────────┘
 ```
 
-### Mobile (xs, <600px)
+### Tablet overlay (768–1023px)
 
 ```
 ┌──────────────────────────────────────────────────┐
-│ APP BAR  var(--bg-base)                           │
-│ [≡] Platform Admin                   [avatar]    │
+│ APP BAR                                           │
+│ [≡] Platform Admin                   Logout [👤]  │
 ├──────────────────────────────────────────────────┤
-│ @Body   padding: 1rem                            │
-│     (no drawer visible)                          │
-│                                                  │
-│ ┌─ Hamburger opens drawer overlay ─────────────┐ │
-│ │ [≡] Dashboard                                │ │
-│ │ [👤] Customers                               │ │
-│ │ [⚙] Service Catalog                          │ │
-│ │ [🔑] Licenses                                │ │
-│ │ [📋] Invoices                                │ │
-│ │ [🔗] Integration Keys                        │ │
-│ │ [📜] Audit Log                               │ │
-│ │ [🔬] Validate License                        │ │
-│ │                                              │ │
-│ │ ─────────────────────────────────            │ │
-│ │ Logout                                       │ │
+│ @Body   full width, padding 24px                  │
+│  (tap ≡ → left 280px drawer + 60% scrim)         │
+│ ┌──────────────────────────────────────────────┐ │
+│ │ [avatar] Admin / Superuser                   │ │
+│ │ [icon] Dashboard                             │ │
+│ │ ...                                          │ │
+│ │ [System Status: Node 01-PROD (OK)]            │ │
+│ └──────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────┘
+```
+
+### Mobile overlay (< 768px)
+
+```
+┌──────────────────────────────────────────────────┐
+│ APP BAR                                           │
+│ [≡] Platform Admin                   Logout [👤]  │
+├──────────────────────────────────────────────────┤
+│ @Body   full width, padding 24px                  │
+│  (tap ≡ → left 280px drawer, max 85vw)           │
+│ ┌──────────────────────────────────────── [×] ─┐ │
+│ │ [avatar] Admin / Superuser                   │ │
+│ │ [icon] Dashboard                             │ │
+│ │ ...                                          │ │
+│ │ [ LOGOUT button ]                            │ │
 │ └──────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────┘
 ```
@@ -272,13 +212,15 @@ private class LoginModel
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| AppBar | `MudAppBar` | `--bg-base`, `--border-subtle` bottom border, Elevation 0 |
-| Brand | `MudText` + logo `<img>` | logo 32×32px, title Inter 600 1.125rem `--text-primary` |
-| User menu | `MudIconButton` + `MudMenu` | avatar icon, dropdown: Logout |
-| Drawer | `MudDrawer` | `--bg-surface`, Variant `Mini` on md+, `Temporary` on xs/sm |
-| Nav items | `MudNavLink` | icon + label, Match="Prefix" |
-| Nav active | | `--accent` text, 2px left border `--accent` |
-| Main content | `MudMainContent` | padding responsive per table above |
+| AppBar | `MudAppBar` | 64px, `--bg-base`, `--border-subtle` bottom border, Elevation 0, sticky |
+| Brand | `MudText` | “Platform Admin”, Inter 700, `--primary` |
+| Hamburger | `MudIconButton` | `Menu` icon; visible **< 1024px** only |
+| Desktop app bar | Custom markup | Terminal logo badge, Cmd+K search chip, notifications, user meta cluster |
+| User actions (compact) | `MudButton` + `MudIconButton` | Logout text link + `AccountCircle` icon |
+| Drawer | `MudDrawer` Mini | 64px rail ≥ 1024px; CSS hover → 240px; `Breakpoint.Lg`, `OpenMiniOnHover="false"` |
+| Nav | `NavMenu.razor` | Custom `NavLink` rows; tier-specific footers (Logout / System Status / Settings) |
+| Nav active | | `--primary` text, **2px `--accent` border**, `--surface-container-highest` bg |
+| Main content | `MudMainContent` | `--bg-base`, fixed 64px left offset ≥ 1024px |
 | Layout root | `MudLayout` | `--bg-base` background |
 
 ---
@@ -357,90 +299,60 @@ xs (<600px)                    sm (600–959px)               md+ (≥960px)
 
 API: `GET /api/dashboard/stats` → `{ CustomerCount, ActiveLicenses, ExpiringWithin30Days, UnpaidInvoices }`
 
-### Desktop (md+, ≥960px)
+Reference: Tailwind dashboard mock (May 2026) — asymmetric timeline + sidebar quick actions.
+
+### Desktop (lg+, ≥1280px)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ H1 Dashboard                                                             │
+│ H1 Dashboard (primary)                                                   │
+│ Platform overview and performance metrics.                               │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ METRICS  4-col grid  gutter 24px                                         │
+│ KPI 4-col grid  gutter 16px                                              │
 │ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │
-│ │ Customers    │ │ Active       │ │ Expiring in  │ │ Unpaid       │     │
-│ │              │ │ Licenses     │ │ 30 Days      │ │ Invoices     │     │
+│ │ TOTAL CUST.  │ │ ACTIVE LIC.  │ │ EXPIRING 30D │ │ UNPAID INV.  │     │
+│ │ [icon]       │ │ [icon]       │ │ [icon]       │ │ [icon]       │     │
 │ │     42       │ │     128      │ │      5       │ │     12       │     │
-│ │ --accent     │ │ --accent     │ │ --accent     │ │ --accent     │     │
-│ │              │ │              │ │              │ │              │     │
-│ │ Tap → /cust  │ │ Tap → /lic   │ │ Tap → /lic?  │ │ Tap → /inv   │     │
+│ │ --accent 32px│ │ --accent     │ │ --accent     │ │ --accent     │     │
+│ │ Registered…  │ │ Healthy…     │ │ Attention…   │ │ Pending…     │     │
 │ └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘     │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ QUICK ACTIONS                                                            │
-│ [ + New Customer ]   [ Issue License ]   [ Generate Integration Key ]    │
-├──────────────────────────────────────────────────────────────────────────┤
-│ RECENT ACTIVITY                                                          │
-│ MudTimeline  (last 10 audit events)                                      │
-│ ●  LicenseActivated — Acme — HOSTEL — 2 min ago                          │
-│ ●  CustomerCreated — Beta Corp — 1 hr ago                                │
-│ ...                                                                      │
-│                                                       [ View full audit → ]│
+│ MAIN 2:1 grid  section-gap 32px                                          │
+│ ┌─────────────────────────────────────┐ ┌──────────────────────────┐  │
+│ │ Recent Activity    [Live Stream]    │ │ Quick Actions            │  │
+│ │ ● LicenseActivated — Acme Corp      │ │ [+ New Customer] primary │  │
+│ │   details…           2 MINUTES AGO  │ │ [Issue License] outline  │  │
+│ │ ○ CustomerCreated — Stark Ind.      │ │ [Generate Integ. Key]    │  │
+│ │ ...                                 │ ├──────────────────────────┤  │
+│ │ [ View Full Audit Log ]             │ │ Platform Health          │  │
+│ └─────────────────────────────────────┘ │ API Uptime ████████ 99%  │  │
+│                                         │ Sync Queue ▏ 0%          │  │
+│                                         └──────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Mobile (xs, <600px)
+### Tablet / mobile
 
-```
-┌──────────────────────────────────────┐
-│ H1 Dashboard                         │
-├──────────────────────────────────────┤
-│ METRICS  stacked 1-col               │
-│ ┌──────────────────────────────────┐ │
-│ │ Customers              42       │ │
-│ │ Tap to view all          →      │ │
-│ └──────────────────────────────────┘ │
-│ ┌──────────────────────────────────┐ │
-│ │ Active Licenses         128     │ │
-│ │ Tap to view all          →      │ │
-│ └──────────────────────────────────┘ │
-│ ┌──────────────────────────────────┐ │
-│ │ Expiring in 30 Days      5      │ │
-│ │ Tap to view              →      │ │
-│ └──────────────────────────────────┘ │
-│ ┌──────────────────────────────────┐ │
-│ │ Unpaid Invoices          12     │ │
-│ │ Tap to collect payment   →      │ │
-│ └──────────────────────────────────┘ │
-├──────────────────────────────────────┤
-│ QUICK ACTIONS  stacked full width    │
-│ [ + New Customer      ]              │
-│ [ Issue License       ]              │
-│ [ Generate Integ.Key  ]              │
-├──────────────────────────────────────┤
-│ RECENT ACTIVITY  collapsed list      │
-│ ● LicenseActivated — Acme — 2m ago   │
-│ ● CustomerCreated — Beta — 1hr ago   │
-│ ...                                  │
-│         [ View full audit log → ]    │
-└──────────────────────────────────────┘
-```
+- KPI: 2-col (sm) → 1-col (xs)
+- Main grid stacks: timeline first, sidebar second
+- Quick actions remain full-width stacked
 
 ### Dashboard component spec
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| Page title | `MudText` Typo.h4 | "Dashboard", responsive size per typography scale |
-| Metrics grid | `MudGrid` | `Spacing="6"` (24px) |
-| Metric items | `MudItem` | `xs="12" sm="6" md="3"` |
-| Metric card | `MudCard` | `--bg-surface`, `1px solid --border-subtle`, border-radius 8px, padding 16–24px, clickable (navigates), hover glow `--accent` at 10% |
-| Metric label | `MudText` Typo.body2 | `--text-secondary`, e.g. "Total Customers" |
-| Metric value | `MudText` Typo.h3 | `--accent`, bold 600, responsive size per typography scale |
-| Metric subtitle | `MudText` Typo.caption | `--text-secondary`, e.g. "Tap to view all" |
-| Quick actions | `MudStack` Row | `xs` stacked full-width, `sm+` row auto-width |
-| Action button | `MudButton` Variant.Filled | `--accent` bg, `--bg-base` text, font-weight 600, border-radius 30px, min-height 44px (xs) / 40px (md+) |
-| Timeline | `MudTimeline` | last 10 events from `GET /api/audit-logs?limit=10` |
-| Timeline dot | | `--accent` |
-| Timeline text | `MudText` | primary text `--text-primary` 0.875rem, timestamp `--text-secondary` 0.75rem |
-| Timeline empty | `MudAlert` Severity.Info | "No recent activity" |
-| View all link | `MudLink` | Navigate `/audit` |
-| Loading | `MudSkeleton` | 4 card skeletons + timeline skeleton, `--bg-surface` |
+| Page header | native `<header>` | H1 `--primary` + subtitle `--text-secondary` |
+| Metrics grid | CSS grid | `1 / 2 / 4` columns responsive |
+| Metric card | `<article.kpi-card>` | `--bg-surface`, border, 24px padding, hover `--primary` border |
+| Metric label | `<span>` | JetBrains Mono uppercase 11px |
+| Metric value | `<div>` | 32px bold `--accent` |
+| Metric footnote | `<div>` | contextual mono caption |
+| Timeline panel | `<section>` | custom vertical timeline, not MudTimeline |
+| Timeline dot | CSS | primary / error / neutral variants |
+| Quick actions | `<button>` stack | primary + outlined per reference |
+| Platform Health | static module | progress bars, decorative |
+| View all | `<button.view-audit-btn>` | full width, mono uppercase, → `/audit` |
+| Loading | `MudSkeleton` | 4 KPI + main panel |
 
 ---
 
@@ -448,45 +360,61 @@ API: `GET /api/dashboard/stats` → `{ CustomerCount, ActiveLicenses, ExpiringWi
 
 API: `GET /api/customers?page=1&pageSize=25`, `POST`, `PUT`, `POST /suspend`, `POST /reactivate`
 
+Reference mock: Customers page (May 2026).
+
+### Desktop layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ H1 Customers                          [ + New Customer ] primary CTA     │
+│ Manage platform accounts, licensing, and billing entities.             │
+├──────────────────────────────────────────────────────────────────────────┤
+│ FILTERS (surface-container-low, rounded-xl)                              │
+│ [ 🔍 Search........................ ] [Status ▼] [Created ▼]           │
+├──────────────────────────────────────────────────────────────────────────┤
+│ TABLE PANEL (rounded-xl)                                               │
+│ NAME (avatar+ID) │ EMAIL │ PHONE │ STATUS │ LIC │ CREATED │ ⋮          │
+│ AD Aether Dyn.   │ ...   │ ...   │ Active │ 124 │ Oct 12  │ ⋮          │
+│ ...                                                                      │
+│ Showing 1–25 of N                              [ < 1 2 3 > ]             │
+└──────────────────────────────────────────────────────────────────────────┘
+
+Row click or ⋮ → right drawer (480px):
+┌─────────────────────────────┐
+│ [AD] Aether Dynamics  [×]   │
+│ Active badge                │
+├─────────────────────────────┤
+│ Profile│Licenses│Invoices│Audit│
+├─────────────────────────────┤
+│ GENERAL INFORMATION         │
+│ [email card] [phone card]   │
+│ NOTES (blockquote)            │
+├─────────────────────────────┤
+│ [Edit Record] [Suspend]     │
+└─────────────────────────────┘
+```
+
 ### Component spec
 
-| Element | Component | Spec |
-|---------|-----------|------|
-| Page header | `MudText` H1 + `MudButton` | "Customers" `[+ New Customer]` right-aligned |
-| Filters | `MudExpansionPanel` (xs/sm) / inline `MudStack` (md+) | Search text, Status dropdown (All/Active/Suspended), Date range |
-| Data | `MudDataGrid<T>` (md+) / card list (xs/sm) | Server-side pagination when API supports it |
-| Grid columns | | **Name** (link → drawer), **Contact Email**, **Contact Phone**, **Status** chip, **License Count**, **Created At** (sortable), **Actions** menu |
-| Status chip | `MudChip` | **Active**: Filled `--accent`, **Suspended**: Outlined `--accent`, **Text**: `--text-secondary` |
-| Row actions menu | `MudIconButton` + `MudMenu` | Edit, View Licenses, Suspend/Activate, Delete |
-| Empty state | `MudAlert` + button | "No customers yet" + `[+ New Customer]` CTA |
-
-### Detail drawer (right side)
-
-| Tab | Content |
-|-----|---------|
-| **Profile** | All customer fields (Name, Email, Phone, InternalNotes) + Edit button |
-| **Licenses** | `GET /api/licenses?customerId={id}` — filtered license grid |
-| **Invoices** | `GET /api/invoices?customerId={id}` — filtered invoice grid |
-| **Audit** | `GET /api/audit-logs?customerId={id}` — filtered audit entries |
-
-### Row actions
-
-| Action | UX |
-|--------|-----|
-| Edit | `MudDialog` form with all editable fields |
-| View Licenses | Navigate `/licenses?customerId={id}` |
-| Suspend | Confirm dialog: "Suspend {Name}? All their licenses will be denied." Button `--accent` |
-| Activate (on suspended) | Confirm dialog: "Reactivate {Name}? Deny-lists will be cleared." |
-| Delete | Confirm + type customer name to confirm |
+| Element | Spec |
+|---------|------|
+| Page header | native `<header>` + `.btn-new-customer` |
+| Filters | `.customers-filters` — search + status + created selects |
+| Table panel | `.customers-table-panel` wrapping styled `MudDataGrid` |
+| Name cell | `.customer-avatar` initials + `.customer-name-text` + mono ID |
+| Status badge | `.status-badge-active` / `.status-badge-suspended` |
+| Row menu | `MudMenu` MoreVert |
+| Create | `CustomerCreateDialog` (not inline expansion panel) |
+| Drawer | `CustomerDetailDrawer` — custom tabs, footer actions |
+| Empty | `.customers-empty` + CTA |
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list, 1 item/row | Card list, 2 items/row | `MudDataGrid` |
-| Filters collapsed in panel | Filters collapsed, expandable | Filters inline |
-| Drawer: full-width bottom sheet | Drawer: half-width right | Drawer: 480px right |
-| Drawer tabs: horizontal scroll | Drawer tabs: inline | Drawer tabs: inline |
+| xs | md+ |
+|----|-----|
+| Filters stack | Filters inline row |
+| Drawer full width | Drawer 480px |
+| Horizontal scroll table | Full table |
 
 ---
 
@@ -494,16 +422,45 @@ API: `GET /api/customers?page=1&pageSize=25`, `POST`, `PUT`, `POST /suspend`, `P
 
 API: `GET /api/serviceproducts`, `POST`, `PUT`
 
+Reference mock: Service Catalog page (May 2026).
+
+### Desktop layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ [✓] Service "Auth Core" created successfully.  [Generate Integ. Key]   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ H1 Service Catalog                        [ + Add Service ] primary    │
+│ Manage microservices, API endpoints, and system-level integrations.      │
+├──────────────────────────────────────────────────────────────────────────┤
+│ BENTO STATS (4 cards)                                                    │
+│ Active Services │ System Uptime │ Total Licenses │ Key Coverage ████ 82% │
+├──────────────────────────────────────────────────────────────────────────┤
+│ TABLE PANEL (rounded, surface-container)                               │
+│ NAME (dot) │ CODE badge │ DESCRIPTION │ AVAIL switch │ INT KEY │ ACT   │
+│ ● Edge Proxy │ EPA-204-X │ …           │ [====●]      │ PROD_KEY│ ✎ 🔑  │
+│ ...                                                                      │
+│ Showing 1–4 of 4 results                                               │
+├──────────────────────────────────────────────────────────────────────────┤
+│ INSIGHTS (2-col)                                                         │
+│ Service Performance Matrix (bar chart) │ Automated Health Checks glass  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Component spec
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| Page header | `MudText` H1 + `MudButton` | "Service Catalog" `[+ Add Service]` right-aligned |
-| Data | `MudDataGrid<T>` (md+) / card list (xs/sm) | |
-| Grid columns | | **Name**, **Code**, **Description**, **Available** switch, **Has Integration Key** chip, **License Count**, **Actions** |
-| Available toggle | `MudSwitch` | Thumb `--accent`, track `--border-subtle`, inline toggle (calls `PUT` on change) |
-| Integration Key chip | `MudChip` | **Active**: Outlined `--accent`, **None**: Text `--text-secondary`. Click → `/integration-keys?serviceProductId={id}` |
-| Actions | | Edit, View Keys |
+| Success banner | custom `.services-success-banner` | Post-create only; primary border; Generate Key CTA |
+| Page header | native `<header>` | H1 + subtitle + Add Service button |
+| Stats grid | CSS grid 1/4 cols | Active Services, Uptime (static), Total Licenses, Key Coverage + bar |
+| Data | `MudTable` in `.services-table-panel` | Hover row actions (Edit, Keys) |
+| Available toggle | `MudSwitch` | Inline PUT on change |
+| Integration Key | custom chip | Active: mono `{CODE}_KEY`; None: error badge |
+| Table footer | mono caption | Result count |
+| Insights | 2-card grid | Decorative chart + glass health card |
+| Create | `ServiceProductCreateDialog` | Warning alert + form fields |
+| Edit | `ServiceProductEditDialog` | Code readonly |
 
 ### Add/Edit service dialog
 
@@ -512,46 +469,34 @@ Follows [Form patterns](#form-patterns).
 | Field | Component | Notes |
 |-------|-----------|-------|
 | Name | `MudTextField` | Required, max 200 |
-| Code | `MudTextField` | Required, max 50, readonly after create |
+| Code | `MudTextField` | Required, max 50, auto-uppercase on create |
 | Description | `MudTextField` multiline | Optional, max 2000 |
 | Available for sale | `MudSwitch` | Default true |
+
+Create dialog includes `MudAlert` Severity.Warning about irrecoverable keys.
 
 ### Post-create integration key prompt
 
 After successful service creation (POST → 201):
 
 ```
-┌──────────────────────────────────────────────┐
-│  ┌────────┐                                   │
-│  │  ✓     │  Service "Asset Management"       │
-│  │ green  │  created successfully             │
-│  └────────┘                                   │
-│                                               │
-│  An integration key is required for           │
-│  external apps to validate licenses for       │
-│  this service.                                │
-│                                               │
-│  [ Generate Integration Key ]  [ Skip ]       │
-│                                               │
-│  (Skip can always come back via               │
-│   Integration Keys page)                      │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ ✓  Service "Authentication Core" created successfully.                     │
+│    Ready for deployment. You need a secure key for API access.             │
+│                                              [ 🔑 Generate Integration Key ]│
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-**On [Generate Integration Key]:**
-→ `POST /api/integration-keys?serviceProductId={id}`
-→ Opens one-time key reveal dialog (same as Integration Keys flow — see section 11)
-
-**On [Skip]:**
-→ Closes dialog, grid refreshes, service shows "Integration Key: None"
+**On [Generate Integration Key]:** navigate to `/integration-keys?productId={id}` (generate + one-time reveal on that page).
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list | Card list | `MudDataGrid` |
-| Create dialog: bottom sheet | Create dialog: centered 420px | Create dialog: centered 480px |
-| Post-create prompt: bottom sheet | Post-create prompt: centered | Post-create prompt: centered 440px |
+| xs (<600px) | md+ (≥768px) |
+|-------------|--------------|
+| Stats 1-col | Stats 4-col |
+| Header stacks | Header row |
+| Insights stack | Insights 2-col |
+| Table horizontal scroll | Full width table |
 
 ---
 
@@ -559,25 +504,43 @@ After successful service creation (POST → 201):
 
 API: `GET /api/licenses?page=1&pageSize=25&customerId=`, `POST`, `POST /activate`, `POST /renew`, `POST /suspend`, `POST /revoke`, `PUT`
 
+Reference mock: Licenses page (May 2026).
+
+### Desktop layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ H1 Licenses                               [ + Issue License ] primary    │
+│ Manage software entitlements and API access keys.                        │
+├──────────────────────────────────────────────────────────────────────────┤
+│ FILTERS (4-col grid, mono uppercase labels)                              │
+│ CUSTOMER ▾     │ SERVICE ▾      │ STATUS ▾       │ [ More Filters ]     │
+├──────────────────────────────────────────────────────────────────────────┤
+│ TABLE PANEL (rounded-lg, multi-select)                                   │
+│ ☐ │ CUSTOMER (name+ID) │ SERVICE │ PLAN │ STATUS │ EXPIRES │ KEY │ ⋮   │
+│ ☐ │ Acme Corp          │ Cloud   │ Ent  │ Active │ 2025-12 │ YES │ ⋮   │
+│ ...                                                                      │
+│ Showing 1–25 of 124                              [ < 1 2 3 > ]           │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌── BULK BAR (fixed bottom, glass, when selected) ─────────────────────────┐
+│ (3) Items selected │ Resend Keys │ Renew │ Revoke │ ✕                    │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Component spec
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| Page header | `MudText` H1 + `MudButton` | "Licenses" `[Issue License]` right-aligned |
-| Filters | | Search, Customer `MudAutocomplete`, Service `MudSelect`, Status `MudSelect`, `MudDateRangePicker` |
-| Data | `MudDataGrid<T>` (md+) / card list (xs/sm) | Multi-select for bulk actions |
-| Grid columns | | **Customer**, **Service**, **Plan**, **Status** chip, **Expires**, **Key Sent** chip, **Created**, **Actions** |
-| Bulk actions bar | | Appears when rows selected: `[Bulk Suspend]` `[Bulk Renew]` |
-
-### Status chips (all `--accent`, variant-based)
-
-| Status | Variant | Available transitions |
-|--------|---------|----------------------|
-| Pending | Outlined | Activate |
-| Active | **Filled** | Suspend, Renew, Revoke |
-| Suspended | Outlined | Activate, Revoke |
-| Revoked | Text | (none — permanent) |
-| Expired | Text | Activate, Renew |
+| Page header | native `<header>` | H1 + subtitle + Issue License button |
+| Filters | 4-col CSS grid | Customer/Service/Status selects + More Filters toggle |
+| More filters | expandable panel | Search field + Apply |
+| Data | `MudDataGrid<T>` multi-select | `.licenses-grid` styled panel |
+| Status | custom pill badges | Active fill, Expired error, outline variants |
+| Key Sent | YES/NO chips | check/cancel icons |
+| Row actions | `MudMenu` MoreVert | Activate, Renew, Edit, Suspend, Revoke by status |
+| Bulk bar | `.licenses-bulk-bar` | Glass panel, slide-up animation |
+| Issue | `LicenseIssueDialog` | Replaces expansion panel |
 
 ### Issue License modal
 
@@ -586,20 +549,15 @@ Follows [Form patterns](#form-patterns).
 ```
 ┌──────────────────────────────────────────┐
 │  Issue License                           │
-│  ────────────────────────────────        │
-│                                          │
-│  Customer    [autocomplete search...]    │
-│  Service     [HOSTEL ▾]                  │
+│  Customer    [select ▾]                  │
+│  Service     [select ▾]                  │
 │  Plan Name   [___________________]       │
 │  Expires At  [📅 mm/dd/yyyy]  (optional) │
-│  Notes       [  multiline  ]  (optional) │
-│                                          │
-│  ────────────────────────────────        │
 │                [ Cancel ]  [ Issue ]     │
 └──────────────────────────────────────────┘
 ```
 
-Submit → `POST /api/licenses` → 201, status=Pending. Grid refreshes, new row shown.
+Submit → `POST /api/licenses` → 201, status=Pending.
 
 ### Activate License flow (two-step)
 
@@ -666,12 +624,12 @@ Follows [Form patterns](#form-patterns). Same two-step modal as Activate, but wi
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list | Card list | `MudDataGrid` with multi-select |
-| Issue/Activate: full-screen bottom sheet | Centered 440px | Centered 520px |
-| Key reveal: full-screen, key text wraps | Centered 420px | Centered 480px |
-| Bulk bar: sticky bottom | Sticky bottom | Sticky top below header |
+| xs (<600px) | md+ (≥768px) |
+|-------------|--------------|
+| Filters stack | Filters 4-col |
+| Bulk bar wraps | Bulk bar centered |
+| Issue/Activate: bottom sheet | Centered 520px |
+| Key reveal: full-screen | Centered 480px |
 
 ---
 
@@ -679,16 +637,43 @@ Follows [Form patterns](#form-patterns). Same two-step modal as Activate, but wi
 
 API: `GET /api/invoices?page=1&pageSize=25&customerId=`, `POST`, `POST /void`
 
+Reference mock: Invoices page (May 2026).
+
+### Desktop layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ H1 Invoices (primary)              [ CREATE INVOICE ] [ EXPORT CSV ]     │
+│ Manage billing, customer accounts, and transaction history.              │
+├──────────────────────────────────────────────────────────────────────────┤
+│ BENTO STATS (4 cards)                                                    │
+│ TOTAL REVENUE │ OUTSTANDING │ PAID THIS MONTH │ QUICK FILTER chips       │
+├──────────────────────────────────────────────────────────────────────────┤
+│ FILTERS PANEL (surface-container-low)                                    │
+│ CUSTOMER search │ STATUS ▾ │ DATE RANGE │ [ RESET ] [ FILTER ]          │
+├──────────────────────────────────────────────────────────────────────────┤
+│ TABLE PANEL                                                              │
+│ INV # │ CUSTOMER (avatar) │ TOTAL │ PAID │ DUE │ STATUS │ DATE │ ⋮     │
+│ ...                                                                      │
+│ SHOWING 1–25 OF N                                                        │
+├──────────────────────────────────────────────────────────────────────────┤
+│ INSIGHTS (2:1)                                                           │
+│ Automated Billing Rules card │ Q3 Projection bar card                    │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Invoice list component spec
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| Page header | `MudText` H1 + `MudButton` | "Invoices" `[+ New Invoice]` right-aligned |
-| Filters | | Customer `MudAutocomplete`, Status `MudSelect`, `MudDateRangePicker` |
-| Data | `MudDataGrid<T>` (md+) / card list (xs/sm) | |
-| Grid columns | | **Invoice #**, **Customer**, **Total**, **Paid**, **Due**, **Status** chip, **Issue Date**, **Actions** |
-| Status chips | `MudChip` all `--accent` | **Draft**: Text, **Sent**: Outlined, **PartiallyPaid**: Outlined, **Paid**: **Filled**, **Overdue**: **Filled**, **Void**: Text |
-| Row click | | Navigate `/invoices/{id}` |
+| Page header | native `<header>` | Primary H1 + dual CTAs |
+| Stats bento | CSS grid 1/4 | Revenue, Outstanding, Paid this month, Quick filter chips |
+| Filters | `.invoices-filters-panel` | Customer search, Status, DateRange, Reset/Filter |
+| Data | `MudDataGrid<T>` | `.invoices-grid`, row click → detail |
+| Status badges | custom pills | Paid, Sent, Partially Paid, Overdue, Draft, Void |
+| Row highlight | CSS | Overdue rows error tint |
+| Export | JS download | Current filtered rows → CSV |
+| Insights | 2-card grid | Billing rules + projection (decorative) |
 
 ### Invoice Detail `/invoices/{id}`
 
@@ -763,37 +748,49 @@ Only available on Draft / Sent / Overdue with zero receipts. Confirm dialog with
 
 API: `GET /api/integration-keys?serviceProductId=`, `POST`, `POST /{id}/revoke`
 
+Reference mock: Integration Keys page (May 2026).
+
+### Desktop layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ H1 Integration Keys (primary)              [ + Generate New Key ]        │
+│ Manage API credentials and authentication tokens...                      │
+├──────────────────────────────────────────────────────────────────────────┤
+│ ⚠ SECURITY NOTICE (error-toned banner)                                   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ STATS (3 cards): Active Keys │ Requests/24h │ Avg Latency                │
+├──────────────────────────────────────────────────────────────────────────┤
+│ BENTO GRID (auto-fill cards)                                             │
+│ ┌─────────────────────┐ ┌─────────────────────┐                          │
+│ │ [icon] Hostel Inv.  │ │ [icon] Stripe Conn. │                          │
+│ │ Active pill         │ │ pk_STRP_••••••      │                          │
+│ │ pk_HOSTEL_••••••    │ │ Created · Revoke    │                          │
+│ └─────────────────────┘ └─────────────────────┘                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Component spec
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| Page header | `MudText` H1 + `MudButton` | "Integration Keys" `[Generate Key]` right-aligned |
-| Filter | `MudSelect` | Service product filter (all or specific) |
-| Data | `MudDataGrid<T>` (md+) / card list (xs/sm) | |
-| Grid columns | | **Service**, **Masked Preview**, **Active** chip, **Created**, **Last Used**, **Actions** |
-| Masked key | `<code>` | `pk_HOSTEL_••••••••••••` — never show full hash |
-| Active chip | `MudChip` | **Active**: Filled `--accent`, **Revoked**: Text `--text-secondary` |
-| Info alert | `MudAlert` Severity.Warning | "Integration keys cannot be recovered after creation. Store them securely." border-left `--accent` |
+| Page header | native `<header>` | Primary H1 + Generate New Key |
+| Security alert | `.integration-keys-alert` | Error border/bg, warning icon |
+| Stats | CSS grid 1/3 | Active Keys real; traffic/latency decorative |
+| Key cards | `.integration-keys-bento` | Icon, name, subtitle, masked key, revoke |
+| Generate | `IntegrationKeyGenerateDialog` | Service select + warning |
+| Reveal | `IntegrationKeyRevealDialog` | One-time plain key, no backdrop dismiss |
+| Revoke | `ConfirmDialog` | Irreversible disconnect warning |
 
 ### Generate Key flow
-
-Follows [Form patterns](#form-patterns).
 
 **Step 1 — Select service:**
 
 ```
 ┌──────────────────────────────────────────┐
 │  Generate Integration Key                │
-│  ────────────────────────────────        │
-│                                          │
+│  ⚠ Creating a new key will revoke...     │
 │  Service   [HOSTEL ▾]                    │
-│                                          │
-│  ⚠ Creating a new key will revoke the   │
-│  previous active key for this service.   │
-│  Any app using the old key will fail     │
-│  validation.                             │
-│                                          │
-│  ────────────────────────────────        │
 │              [ Cancel ]  [ Generate ]    │
 └──────────────────────────────────────────┘
 ```
@@ -803,97 +800,126 @@ Follows [Form patterns](#form-patterns).
 ```
 ┌──────────────────────────────────────────┐
 │  ⚠ Integration Key Created               │
-│  ────────────────────────────────        │
-│                                          │
 │  Service: HOSTEL — Hostel Management     │
-│                                          │
 │  ┌──────────────────────────────────┐    │
-│  │ pk_HOSTEL_x7f3a9c2e1b4d         │    │
-│  │                         [📋 Copy]│    │
+│  │ pk_HOSTEL_x7f3a9c2e1b4d  [Copy]  │    │
 │  └──────────────────────────────────┘    │
-│                                          │
-│  ⚠ Store this key securely. It will     │
-│  never be displayed again. Any app       │
-│  validating licenses for HOSTEL must     │
-│  send this key in the X-Integration-Key  │
-│  header.                                 │
-│                                          │
-│  ────────────────────────────────        │
+│  ⚠ Store securely. X-Integration-Key    │
 │                     [ I've Saved It ]    │
 └──────────────────────────────────────────┘
 ```
 
-Submit → `POST /api/integration-keys?serviceProductId={id}` → returns `{ Key, PlainKey }`. Plain key shown once, then discarded.
+Submit → `POST /api/integration-keys?serviceProductId={id}`.
 
 ### Revoke Key
 
-Confirm dialog: "Revoke integration key for {Service}? External apps will fail validation. This cannot be undone."
+Confirm: irreversible disconnect message → card removed/refreshed.
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list | Card list | `MudDataGrid` |
-| Generate: bottom sheet | Centered 400px | Centered 480px |
-| Key reveal: full-screen | Centered 420px | Centered 480px, key text larger |
+| xs | md+ |
+|----|-----|
+| Stats stack | Stats 3-col |
+| Bento 1-col | Bento auto-fill min 320px |
 
 ---
 
 ## 12. Audit Log `/audit`
 
-API: `GET /api/audit-logs?limit=100&customerId=&licenseId=&invoiceId=&action=`
+API: `GET /api/audit-logs?limit=500&customerId=&licenseId=&action=`
+
+Reference mock: Audit Log page (May 2026).
+
+### Desktop layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ H1 Audit Log (primary)     [ Search logs... ] [ Export CSV ]             │
+│ Comprehensive tracking of all administrative actions...                  │
+├──────────────────────────────────────────────────────────────────────────┤
+│ FILTERS: Action ▾ │ Customer ▾ │ Refresh                                  │
+├──────────────────────────────────────────────────────────────────────────┤
+│ TABLE (expandable rows)                                                  │
+│ ▶ │ TIMESTAMP │ ADMIN (avatar) │ ACTION badge │ TARGET │ IP │ ⋮         │
+│ ▼ │ ...       │ ...            │ LICENSE_...  │ ...    │ .. │           │
+│   │ DETAILS_JSON                                    [ Copy ]             │
+│   │ { formatted green JSON }                                               │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Items per page: 25 │ 1–25 of N │ ◀ ▶ pagination                          │
+├──────────────────────────────────────────────────────────────────────────┤
+│ STATS: Total Logs │ Security Flags │ Avg Retained │ Storage Used         │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Component spec
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| Page header | `MudText` H1 + `MudButton` | "Audit Log" `[Export CSV]` right-aligned |
-| Filters | inline (md+) / `MudExpansionPanel` (xs/sm) | Action `MudSelect` (25 actions), Customer `MudAutocomplete`, Date `MudDateRangePicker`, Admin search `MudTextField` |
-| Data | `MudDataGrid<T>` (md+) / card list (xs/sm) | Read-only |
-| Grid columns | | **Timestamp** (sortable), **Admin** (who performed), **Action**, **Target**, **IP** |
-| Expandable row | `MudCodeBlock` or `<pre class="text-code">` | `DetailsJson` formatted, JetBrains Mono, `--bg-elevated` background, `--text-primary` text |
-| Export | Button → download CSV | Client-side from visible/filtered data |
+| Page header | native `<header>` | Primary H1 + inline search + Export CSV |
+| Filters | `.audit-filters-panel` | Action, Customer, Refresh |
+| Data | custom `<table.audit-table>` | Expandable rows with chevron |
+| Action badges | CSS pills | PRIMARY / NEUTRAL / DANGER by action type |
+| JSON panel | `.audit-details-panel` | Pretty-printed primary mono JSON + copy |
+| Pagination | client-side | Page size select + nav buttons |
+| Stats | 4-card grid | Total, security flags, retention, storage |
 
-### Audit action list (25 actions)
+### Audit action list (20 actions)
 
-`CustomerCreated`, `CustomerUpdated`, `CustomerSuspended`, `CustomerReactivated`,
-`ServiceProductCreated`, `ServiceProductUpdated`,
-`LicenseIssued`, `LicenseUpdated`, `LicenseActivated`, `LicenseRenewed`, `LicenseKeyRotated`,
-`LicenseSuspended`, `LicenseRevoked`,
-`IntegrationKeyCreated`, `IntegrationKeyRevoked`,
-`InvoiceCreated`, `InvoiceSent`, `InvoiceVoided`, `ReceiptRecorded`, `InvoiceLinkedToLicense`
+Same enum list as screens.md — displayed as `UPPER_SNAKE_CASE`.
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list, JSON hidden under expand | Card list, JSON expand | `MudDataGrid`, JSON in expandable row |
-| Filters in panel | Filters in panel | Filters inline bar |
-| Export button: full width | Auto width | Auto width |
+| xs | md+ |
+|----|-----|
+| Header stacks | Header row |
+| Table scroll | Full width |
+| Stats stack | Stats 4-col |
 
 ---
 
-## 13. Validate License `/tools/validate`
+## 13. Validate License `/validate`
+
+Canonical route **`/validate`**. Alias **`/tools/validate`** → same page.
 
 API: `POST /api/licenses/validate` (AllowAnonymous, rate-limited 60/min)
 
-### Component spec
+Reference mock: License Debugger page (May 2026).
 
-Follows [Form patterns](#form-patterns).
+### Desktop layout
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ H1 License Debugger (primary)                                            │
+│ Low-level validation tool for verifying license key integrity...         │
+├───────────────────────────────┬──────────────────────────────────────────┤
+│ INPUT PARAMETERS (5-col)      │ RESPONSE TERMINAL (7-col)                │
+│ License Key textarea          │ ● ● ● response_log.json    [Copy][Clear]  │
+│ Service Context ▾             │ { pretty JSON or awaiting... }           │
+│ 🔑 X-Integration-Key          │ Status: 200 OK │ Latency: 84ms          │
+│ [ ⚡ Test Validation ]        │                                          │
+│ ℹ Validation API info card    │ Decorative validator card                │
+└───────────────────────────────┴──────────────────────────────────────────┘
+```
+
+### Component spec
 
 | Element | Component | Spec |
 |---------|-----------|------|
-| Page header | `MudText` H1 | "Validate License" |
-| Description | `MudText` body2 | "Debug tool: test the license validation endpoint. Rate-limited to 60 requests per minute." |
-| License Key | `MudTextField` multiline | Full width, JetBrains Mono, 6 rows, label "License Key", required |
-| Service | `MudSelect` | Optional — HOSTEL / LAUNDRY / SCHOOL / ASSET. Auto-detect if not provided. |
-| X-Integration-Key | `MudTextField` | The integration key header value, required |
-| Test button | `MudButton` Variant.Filled | "Test Validation", `--accent` |
-| Response panel | `MudExpansionPanel` or card | Shows after API response |
-| Valid result | `MudText` | Green (`--accent`): `{ IsValid: true, PlanName: "Pro Annual", ExpiresAt: "2027-05-15" }` |
-| Invalid result | `MudText` | Red (`--accent` with opacity or `--text-secondary`): `{ IsValid: false, Message: "..." }` |
-| Loading | `MudProgressLinear` | While request is in-flight |
-| Error / rate-limit | `MudAlert` | 429: "Too many requests. Try again later." |
+| Page header | native `<header>` | “License Debugger” + subtitle |
+| Input panel | `.validate-input-panel` | Terminal icon + labeled fields |
+| Service select | `MudSelect` | Product codes from catalog, optional |
+| Integration key | icon-prefixed input | Mono styling |
+| Test button | `.btn-test-validation` | Full width primary + bolt icon |
+| Info card | `.validate-info-card` | API endpoint + rate limit |
+| Terminal | `.validate-terminal` | Black bg, toolbar, JSON body, status bar |
+| Copy/Clear | toolbar buttons | Clipboard + reset |
+| Decorative | `.validate-decorative-card` | Validator behavior note |
+
+### Responsive
+
+| xs | lg+ |
+|----|-----|
+| Stack columns | 5:7 grid |
 
 ---
 

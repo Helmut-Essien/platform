@@ -5,153 +5,149 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<PageHeader Title="Customers">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">New Customer</MudButton>
-</PageHeader>
+<div class="customers-page">
+    <header class="customers-header">
+        <div>
+            <h1>Customers</h1>
+            <p>Manage platform accounts, licensing, and billing entities.</p>
+        </div>
+        <button type="button" class="btn-new-customer" @onclick="OpenCreateDialogAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+            New Customer
+        </button>
+    </header>
 
-<MudExpansionPanels Class="mb-4">
-    <MudExpansionPanel Text="Add customer" Expanded="_addPanelExpanded">
-        <MudForm @ref="_form" Model="_newCustomer" @bind-IsValid="_formValid">
-            <MudTextField @bind-Value="_newCustomer.Name"
-                          For="@(() => _newCustomer.Name)"
-                          Label="Name"
-                          Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Name is required"
-                          MaxLength="200"
-                          Counter="200"
-                          Disabled="_busy"
-                          Class="mb-2" />
-            <MudTextField @bind-Value="_newCustomer.ContactEmail"
-                          For="@(() => _newCustomer.ContactEmail)"
-                          Label="Email"
-                          Variant="Variant.Outlined"
-                          InputType="InputType.Email"
-                          Required="true"
-                          RequiredError="Email is required"
-                          Disabled="_busy"
-                          Class="mb-2" />
-            <MudTextField @bind-Value="_newCustomer.ContactPhone"
-                          For="@(() => _newCustomer.ContactPhone)"
-                          Label="Phone (optional)"
-                          Variant="Variant.Outlined"
-                          MaxLength="50"
-                          Counter="50"
-                          Disabled="_busy"
-                          Class="mb-2" />
-            <MudTextField @bind-Value="_newCustomer.InternalNotes"
-                          For="@(() => _newCustomer.InternalNotes)"
-                          Label="Internal notes (optional)"
-                          Variant="Variant.Outlined"
-                          Lines="3"
-                          MaxLength="4000"
-                          Counter="4000"
-                          Disabled="_busy"
-                          Class="mb-2" />
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       Disabled="@(!_formValid || _busy)"
-                       OnClick="CreateAsync">
-                @(_busy ? "Creating..." : "Create")
-            </MudButton>
-        </MudForm>
-    </MudExpansionPanel>
-</MudExpansionPanels>
+    <section class="customers-filters" aria-label="Filters">
+        <MudTextField @bind-Value="_search"
+                      Placeholder="Search by name, email or ID..."
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      Class="flex-grow-1"
+                      Immediate="true"
+                      DebounceInterval="300"
+                      OnDebounceIntervalElapsed="ReloadGrid" />
+        <div class="customers-filters-actions">
+            <MudSelect T="string" Value="_statusFilter" ValueChanged="OnStatusFilterChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="min-width: 10rem;">
+                <MudSelectItem Value="@("")">All Statuses</MudSelectItem>
+                <MudSelectItem Value="@("active")">Active</MudSelectItem>
+                <MudSelectItem Value="@("suspended")">Suspended</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" Value="_dateFilter" ValueChanged="OnDateFilterChanged" Label="Created" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 10rem;">
+                <MudSelectItem Value="@("all")">All Time</MudSelectItem>
+                <MudSelectItem Value="@("30d")">Last 30 Days</MudSelectItem>
+            </MudSelect>
+        </div>
+    </section>
 
-<MudGrid Class="mb-4">
-    <MudItem xs="12" sm="6" md="4">
-        <MudTextField @bind-Value="_search" Label="Search name or email" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="string" @bind-Value="_statusFilter" Label="Status" Variant="Variant.Outlined" Clearable="true">
-            <MudSelectItem Value="@("active")">Active</MudSelectItem>
-            <MudSelectItem Value="@("suspended")">Suspended</MudSelectItem>
-        </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3" Class="d-flex align-end">
-        <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply filters</MudButton>
-    </MudItem>
-</MudGrid>
-
-<MudDataGrid @ref="_grid"
-             T="CustomerDto"
-             ServerData="LoadServerData"
-             Hover="true"
-             Dense="true"
-             RowClick="OnRowClick"
-             RowsPerPage="25">
-    <Columns>
-        <TemplateColumn Title="Name">
-            <CellTemplate>
-                <MudButton Variant="Variant.Text" Size="Size.Small" Class="pa-0" OnClick="@(() => ViewCustomer(context.Item))">@context.Item.Name</MudButton>
-            </CellTemplate>
-        </TemplateColumn>
-        <PropertyColumn Property="x => x.ContactEmail" Title="Email" />
-        <PropertyColumn Property="x => x.ContactPhone" Title="Phone" />
-        <TemplateColumn Title="Status">
-            <CellTemplate>
-                <MudChip T="string" Size="Size.Small" Variant="@(context.Item.IsSuspended ? Variant.Outlined : Variant.Filled)" Color="Color.Primary">
-                    @(context.Item.IsSuspended ? "Suspended" : "Active")
-                </MudChip>
-            </CellTemplate>
-        </TemplateColumn>
-        <PropertyColumn Property="x => x.LicenseCount" Title="Licenses" />
-        <TemplateColumn Title="Created">
-            <CellTemplate>
-                @context.Item.CreatedAt.ToString("yyyy-MM-dd")
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn Title="Actions" Sortable="false">
-            <CellTemplate>
-                @{
-                    var customer = context.Item;
-                }
-                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ViewCustomer(customer))">View</MudButton>
-                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => EditAsync(customer))">Edit</MudButton>
-                <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"/licenses?customerId={customer.Id}")">Licenses</MudButton>
-                @if (customer.IsSuspended)
-                {
-                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => ReactivateAsync(customer.Id))">Reactivate</MudButton>
-                }
-                else
-                {
-                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => SuspendAsync(customer.Id))">Suspend</MudButton>
-                }
-            </CellTemplate>
-        </TemplateColumn>
-    </Columns>
-    <NoRecordsContent>
-        <MudText Typo="Typo.subtitle1" Class="pa-4">No customers yet.</MudText>
-        <MudText Typo="Typo.body2" Class="px-4 pb-2">Add your first customer to start issuing licenses.</MudText>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="OpenAddPanel">Add Customer</MudButton>
-    </NoRecordsContent>
-    <PagerContent>
-        <MudDataGridPager T="CustomerDto" />
-    </PagerContent>
-</MudDataGrid>
+    <div class="customers-table-panel">
+        <MudDataGrid @ref="_grid"
+                     T="CustomerDto"
+                     Class="customers-grid"
+                     ServerData="LoadServerData"
+                     Hover="false"
+                     Dense="false"
+                     RowClick="OnRowClick"
+                     RowsPerPage="25">
+                <Columns>
+                    <TemplateColumn Title="Name">
+                        <CellTemplate>
+                            @{
+                                var c = context.Item;
+                            }
+                            <div class="customer-name-cell">
+                                <div class="customer-avatar @(c.IsSuspended ? "suspended" : "")">@GetInitials(c.Name)</div>
+                                <div>
+                                    <div class="customer-name-text">@c.Name</div>
+                                    <div class="customer-id-text">ID: @FormatShortId(c.Id)</div>
+                                </div>
+                            </div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <PropertyColumn Property="x => x.ContactEmail" Title="Contact Email" />
+                    <TemplateColumn Title="Contact Phone">
+                        <CellTemplate>
+                            @(string.IsNullOrWhiteSpace(context.Item.ContactPhone) ? "—" : context.Item.ContactPhone)
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Status">
+                        <CellTemplate>
+                            <div class="cell-center">
+                                <span class="status-badge @(context.Item.IsSuspended ? "status-badge-suspended" : "status-badge-active")">
+                                    @(context.Item.IsSuspended ? "Suspended" : "Active")
+                                </span>
+                            </div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Licenses">
+                        <CellTemplate>
+                            <div class="cell-center cell-mono">@context.Item.LicenseCount</div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="Created At">
+                        <CellTemplate>
+                            @context.Item.CreatedAt.ToString("MMM dd, yyyy")
+                        </CellTemplate>
+                    </TemplateColumn>
+                    <TemplateColumn Title="" Sortable="false">
+                        <CellTemplate>
+                            @{
+                                var customer = context.Item;
+                            }
+                            <div class="d-flex justify-end" @onclick:stopPropagation="true">
+                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                    <MudMenuItem OnClick="@(() => ViewCustomer(customer))">View profile</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => EditAsync(customer))">Edit</MudMenuItem>
+                                    <MudMenuItem Href="@($"/licenses?customerId={customer.Id}")">View licenses</MudMenuItem>
+                                    @if (customer.IsSuspended)
+                                    {
+                                        <MudMenuItem OnClick="@(() => ReactivateAsync(customer))">Reactivate</MudMenuItem>
+                                    }
+                                    else
+                                    {
+                                        <MudMenuItem OnClick="@(() => SuspendAsync(customer.Id))">Suspend</MudMenuItem>
+                                    }
+                                </MudMenu>
+                            </div>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <NoRecordsContent>
+                    <div class="customers-empty">
+                        <h2>No customers yet</h2>
+                        <p>Add your first customer to start issuing licenses.</p>
+                        <button type="button" class="btn-new-customer" @onclick="OpenCreateDialogAsync">
+                            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                            New Customer
+                        </button>
+                    </div>
+                </NoRecordsContent>
+                <PagerContent>
+                    <MudDataGridPager T="CustomerDto" />
+                </PagerContent>
+            </MudDataGrid>
+    </div>
+</div>
 
 <CustomerDetailDrawer @bind-Open="_drawerOpen"
                       Customer="_selectedCustomer"
                       OnCustomerUpdated="OnCustomerUpdated" />
 
 @code {
-    private bool _busy;
-    private bool _formValid;
-    private bool _addPanelExpanded;
     private bool _drawerOpen;
     private string _search = "";
-    private string? _statusFilter;
-    private MudForm? _form;
+    private string _statusFilter = "";
+    private string _dateFilter = "all";
     private MudDataGrid<CustomerDto>? _grid;
     private CustomerDto? _selectedCustomer;
-    private CreateCustomerRequest _newCustomer = new() { Name = "", ContactEmail = "" };
 
     [SupplyParameterFromQuery] public string? Add { get; set; }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         if (!string.IsNullOrEmpty(Add))
-            _addPanelExpanded = true;
+            await OpenCreateDialogAsync();
     }
 
     private async Task<GridData<CustomerDto>> LoadServerData(GridState<CustomerDto> state)
@@ -163,7 +159,8 @@
         {
             items = items.Where(c =>
                 c.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
-                c.ContactEmail.Contains(_search, StringComparison.OrdinalIgnoreCase));
+                c.ContactEmail.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                c.Id.Contains(_search, StringComparison.OrdinalIgnoreCase));
         }
 
         if (_statusFilter == "active")
@@ -171,12 +168,18 @@
         else if (_statusFilter == "suspended")
             items = items.Where(c => c.IsSuspended);
 
+        if (_dateFilter == "30d")
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-30);
+            items = items.Where(c => c.CreatedAt >= cutoff);
+        }
+
+        var unfiltered = string.IsNullOrWhiteSpace(_search) && string.IsNullOrEmpty(_statusFilter) && _dateFilter == "all";
+
         return new GridData<CustomerDto>
         {
             Items = items.ToList(),
-            TotalItems = string.IsNullOrWhiteSpace(_search) && string.IsNullOrEmpty(_statusFilter)
-                ? result.TotalCount
-                : items.Count()
+            TotalItems = unfiltered ? result.TotalCount : items.Count()
         };
     }
 
@@ -184,6 +187,18 @@
     {
         if (_grid is not null)
             await _grid.ReloadServerData();
+    }
+
+    private async Task OnStatusFilterChanged(string? value)
+    {
+        _statusFilter = value ?? "";
+        await ReloadGrid();
+    }
+
+    private async Task OnDateFilterChanged(string? value)
+    {
+        _dateFilter = value ?? "all";
+        await ReloadGrid();
     }
 
     private void OnRowClick(DataGridRowClickEventArgs<CustomerDto> args) => ViewCustomer(args.Item);
@@ -201,40 +216,23 @@
             _selectedCustomer = await Api.GetCustomerAsync(_selectedCustomer.Id);
     }
 
-    private async Task CreateAsync()
+    private async Task OpenCreateDialogAsync()
     {
-        if (_form is null)
+        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("New Customer");
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false || dialogResult.Data is not CreateCustomerRequest request)
             return;
 
-        await _form.Validate();
-        if (!_formValid)
+        var result = await Api.CreateCustomerAsync(request);
+        if (!result.IsSuccess)
         {
-            Snackbar.Add("Please fix the errors in the form.", Severity.Warning);
+            Snackbar.Add(result.ErrorMessage ?? "Failed to create customer.", Severity.Error);
             return;
         }
 
-        _busy = true;
-        try
-        {
-            var result = await Api.CreateCustomerAsync(_newCustomer);
-            if (!result.IsSuccess)
-            {
-                Snackbar.Add(result.ErrorMessage ?? "Failed to create customer.", Severity.Error);
-                return;
-            }
-
-            Snackbar.Add("Customer created.", Severity.Success);
-            _newCustomer = new CreateCustomerRequest { Name = "", ContactEmail = "" };
-            _form.ResetValidation();
-            await ReloadGrid();
-        }
-        finally
-        {
-            _busy = false;
-        }
+        Snackbar.Add("Customer created.", Severity.Success);
+        await ReloadGrid();
     }
-
-    private void OpenAddPanel() => _addPanelExpanded = true;
 
     private async Task EditAsync(CustomerDto customer)
     {
@@ -255,6 +253,8 @@
 
         Snackbar.Add("Customer updated.", Severity.Success);
         await ReloadGrid();
+        if (_selectedCustomer?.Id == customer.Id)
+            _selectedCustomer = await Api.GetCustomerAsync(customer.Id);
     }
 
     private async Task SuspendAsync(string id)
@@ -277,12 +277,22 @@
         }
 
         Snackbar.Add("Customer suspended.", Severity.Success);
-        await ReloadGrid();
+        await OnCustomerUpdated();
     }
 
-    private async Task ReactivateAsync(string id)
+    private async Task ReactivateAsync(CustomerDto customer)
     {
-        var result = await Api.ReactivateCustomerAsync(id);
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Reactivate Customer", new DialogParameters
+        {
+            ["Title"] = "Reactivate Customer",
+            ["Message"] = $"Reactivate {customer.Name}? Deny-lists will be cleared.",
+            ["ConfirmText"] = "Reactivate"
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false)
+            return;
+
+        var result = await Api.ReactivateCustomerAsync(customer.Id);
         if (!result.IsSuccess)
         {
             Snackbar.Add(result.ErrorMessage ?? "Reactivate failed.", Severity.Error);
@@ -290,6 +300,22 @@
         }
 
         Snackbar.Add("Customer reactivated.", Severity.Success);
-        await ReloadGrid();
+        await OnCustomerUpdated();
+    }
+
+    private static string GetInitials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return "?";
+        if (parts.Length == 1)
+            return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        return $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant();
+    }
+
+    private static string FormatShortId(string id)
+    {
+        var compact = id.Replace("-", "", StringComparison.Ordinal);
+        return compact[..Math.Min(8, compact.Length)].ToUpperInvariant();
     }
 }

@@ -5,19 +5,15 @@
     <DialogContent>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudNumericField @bind-Value="_model.AmountPaid"
+                             For="@(() => _model.AmountPaid)"
                              Label="Amount paid"
                              Variant="Variant.Outlined"
                              Min="0.01m"
-                             Required="true"
-                             RequiredError="Amount is required"
-                            
                              Class="mb-2" />
             <MudSelect T="PaymentMethod" @bind-Value="_model.PaymentMethod"
+                       For="@(() => _model.PaymentMethod)"
                        Label="Payment method"
                        Variant="Variant.Outlined"
-                       Required="true"
-                       RequiredError="Payment method is required"
-                      
                        Class="mb-2">
                 @foreach (var method in Enum.GetValues<PaymentMethod>())
                 {
@@ -25,20 +21,20 @@
                 }
             </MudSelect>
             <MudTextField @bind-Value="_model.PaymentReference"
+                          For="@(() => _model.PaymentReference)"
                           Label="Reference (optional)"
                           Variant="Variant.Outlined"
-                         
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.Notes"
+                          For="@(() => _model.Notes)"
                           Label="Notes (optional)"
                           Variant="Variant.Outlined"
                           Lines="2"
-                         
                           Class="mb-2" />
-            <MudDatePicker @bind-Date="_paidAt"
+            <MudDatePicker @bind-Date="_model.PaidAt"
+                           For="@(() => _model.PaidAt)"
                            Label="Paid at"
-                           Variant="Variant.Outlined"
-                           />
+                           Variant="Variant.Outlined" />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -56,8 +52,11 @@
 
     private MudForm? _form;
     private bool _formValid;
-    private DateTime? _paidAt = DateTime.UtcNow;
-    private RecordReceiptRequest _model = new() { PaymentMethod = PaymentMethod.BankTransfer };
+    private RecordReceiptRequest _model = new()
+    {
+        PaymentMethod = PaymentMethod.BankTransfer,
+        PaidAt = DateTime.UtcNow
+    };
 
     protected override void OnInitialized()
     {
@@ -72,10 +71,10 @@
             return;
 
         await _form.Validate();
-        if (!_formValid || _model.AmountPaid <= 0)
+        if (!_formValid)
             return;
 
-        _model.PaidAt = _paidAt ?? DateTime.UtcNow;
+        _model.PaidAt ??= DateTime.UtcNow;
         MudDialog.Close(DialogResult.Ok(_model));
     }
 }

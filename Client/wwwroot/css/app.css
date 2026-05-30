@@ -2,12 +2,23 @@
     --accent: #5c9f24;
     --accent-hover: #7ccf2e;
     --accent-active: #3a7014;
-    --bg-base: #121212;
+    --primary: #92d959;
+    --on-primary: #193800;
+    --bg-base: #10150c;
     --bg-surface: #1e1e1e;
     --bg-elevated: #2a2a2a;
+    --surface-container-low: #191d14;
+    --surface-container: #1d2118;
+    --surface-container-high: #272b22;
+    --surface-container-highest: #32362c;
+    --on-surface: #e0e4d6;
     --text-primary: #ededed;
     --text-secondary: #a0a0a0;
+    --text-error: #ffb4ab;
     --border-subtle: #2c2c2c;
+    --container-margin: 24px;
+    --section-gap: 32px;
+    --gutter: 16px;
 }
 
 html, body {
@@ -106,25 +117,29 @@ html, body {
     outline-offset: 2px;
 }
 
+.platform-nav-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
 .mud-input-root:focus-within,
 .mud-button-root:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
-.mud-navmenu .mud-nav-link.active {
-    color: var(--accent) !important;
-    border-left: 3px solid var(--accent);
-}
-
-.mud-navmenu .mud-nav-link {
-    border-left: 3px solid transparent;
-    transition: color 0.2s ease, border-color 0.2s ease;
-}
-
-.mud-navmenu .mud-nav-link:not(.active):hover {
-    color: var(--text-primary) !important;
-}
+/* Nav styling lives in NavMenu.razor.css (custom platform-nav). */
 
 .data-card {
     cursor: pointer;

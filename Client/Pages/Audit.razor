@@ -3,108 +3,299 @@
 @inject PlatformApiClient Api
 @inject IJSRuntime JSRuntime
 @inject ISnackbar Snackbar
+<div class="audit-page">
+    <header class="audit-header">
+        <div>
+            <h1>Audit Log</h1>
+            <p>Comprehensive tracking of all administrative actions and security events.</p>
+        </div>
+        <div class="audit-header-tools">
+            <div class="audit-search-wrap">
+                <MudTextField @bind-Value="_search"
+                              Placeholder="Search logs..."
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true"
+                              DebounceInterval="300"
+                              OnDebounceIntervalElapsed="OnSearchChanged" />
+            </div>
+            <button type="button" class="btn-export-csv" disabled="@(_loading || FilteredLogs.Count == 0)" @onclick="ExportCsvAsync">
+                <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" />
+                Export CSV
+            </button>
+        </div>
+    </header>
 
-<PageHeader Title="Audit Log">
-    <MudButton Variant="Variant.Outlined" Disabled="_loading || _logs.Count == 0" OnClick="ExportCsvAsync">Export CSV</MudButton>
-</PageHeader>
-
-<MudGrid Class="mb-4">
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="AuditAction?" @bind-Value="_actionFilter" Label="Action" Variant="Variant.Outlined" Clearable="true">
+    <section class="audit-filters-panel" aria-label="Filters">
+        <MudSelect T="AuditAction?" Value="_actionFilter" ValueChanged="OnActionFilterChanged" Label="Action" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="min-width: 12rem;">
+            <MudSelectItem Value="@((AuditAction?)null)">All Actions</MudSelectItem>
             @foreach (var action in Enum.GetValues<AuditAction>())
             {
-                <MudSelectItem Value="@((AuditAction?)action)">@action</MudSelectItem>
+                <MudSelectItem Value="@((AuditAction?)action)">@FormatAction(action)</MudSelectItem>
             }
         </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="string" @bind-Value="_customerFilter" Label="Customer" Variant="Variant.Outlined" Clearable="true">
+        <MudSelect T="string" Value="_customerFilter" ValueChanged="OnCustomerFilterChanged" Label="Customer" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="min-width: 12rem;">
+            <MudSelectItem Value="@((string?)null)">All Customers</MudSelectItem>
             @foreach (var c in _customers)
             {
                 <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
             }
         </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudTextField @bind-Value="_search" Label="Search" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3" Class="d-flex align-end gap-2">
-        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Apply filters</MudButton>
-    </MudItem>
-</MudGrid>
+        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Refresh</MudButton>
+    </section>
 
-@if (_loading)
-{
-    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
-    @for (var i = 0; i < 8; i++)
+    @if (_loading)
     {
-        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
+        <div class="audit-loading">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        </div>
     }
-}
-else if (_filteredLogs.Count == 0)
-{
-    <MudText Typo="Typo.subtitle1" Class="pa-4">@(_logs.Count == 0 ? "No audit events recorded yet." : "No results match your filters.")</MudText>
-    @if (_logs.Count == 0)
+    else if (FilteredLogs.Count == 0)
     {
-        <MudText Typo="Typo.body2" Class="px-4 pb-4">Audit events are logged automatically when licenses and customers are managed.</MudText>
+        <div class="audit-empty">
+            <h2>@(_logs.Count == 0 ? "No audit events recorded yet" : "No results match your filters")</h2>
+            <p>@(_logs.Count == 0 ? "Audit events are logged automatically when licenses and customers are managed." : "Try adjusting your search or filters.")</p>
+        </div>
     }
-}
-else
-{
-    <MudExpansionPanels MultiExpansion="true">
-        @foreach (var log in _filteredLogs)
-        {
-            <MudExpansionPanel Text="@($"{log.Timestamp:g} — {log.Action}")">
-                <MudText Typo="Typo.body2"><strong>By:</strong> @log.PerformedBy</MudText>
-                <MudText Typo="Typo.body2"><strong>Customer:</strong> @ResolveCustomer(log.CustomerId)</MudText>
-                <MudText Typo="Typo.body2"><strong>License:</strong> @ResolveLicense(log.LicenseId)</MudText>
-                @if (!string.IsNullOrEmpty(log.DetailsJson))
-                {
-                    <pre class="text-code mt-2">@log.DetailsJson</pre>
-                }
-            </MudExpansionPanel>
-        }
-    </MudExpansionPanels>
-}
+    else
+    {
+        <div class="audit-table-panel">
+            <div style="overflow-x: auto;">
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th class="cell-center"></th>
+                            <th>Timestamp</th>
+                            <th>Admin</th>
+                            <th>Action</th>
+                            <th>Target</th>
+                            <th>IP Address</th>
+                            <th class="cell-right"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in PagedLogs)
+                        {
+                            var expanded = _expandedIds.Contains(log.Id);
+                            <tr class="audit-row" @onclick="() => ToggleExpanded(log.Id)">
+                                <td class="cell-center">
+                                    <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Class="@($"audit-chevron {(expanded ? "expanded" : "")}")" />
+                                </td>
+                                <td class="audit-timestamp">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td>
+                                    <div class="audit-admin-cell">
+                                        <div class="audit-admin-avatar @GetAvatarClass(log)">@GetAdminInitials(log.PerformedBy)</div>
+                                        <span class="audit-admin-name">@log.PerformedBy</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="audit-action-badge @GetActionClass(log.Action)">@FormatAction(log.Action)</span>
+                                </td>
+                                <td>@GetTargetLabel(log)</td>
+                                <td class="audit-ip">@(string.IsNullOrWhiteSpace(log.IpAddress) ? "—" : log.IpAddress)</td>
+                                <td class="cell-right" @onclick:stopPropagation="true">
+                                    <div class="audit-row-menu">
+                                        <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                            @if (!string.IsNullOrEmpty(log.CustomerId))
+                                            {
+                                                <MudMenuItem Href="@($"/customers?highlight={log.CustomerId}")">View customer</MudMenuItem>
+                                            }
+                                            @if (!string.IsNullOrEmpty(log.LicenseId))
+                                            {
+                                                <MudMenuItem Href="@($"/licenses?highlight={log.LicenseId}")">View license</MudMenuItem>
+                                            }
+                                            @if (!string.IsNullOrEmpty(log.InvoiceId))
+                                            {
+                                                <MudMenuItem Href="@($"/invoices/{log.InvoiceId}")">View invoice</MudMenuItem>
+                                            }
+                                            <MudMenuItem OnClick="@(() => CopyJsonAsync(log))">Copy details</MudMenuItem>
+                                        </MudMenu>
+                                    </div>
+                                </td>
+                            </tr>
+                            @if (expanded)
+                            {
+                                <tr class="audit-details-row">
+                                    <td colspan="7">
+                                        <div class="audit-details-panel">
+                                            @if (!string.IsNullOrWhiteSpace(log.DetailsJson))
+                                            {
+                                                <div class="audit-details-header">
+                                                    <span class="audit-details-label">DETAILS_JSON</span>
+                                                    <button type="button" class="btn-copy-json" @onclick="() => CopyJsonAsync(log)" @onclick:stopPropagation="true">
+                                                        <MudIcon Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" />
+                                                        Copy
+                                                    </button>
+                                                </div>
+                                                <pre class="audit-json-pre">@FormatJson(log.DetailsJson)</pre>
+                                            }
+                                            else
+                                            {
+                                                <span class="audit-details-label">No additional details recorded.</span>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="audit-table-footer">
+                <div class="audit-pagination-info">
+                    <div class="audit-page-size">
+                        <span>Items per page:</span>
+                        <MudSelect T="int" Value="_pageSize" ValueChanged="OnPageSizeChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="width: 5rem;">
+                            @foreach (var size in PageSizes)
+                            {
+                                <MudSelectItem Value="@size">@size</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </div>
+                    <span>@PaginationLabel</span>
+                </div>
+                <div class="audit-pagination-controls">
+                    <button type="button" class="audit-page-btn" disabled="@(_page <= 1)" @onclick="() => GoToPage(1)" aria-label="First page">
+                        <MudIcon Icon="@Icons.Material.Filled.FirstPage" Size="Size.Small" />
+                    </button>
+                    <button type="button" class="audit-page-btn" disabled="@(_page <= 1)" @onclick="() => GoToPage(_page - 1)" aria-label="Previous page">
+                        <MudIcon Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small" />
+                    </button>
+                    @foreach (var pageNum in VisiblePages)
+                    {
+                        <button type="button" class="audit-page-btn @(pageNum == _page ? "active" : "")" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                    }
+                    <button type="button" class="audit-page-btn" disabled="@(_page >= TotalPages)" @onclick="() => GoToPage(_page + 1)" aria-label="Next page">
+                        <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />
+                    </button>
+                    <button type="button" class="audit-page-btn" disabled="@(_page >= TotalPages)" @onclick="() => GoToPage(TotalPages)" aria-label="Last page">
+                        <MudIcon Icon="@Icons.Material.Filled.LastPage" Size="Size.Small" />
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <section class="audit-stats-grid" aria-label="Audit statistics">
+            <div class="audit-stat-card">
+                <span class="audit-stat-label">Total Logs</span>
+                <div class="audit-stat-value">@FilteredLogs.Count.ToString("N0")</div>
+                <div class="audit-stat-footnote positive">+@LogsTodayCount today</div>
+            </div>
+            <div class="audit-stat-card">
+                <span class="audit-stat-label">Security Flags</span>
+                <div class="audit-stat-value">@SecurityFlagCount</div>
+                <div class="audit-stat-footnote danger">@CriticalFlagCount critical needs review</div>
+            </div>
+            <div class="audit-stat-card">
+                <span class="audit-stat-label">Avg Retained</span>
+                <div class="audit-stat-value">90 Days</div>
+                <div class="audit-stat-footnote muted">Policy: Standard</div>
+            </div>
+            <div class="audit-stat-card">
+                <span class="audit-stat-label">Storage Used</span>
+                <div class="audit-stat-value">@StorageEstimate</div>
+                <div class="audit-stat-footnote positive">Optimized compression</div>
+            </div>
+        </section>
+    }
+</div>
 
 @code {
+    private static readonly int[] PageSizes = [10, 25, 50, 100];
+    private static readonly AuditAction[] SecurityActions =
+    [
+        AuditAction.LicenseRevoked,
+        AuditAction.LicenseSuspended,
+        AuditAction.CustomerSuspended,
+        AuditAction.IntegrationKeyRevoked,
+        AuditAction.InvoiceVoided
+    ];
+
     private bool _loading = true;
+    private int _page = 1;
+    private int _pageSize = 25;
     private List<AuditLogDto> _logs = [];
     private List<CustomerDto> _customers = [];
     private Dictionary<string, string> _customerNames = [];
     private Dictionary<string, string> _licenseLabels = [];
+    private HashSet<string> _expandedIds = [];
     private AuditAction? _actionFilter;
     private string? _customerFilter;
     private string _search = "";
-    private List<AuditLogDto>? _cachedFilteredLogs;
-    private bool _filterDirty = true;
 
-    private List<AuditLogDto> _filteredLogs
+    [SupplyParameterFromQuery] public string? CustomerId { get; set; }
+    [SupplyParameterFromQuery] public string? LicenseId { get; set; }
+    [SupplyParameterFromQuery] public string? InvoiceId { get; set; }
+
+    private List<AuditLogDto> FilteredLogs => ApplyFilters(_logs);
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredLogs.Count / (double)_pageSize));
+    private List<AuditLogDto> PagedLogs => FilteredLogs.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
+
+    private string PaginationLabel
     {
         get
         {
-            if (!_filterDirty)
-                return _cachedFilteredLogs!;
+            if (FilteredLogs.Count == 0)
+                return "0 items";
 
-            List<AuditLogDto> result;
-            if (string.IsNullOrWhiteSpace(_search))
-                result = _logs;
-            else
-            {
-                result = _logs.Where(l =>
-                    l.Action.ToString().Contains(_search, StringComparison.OrdinalIgnoreCase) ||
-                    (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (ResolveCustomer(l.CustomerId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (ResolveLicense(l.LicenseId)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
-            }
-
-            _cachedFilteredLogs = result;
-            _filterDirty = false;
-            return result;
+            var start = (_page - 1) * _pageSize + 1;
+            var end = Math.Min(_page * _pageSize, FilteredLogs.Count);
+            return $"{start}–{end} of {FilteredLogs.Count:N0} items";
         }
     }
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private IEnumerable<int> VisiblePages
+    {
+        get
+        {
+            var pages = new List<int>();
+            var start = Math.Max(1, _page - 2);
+            var end = Math.Min(TotalPages, start + 4);
+            start = Math.Max(1, end - 4);
+
+            for (var i = start; i <= end; i++)
+                pages.Add(i);
+
+            return pages;
+        }
+    }
+
+    private int LogsTodayCount
+    {
+        get
+        {
+            var today = DateTime.UtcNow.Date;
+            return FilteredLogs.Count(l => l.Timestamp.Date == today);
+        }
+    }
+
+    private int SecurityFlagCount => FilteredLogs.Count(l => SecurityActions.Contains(l.Action));
+
+    private int CriticalFlagCount => FilteredLogs.Count(l => l.Action is AuditAction.LicenseRevoked or AuditAction.IntegrationKeyRevoked);
+
+    private string StorageEstimate
+    {
+        get
+        {
+            var bytes = FilteredLogs.Sum(l => (l.DetailsJson?.Length ?? 0) + l.PerformedBy.Length + 64);
+            if (bytes < 1_000_000)
+                return $"{Math.Max(1, bytes / 1024)} KB";
+            if (bytes < 1_000_000_000)
+                return $"{bytes / 1_000_000.0:0.#} MB";
+            return $"{bytes / 1_000_000_000.0:0.#} GB";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(CustomerId))
+            _customerFilter = CustomerId;
+
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
@@ -115,8 +306,9 @@ else
         var licensesTask = Api.GetLicensesPagedAsync(page: 1, pageSize: 500);
         var logsTask = Api.GetAuditLogsAsync(
             customerId: _customerFilter,
+            licenseId: LicenseId,
             action: _actionFilter,
-            limit: 200);
+            limit: 500);
 
         await Task.WhenAll(customersTask, licensesTask, logsTask);
 
@@ -128,24 +320,137 @@ else
             l => $"{l.CustomerName} / {l.ServiceProductCode}");
         _logs = await logsTask;
 
-        _filterDirty = true;
+        _page = 1;
         _loading = false;
+    }
+
+    private List<AuditLogDto> ApplyFilters(List<AuditLogDto> logs)
+    {
+        IEnumerable<AuditLogDto> result = logs;
+
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            result = result.Where(l =>
+                FormatAction(l.Action).Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                (l.PerformedBy?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (GetTargetLabel(l)?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (l.IpAddress?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (l.DetailsJson?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        return result.ToList();
+    }
+
+    private void ToggleExpanded(string id)
+    {
+        if (!_expandedIds.Add(id))
+            _expandedIds.Remove(id);
+    }
+
+    private void GoToPage(int page)
+    {
+        _page = Math.Clamp(page, 1, TotalPages);
+    }
+
+    private async Task OnPageSizeChanged(int size)
+    {
+        _pageSize = size;
+        _page = 1;
+        await Task.CompletedTask;
+    }
+
+    private async Task OnActionFilterChanged(AuditAction? value)
+    {
+        _actionFilter = value;
+        await LoadAsync();
+    }
+
+    private async Task OnCustomerFilterChanged(string? value)
+    {
+        _customerFilter = value;
+        await LoadAsync();
+    }
+
+    private void OnSearchChanged()
+    {
+        _page = 1;
     }
 
     private async Task ExportCsvAsync()
     {
-        var rows = _filteredLogs;
+        var rows = FilteredLogs;
         if (rows.Count == 0)
             return;
 
-        var csv = "Timestamp,Action,PerformedBy,Customer,License,Details\n";
+        var csv = "Timestamp,Action,PerformedBy,Target,IpAddress,Details\n";
         foreach (var log in rows)
         {
-            csv += $"\"{log.Timestamp:O}\",\"{log.Action}\",\"{Escape(log.PerformedBy)}\",\"{Escape(ResolveCustomer(log.CustomerId))}\",\"{Escape(ResolveLicense(log.LicenseId))}\",\"{Escape(log.DetailsJson)}\"\n";
+            csv += $"\"{log.Timestamp:O}\",\"{FormatAction(log.Action)}\",\"{Escape(log.PerformedBy)}\",\"{Escape(GetTargetLabel(log))}\",\"{Escape(log.IpAddress)}\",\"{Escape(log.DetailsJson)}\"\n";
         }
 
         await JSRuntime.InvokeVoidAsync("platformDownloadText", "audit-log.csv", csv);
         Snackbar.Add("CSV exported.", Severity.Success);
+    }
+
+    private async Task CopyJsonAsync(AuditLogDto log)
+    {
+        var text = string.IsNullOrWhiteSpace(log.DetailsJson) ? "{}" : FormatJson(log.DetailsJson);
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        Snackbar.Add("Details copied.", Severity.Success);
+    }
+
+    private string? GetTargetLabel(AuditLogDto log)
+    {
+        if (!string.IsNullOrEmpty(log.LicenseId))
+            return ResolveLicense(log.LicenseId);
+
+        if (!string.IsNullOrEmpty(log.InvoiceId))
+            return ShortId(log.InvoiceId);
+
+        if (!string.IsNullOrEmpty(log.CustomerId))
+            return ResolveCustomer(log.CustomerId);
+
+        return "—";
+    }
+
+    private static string GetActionClass(AuditAction action) => action switch
+    {
+        AuditAction.LicenseRevoked or AuditAction.LicenseSuspended or AuditAction.CustomerSuspended
+            or AuditAction.IntegrationKeyRevoked or AuditAction.InvoiceVoided => "audit-action-danger",
+        AuditAction.LicenseActivated or AuditAction.LicenseRenewed or AuditAction.IntegrationKeyCreated
+            or AuditAction.LicenseIssued or AuditAction.CustomerCreated => "audit-action-primary",
+        _ => "audit-action-neutral"
+    };
+
+    private static string GetAvatarClass(AuditLogDto log) =>
+        GetActionClass(log.Action) == "audit-action-danger" ? "neutral" : "";
+
+    private static string FormatAction(AuditAction action) =>
+        System.Text.RegularExpressions.Regex.Replace(action.ToString(), "([a-z])([A-Z])", "$1_$2").ToUpperInvariant();
+
+    private static string FormatJson(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return System.Text.Json.JsonSerializer.Serialize(doc, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return json;
+        }
+    }
+
+    private static string GetAdminInitials(string performedBy)
+    {
+        if (string.IsNullOrWhiteSpace(performedBy))
+            return "?";
+
+        var local = performedBy.Split('@')[0];
+        var parts = local.Split(['.', '_', '-'], StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+            return $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant();
+        return local.Length >= 2 ? local[..2].ToUpperInvariant() : local.ToUpperInvariant();
     }
 
     private static string Escape(string? value) =>

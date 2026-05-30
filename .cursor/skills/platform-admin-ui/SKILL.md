@@ -20,38 +20,57 @@ description: >-
 ## Design identity
 
 - **Minimalist dark** admin console inspired by [helmut-essien.github.io/portfolio](https://helmut-essien.github.io/portfolio/)
-- **Single accent:** `#5c9f24` — no secondary colors, no semantic palette
-- **Fonts:** Inter (UI), JetBrains Mono (keys, JSON)
+- **Primary:** `#92d959` — headings, active nav, primary CTAs
+- **Accent:** `#5c9f24` — KPI values, keys, focus ring
+- **Canvas:** `#10150c` page, `#1e1e1e` cards, `#191d14` drawer
+- **Fonts:** Inter (UI), JetBrains Mono (labels, keys, JSON)
 - **Framework:** Blazor WASM + MudBlazor v7+
 
 Full tokens and MudTheme: [design-system.md](design-system.md).  
+Navigation shell (sidebar only): [navigation-shell.md](navigation-shell.md).  
 Screen specs: [screens.md](screens.md).  
 Phase 1 shell + dashboard: [wireframes-phase1.md](wireframes-phase1.md).  
 Human-readable export: [docs/SaaS-Admin-Hub-UI-Spec.md](../../../docs/SaaS-Admin-Hub-UI-Spec.md).
+
+**Viewport:** Mobile-ready, **desktop-optimized** (see design-system breakpoint cheat sheet).
 
 ## App shell (required pattern)
 
 Replace default Bootstrap layout in `Client/Layout/` with:
 
 - `MudLayout` + `MudThemeProvider` (dark palette from design-system)
-- `MudAppBar` — `var(--bg-base)`, title "Platform Admin", user menu / logout
-- `MudDrawer` — `var(--bg-surface)`, collapsible, nav from IA below
-- `MudMainContent` — `var(--bg-base)`, padding 24px
+- `MudAppBar` — 64px, `--bg-base`; **compact bar** (< 1024px) or **desktop bar** (≥ 1024px — terminal logo, Cmd+K search, notifications, user meta)
+- `MudDrawer` — see [navigation-shell.md](navigation-shell.md) for full three-tier responsive spec
+- `MudMainContent` — `--bg-base`, padding `--container-margin` (24px) → 48px on lg+
+
+### Sidebar summary (see navigation-shell.md)
+
+| Viewport | Behavior |
+|----------|----------|
+| **≥ 1024px** (desktop) | Persistent **64px** icon rail; hover/focus-within → **240px** overlay; **Settings** footer; rich app bar |
+| **768px – 1023px** (tablet) | Hamburger → **left** overlay **280px**; profile header; **System Status** footer |
+| **< 768px** (mobile) | Hamburger → **left** overlay **280px** (max 85vw); profile header + close; **Logout** footer |
+
+- `DrawerVariant.Mini`, `Breakpoint.Lg`, **`OpenMiniOnHover="false"`** — hover expand via CSS only at `nav-lg` (1024px)
+- Surface `--surface-container-low`; transitions **300ms** `cubic-bezier(0.4, 0, 0.2, 1)`
 
 ### Navigation
 
 | Route | Label | MudIcon |
 |-------|-------|---------|
 | `/` | Dashboard | Icons.Material.Filled.Dashboard |
-| `/customers` | Customers | Icons.Material.Filled.People |
-| `/services` | Service Catalog | Icons.Material.Filled.Apps |
+| `/customers` | Customers | Icons.Material.Filled.Group |
+| `/services` | Service Catalog | Icons.Material.Filled.Inventory2 |
 | `/licenses` | Licenses | Icons.Material.Filled.VpnKey |
-| `/invoices` | Invoices | Icons.Material.Filled.Receipt |
+| `/invoices` | Invoices | Icons.Material.Filled.ReceiptLong |
+| `/integration-keys` | Integration Keys | Icons.Material.Filled.Key |
 | `/audit` | Audit Log | Icons.Material.Filled.History |
-| `/tools/validate` | Validate License | Icons.Material.Filled.Science |
+| `/validate` | Validate License | Icons.Material.Filled.VerifiedUser |
 | `/login` | (no drawer) | — |
 
-Active nav: text `--accent`, bottom border `--accent-active`. Inactive: `--text-secondary`, hover `--text-primary`.
+Canonical route **`/validate`**. Alias **`/tools/validate`** may redirect to the same page (see screens.md).
+
+Active nav: text `--primary`, **2px** left border **`--accent`** (`#5c9f24`), bg `--surface-container-highest`. Inactive: `--text-secondary`, hover `--on-surface` + `--surface-container`. Nav labels: JetBrains Mono 13px (desktop); hidden in collapsed rail until sidebar **hover or focus-within** (see navigation-shell.md).
 
 ## License status chips (`MudChip`)
 
@@ -69,14 +88,18 @@ Customer row: **Suspended** → Outlined; **Active** → Filled.
 
 ## UX rules (mandatory)
 
-1. **Destructive actions** (delete, revoke, suspend) → `MudDialog` confirm, accent `--accent`
+See also [design-system.md](design-system.md) for feedback states, destructive dialogs, snackbar styling, and accessibility.
+
+1. **Destructive actions** (delete, revoke, suspend) → destructive confirm dialog per design-system (accent confirm, cancel default focus)
 2. **Keys** — license/integration plain text shown **once** in modal; copy button; success glow `rgba(92,159,36,0.3)`; never list plain keys in grids
 3. **Progressive disclosure** — summary in `MudDataGrid`; detail in drawer or expandable row
-4. **Empty states** — illustration/message + primary CTA (`--accent` button, text `--bg-base`)
+4. **Empty states** — illustration/message + primary CTA (`--primary` button, text `--on-primary`)
 5. **Loading** — `MudSkeleton` on `--bg-surface`; avoid blank screens
-6. **Errors** — inline `ErrorText` `--accent`; API errors → `MudSnackbar`
-7. **Keyboard** — Tab order; Escape closes dialog; Enter submits primary form; focus `2px solid --accent` offset 2px
+6. **Errors** — inline `ErrorText` `--accent`; API errors → `MudSnackbar` or `MudAlert`
+7. **Keyboard** — Tab order; Escape closes dialog; Enter submits primary form; focus per design-system
 8. **Grids** — virtualize large datasets; dark header `--bg-surface`, row hover `--bg-elevated`
+9. **Snackbar success** — `--accent` bg, `--bg-base` text (not MudBlazor default green)
+10. **Motion** — honor `prefers-reduced-motion` globally (design-system)
 
 ## UI implementation phases (deliver one at a time)
 
@@ -94,11 +117,11 @@ Confirm with user before next UI phase. Match backend Phase 6 in `platform-licen
 
 | Need | MudBlazor |
 |------|-----------|
-| KPI cards | `MudGrid` + `MudCard` + `MudText` |
+| KPI cards | CSS grid + custom `.kpi-card` (see Dashboard.razor.css) |
 | Data tables | `MudDataGrid<T>` |
 | Forms | `MudForm`, `MudTextField`, `MudAutocomplete`, `MudDatePicker` |
 | Confirm | `MudDialog` / `DialogService.ShowMessageBox` |
-| Toast | `ISnackbar` — success use `--accent` bg, `--bg-base` text |
+| Toast | `ISnackbar` — success: **`--accent` bg, `--bg-base` text** (see design-system) |
 | Code/JSON | `MudCodeBlock` or `<pre class="text-code">` |
 | Keys | `<code class="license-key">` + `MudIconButton` copy |
 
@@ -113,6 +136,6 @@ Confirm with user before next UI phase. Match backend Phase 6 in `platform-licen
 ## Quick token reference
 
 ```
-accent #5c9f24 | base #121212 | surface #1e1e1e | elevated #2a2a2a
+primary #92d959 | accent #5c9f24 | base #10150c | surface #1e1e1e | drawer #191d14
 text-primary #ededed | text-secondary #a0a0a0 | border #2c2c2c
 ```

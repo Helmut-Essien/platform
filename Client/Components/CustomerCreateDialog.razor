@@ -1,9 +1,8 @@
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">Edit Service</MudText>
+        <MudText Typo="Typo.h6">New Customer</MudText>
     </TitleContent>
     <DialogContent>
-        <MudText Typo="Typo.caption" Class="mb-2">Code: <span class="license-key">@Product.Code</span></MudText>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudTextField @bind-Value="_model.Name"
                           For="@(() => _model.Name)"
@@ -12,21 +11,32 @@
                           MaxLength="200"
                           Counter="200"
                           Class="mb-2" />
-            <MudTextField @bind-Value="_model.Description"
-                          For="@(() => _model.Description)"
-                          Label="Description"
+            <MudTextField @bind-Value="_model.ContactEmail"
+                          For="@(() => _model.ContactEmail)"
+                          Label="Contact email"
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Email"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_model.ContactPhone"
+                          For="@(() => _model.ContactPhone)"
+                          Label="Contact phone (optional)"
+                          Variant="Variant.Outlined"
+                          MaxLength="50"
+                          Counter="50"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_model.InternalNotes"
+                          For="@(() => _model.InternalNotes)"
+                          Label="Internal notes (optional)"
                           Variant="Variant.Outlined"
                           Lines="3"
-                          MaxLength="2000"
-                          Counter="2000"
-                          Class="mb-2" />
-            <MudSwitch @bind-Value="_model.IsAvailableForSale" Label="Available for sale" Color="Color.Primary" />
+                          MaxLength="4000"
+                          Counter="4000" />
         </MudForm>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
-            Save
+            Create
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -34,21 +44,9 @@
 @code {
     [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
 
-    [Parameter] public required ServiceProductDto Product { get; set; }
-
     private MudForm? _form;
     private bool _formValid;
-    private UpdateServiceProductRequest _model = new() { Name = "" };
-
-    protected override void OnInitialized()
-    {
-        _model = new UpdateServiceProductRequest
-        {
-            Name = Product.Name,
-            Description = Product.Description,
-            IsAvailableForSale = Product.IsAvailableForSale
-        };
-    }
+    private CreateCustomerRequest _model = new() { Name = "", ContactEmail = "" };
 
     private void Cancel() => MudDialog.Cancel();
 

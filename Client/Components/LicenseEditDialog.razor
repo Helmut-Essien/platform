@@ -8,14 +8,11 @@
                           For="@(() => _model.PlanName)"
                           Label="Plan"
                           Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Plan is required"
-                         
                           Class="mb-2" />
-            <MudDatePicker @bind-Date="_expiresAt"
+            <MudDatePicker @bind-Date="_model.ExpiresAt"
+                           For="@(() => _model.ExpiresAt)"
                            Label="Expires"
-                           Variant="Variant.Outlined"
-                           />
+                           Variant="Variant.Outlined" />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -33,13 +30,15 @@
 
     private MudForm? _form;
     private bool _formValid;
-    private DateTime? _expiresAt;
     private UpdateLicenseRequest _model = new() { PlanName = "" };
 
     protected override void OnInitialized()
     {
-        _model.PlanName = License.PlanName;
-        _expiresAt = License.ExpiresAt;
+        _model = new UpdateLicenseRequest
+        {
+            PlanName = License.PlanName,
+            ExpiresAt = License.ExpiresAt
+        };
     }
 
     private void Cancel() => MudDialog.Cancel();
@@ -53,7 +52,6 @@
         if (!_formValid)
             return;
 
-        _model.ExpiresAt = _expiresAt;
         MudDialog.Close(DialogResult.Ok(_model));
     }
 }

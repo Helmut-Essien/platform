@@ -8,32 +8,32 @@ public static class PlatformTheme
     {
         PaletteDark = new PaletteDark
         {
-            Primary = "#5c9f24",
+            Primary = "#92d959",
             Secondary = "#5c9f24",
             Tertiary = "#5c9f24",
             Info = "#5c9f24",
-            Success = "#5c9f24",
-            Warning = "#5c9f24",
-            Error = "#5c9f24",
+            Success = "#92d959",
+            Warning = "#ffb4ab",
+            Error = "#ffb4ab",
             Dark = "#5c9f24",
-            Black = "#121212",
-            Background = "#121212",
+            Black = "#10150c",
+            Background = "#10150c",
             Surface = "#1e1e1e",
-            DrawerBackground = "#1e1e1e",
-            AppbarBackground = "#121212",
+            DrawerBackground = "#191d14",
+            AppbarBackground = "#10150c",
             TextPrimary = "#ededed",
             TextSecondary = "#a0a0a0",
             TextDisabled = "rgba(160,160,160,0.5)",
             Divider = "#2c2c2c",
             LinesDefault = "#2c2c2c",
             TableLines = "#2c2c2c",
-            TableHover = "#2a2a2a",
-            ActionDefault = "#5c9f24",
+            TableHover = "#272b22",
+            ActionDefault = "#92d959",
             ActionDisabled = "rgba(160,160,160,0.3)"
         },
         LayoutProperties = new LayoutProperties
         {
-            DefaultBorderRadius = "8px"
+            DefaultBorderRadius = "2px"
         }
     };
 }

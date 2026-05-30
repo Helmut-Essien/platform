@@ -2,6 +2,9 @@
 
 All screens use [design-system.md](design-system.md) tokens. Responsive behavior per [wireframes-phase1.md](wireframes-phase1.md). Layout: `MainLayout` shell or `LoginLayout` for `/login`.
 
+Feedback states (loading, empty, error, snackbar): [design-system.md](design-system.md#feedback-states).  
+Destructive confirmations: [design-system.md](design-system.md#destructive-confirmation-dialog).
+
 ---
 
 ## Form patterns
@@ -23,14 +26,38 @@ Every form in the application follows these rules. Deviate only with explicit re
 
 - API errors (400, 401, 409, etc.): show `MudAlert` Severity.Error at the top of the form with the server's `message`. Dismissible.
 - Inline field errors: handled automatically by MudBlazor via `For` and `[Required]` / `[EmailAddress]` / `[Range]` annotations.
-- Snackbar for transient success/failure after API call: `Snackbar.Add("Saved", Severity.Success)`.
+- Transient success/failure: `ISnackbar` — see [Snackbar](#snackbar-canonical) below.
+
+### Snackbar (canonical)
+
+**Do not use MudBlazor’s default green success.** Configure theme/CSS so:
+
+| Severity | Background | Text |
+|----------|------------|------|
+| Success | `--accent` | `--bg-base` |
+| Error | dark surface / Severity.Error | `--text-primary` |
+
+```csharp
+Snackbar.Add("Customer saved.", Severity.Success);
+Snackbar.Add(apiMessage, Severity.Error);
+```
+
+### Destructive confirmation
+
+Before revoke, suspend, or delete — use dialog per [design-system.md](design-system.md#destructive-confirmation-dialog):
+
+- Title: verb + entity
+- Cancel (text) = **default focus**
+- Confirm (filled `--accent`) = destructive verb label
+- Escape cancels; Enter does not confirm unless Confirm is focused
 
 ### Keyboard + focus
 
 - Enter key submits the primary form action (`OnKeyUp` handler checks `e.Key == "Enter"`).
 - Tab order follows visual field order.
-- Focus ring: `2px solid --accent` offset 2px on all interactive elements.
+- Focus ring: per [design-system.md](design-system.md#focus-rings) — +2px offset default; nav items −2px inset
 - Escape closes dialogs (`MudDialog` handles this by default).
+- Honor `prefers-reduced-motion` for animations (design-system).
 
 ### Loading state
 
@@ -98,7 +125,7 @@ Follows [Form patterns](#form-patterns).
 | Divider | `MudDivider` | subtle, `--accent` at 8% opacity |
 | Email | `MudTextField` | Outlined, full width, label "Email", type email, autocomplete "email" |
 | Password | `MudTextField` | Outlined, full width, label "Password", toggle visibility adornment, autocomplete "current-password" |
-| Submit | `MudButton` Variant.Filled | `--accent` bg, `--bg-base` text, full width, min-height 3rem, border-radius 0.75rem, font-weight 600 |
+| Submit | `MudButton` Variant.Filled | **`--accent`** bg, `--bg-base` text (accent CTA — see design-system CTA hierarchy), full width, min-height 3rem |
 | Submit hover | | glow shadow (`0 4px 20px` `--accent` at 25%), translate up 1px |
 | Submit loading | `MudProgressCircular` | Size.Small inline spinner + "Signing in..." text |
 | Error | `MudAlert` Severity.Error | Outlined, border-radius 0.75rem, closable |
@@ -125,34 +152,90 @@ Follows [Form patterns](#form-patterns).
 
 ## Dashboard `/`
 
-See [wireframes-phase1.md](wireframes-phase1.md) for full layout.
+See [wireframes-phase1.md](wireframes-phase1.md) for full layout (reference mock May 2026).
+
+### Page header
+
+| Element | Spec |
+|---------|------|
+| Title | H1 “Dashboard”, `--primary`, 32px / weight 600 |
+| Subtitle | “Platform overview and performance metrics.”, `--text-secondary`, 14px |
 
 ### KPIs
 
 `GET /api/dashboard/stats` → `{ CustomerCount, ActiveLicenses, ExpiringWithin30Days, UnpaidInvoices }`
 
+4-column grid (`1 → 2 → 4` cols). Each card:
+
+| Part | Spec |
+|------|------|
+| Label | JetBrains Mono uppercase, `--text-secondary` |
+| Icon | Material icon top-right (group, vpn_key, schedule, receipt_long) |
+| Value | 32px bold `--accent` |
+| Footnote | JetBrains Mono 11px — contextual (e.g. “Healthy ecosystem”, “Attention required”) |
+| Interaction | Whole card clickable; hover border `--primary` |
+
 | KPI card | Click-through |
 |----------|---------------|
 | Total Customers | → `/customers` |
 | Active Licenses | → `/licenses` |
-| Expiring Within 30 Days | → `/licenses` (pre-filtered expiring) |
-| Unpaid Invoices | → `/invoices` (filtered Sent + PartiallyPaid + Overdue) |
+| Expiring Within 30 Days | → `/licenses` |
+| Unpaid Invoices | → `/invoices` |
 
-### Quick actions
+### Main layout (lg+)
 
-| Button | Target |
-|--------|--------|
-| + New Customer | `/customers?add=true` |
-| Issue License | `/licenses?add=true` |
-| Generate Integration Key | `/integration-keys` |
+Asymmetric **2:1** grid:
+
+| Column | Content |
+|--------|---------|
+| Left (2/3) | Recent Activity timeline |
+| Right (1/3) | Quick Actions stack + Platform Health |
 
 ### Recent activity timeline
 
-`GET /api/audit-logs?limit=10` → `MudTimeline` with last 10 events. "View full audit →" links to `/audit`.
+`GET /api/audit-logs?limit=10`
+
+Custom timeline (not MudTimeline):
+
+| Element | Spec |
+|---------|------|
+| Header | “Recent Activity” + “Live Stream” badge |
+| Events | Vertical line `--border-subtle`; dot per event |
+| Title | `{Action} — {CustomerName}` with customer in `--primary` |
+| Summary | Details JSON excerpt or “Recorded by {admin}” |
+| Timestamp | Relative uppercase mono (“2 minutes ago”) |
+| Dots | Latest = `--primary`; destructive actions = `--text-error`; else neutral |
+| Empty | Inline message when no events |
+| Footer | Full-width “View Full Audit Log” → `/audit` |
+
+Resolve customer names via customer list lookup on `CustomerId`.
+
+### Quick actions (sidebar)
+
+Stacked vertical buttons:
+
+| Button | Style | Target |
+|--------|-------|--------|
+| + New Customer | Primary fill `--primary` | `/customers?add=true` |
+| Issue License | Outlined | `/licenses?add=true` |
+| Generate Integration Key | Outlined | `/integration-keys` |
+
+### Platform Health (sidebar)
+
+Decorative module — static bars until monitoring API exists:
+
+- API Uptime 99.98%
+- Sync Queue 0%
+
+Watermark analytics icon at 10% opacity.
+
+### Loading
+
+Skeleton: 4 KPI rectangles + main panel block.
 
 ### Components
 
-`MudGrid`, `MudCard`, `MudText`, `MudStack`, `MudButton`, `MudTimeline`, `MudTimelineItem`, `MudSkeleton`, `MudAlert`
+Custom CSS in `Dashboard.razor.css`; `MudIcon`, `MudSkeleton` for loading only.
 
 ---
 
@@ -160,64 +243,75 @@ See [wireframes-phase1.md](wireframes-phase1.md) for full layout.
 
 **Purpose:** Manage organizations. Entry point to customer licenses, invoices, and audit history.
 
+Reference mock: Customers page (May 2026) — filter bar, styled grid, right detail drawer.
+
+### Page header
+
+| Element | Spec |
+|---------|------|
+| Title | H1 “Customers”, 32px `--text-primary` |
+| Subtitle | “Manage platform accounts, licensing, and billing entities.” |
+| CTA | Primary button “New Customer” with add icon → `CustomerCreateDialog` |
+
+### Filters bar
+
+Container: `--surface-container-low`, border `--border-subtle`, rounded-xl, padding 16px.
+
+| Control | Spec |
+|---------|------|
+| Search | Full-width, search icon, debounced 300ms — name, email, ID |
+| Status | Select: All / Active / Suspended |
+| Created | Select: All Time / Last 30 Days (client-side filter) |
+
 ### Grid
 
-`GET /api/customers?page=1&pageSize=25`
+`GET /api/customers?page=1&pageSize=25` — `MudDataGrid` inside styled panel.
 
-| Column | Notes |
-|--------|-------|
-| Name | Link → opens detail drawer (Profile tab) |
-| Contact Email | |
-| Contact Phone | |
-| Status | `MudChip` — **Active**: Filled `--accent`, **Suspended**: Outlined `--accent` |
-| License Count | |
-| Created At | Sortable |
-| Actions | `MudIconButton` → `MudMenu`: Edit · View Licenses · Suspend/Reactivate · Delete |
+| Column | Spec |
+|--------|------|
+| Name | Avatar initials (2 letters) + bold name + mono short ID subtitle; row hover name → `--primary` |
+| Contact Email | `--text-secondary` |
+| Contact Phone | `--text-secondary` or em dash |
+| Status | Badge — **Active**: primary/10 bg; **Suspended**: elevated gray |
+| Licenses | Centered JetBrains Mono |
+| Created At | `MMM dd, yyyy` |
+| Actions | `MudMenu` MoreVert — View, Edit, Licenses, Suspend/Reactivate |
 
-### Filters
-
-Search `MudTextField`, Status `MudSelect` (All / Active / Suspended), Date range `MudDateRangePicker`. Collapsed in `MudExpansionPanel` on xs/sm, inline on md+.
+Row click opens detail drawer. Pagination via `MudDataGridPager`.
 
 ### Row actions
 
 | Action | UX |
 |--------|-----|
-| Edit | `MudDialog` — fields: Name, ContactEmail, ContactPhone, InternalNotes. Follows [Form patterns](#form-patterns). `PUT /api/customers/{id}` |
+| Edit | `CustomerEditDialog` → `PUT /api/customers/{id}` |
 | View Licenses | Navigate `/licenses?customerId={id}` |
-| Suspend | Confirm dialog: all licenses denied in Redis. `POST /api/customers/{id}/suspend` |
-| Reactivate | (on suspended rows) Confirm dialog: clears deny-list. `POST /api/customers/{id}/reactivate` |
-| Delete | Confirm + type customer name to confirm. Button `--accent` |
+| Suspend | Confirm dialog → `POST /api/customers/{id}/suspend` |
+| Reactivate | Confirm dialog → `POST /api/customers/{id}/reactivate` |
 
 ### Create customer
 
-Follows [Form patterns](#form-patterns).
+`CustomerCreateDialog` (MudDialog) — Name, ContactEmail, ContactPhone, InternalNotes. `POST /api/customers` → 201.  
+Also opened via `/customers?add=true`.
 
-`[+ New Customer]` → `MudDialog` with Name (required), ContactEmail (required, email), ContactPhone, InternalNotes. `POST /api/customers` → 201.
+### Detail drawer (`CustomerDetailDrawer`, 480px right / full-width xs)
 
-### Detail drawer (`MudDrawer` Anchor.Right, width 480px md+ / half-screen sm / full-screen xs bottom sheet)
+| Section | Spec |
+|---------|------|
+| Header | Avatar, name, status badge, close button |
+| Tabs | Custom mono tabs: Profile · Licenses · Invoices · Audit |
+| Profile | Info cards grid (email, phone, ID, created, license count) + notes blockquote |
+| Licenses / Invoices / Audit | Compact tables or empty state with icon |
+| Footer | “Edit Record” (outlined) + “Suspend” (error) or “Reactivate” (primary) |
 
-| Tab | Content |
-|-----|---------|
-| **Profile** | All fields + InternalNotes `MudTextField` multiline + Edit button |
-| **Licenses** | `GET /api/licenses?customerId={id}` — same grid as /licenses, scoped |
-| **Invoices** | `GET /api/invoices?customerId={id}` — same grid as /invoices, scoped |
-| **Audit** | `GET /api/audit-logs?customerId={id}` — filtered audit entries |
+Overlay backdrop on open. Tabs lazy-load tab data on first select.
 
 ### Empty state
 
-"No customers yet" + `[+ New Customer]` CTA button.
-
-### Responsive
-
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list, 1 item/row | Card list, 2 items/row | `MudDataGrid` full columns |
-| Filters in panel | Filters in panel | Filters inline bar |
-| Drawer: bottom sheet | Drawer: half-width right | Drawer: 480px right |
+Centered message + “New Customer” primary CTA.
 
 ### Components
 
-`MudDataGrid`, `MudChip`, `MudDialog`, `MudTextField`, `MudDateRangePicker`, `MudMenu`, `MudIconButton`, `MudDrawer`, `MudTabs`, `MudExpansionPanel`
+`Customers.razor.css`, `CustomerDetailDrawer.razor.css`, `CustomerCreateDialog`, `MudDataGrid`, `MudMenu`, `MudDrawer`
 
 ### API
 
@@ -229,65 +323,101 @@ Follows [Form patterns](#form-patterns).
 
 **Purpose:** CRUD `ServiceProduct`. Entry point to integration keys.
 
+Reference mock: Service Catalog page (May 2026) — success banner, stat bento, styled table, insights row.
+
+### Page header
+
+| Element | Spec |
+|---------|------|
+| Title | H1 “Service Catalog”, 32px `--text-primary` |
+| Subtitle | “Manage microservices, API endpoints, and system-level integrations.” |
+| CTA | Primary button “Add Service” with add icon → `ServiceProductCreateDialog` |
+
+### Post-create success banner
+
+After `POST /api/serviceproducts` → 201, show inline banner (not modal):
+
+| Element | Spec |
+|---------|------|
+| Container | `--surface-container`, border `primary/20`, flex row on md+ |
+| Icon | Filled check circle, `--primary` |
+| Title | “Service "{Name}" created successfully.” |
+| Body | “Ready for deployment. You need a secure key for API access.” |
+| CTA | Primary “Generate Integration Key” with key icon → `/integration-keys?productId={id}` |
+
+Dismisses when user clicks Generate (navigates to Integration Keys). No separate Skip — admin can ignore banner.
+
+### Stats bento (when catalog non-empty)
+
+4-column grid (1 → 4 cols responsive), `--surface-container` cards:
+
+| Stat | Source |
+|------|--------|
+| Active Services | Count where `IsAvailableForSale` |
+| System Uptime | Decorative static 99.98% |
+| Total Licenses | Sum of `LicenseCount` across products |
+| Key Coverage | % products with `HasActiveIntegrationKey` + progress bar |
+
 ### Grid
 
-`GET /api/serviceproducts`
+`GET /api/serviceproducts` — `MudTable` inside styled panel (`Services.razor.css`).
 
-| Column | Notes |
-|--------|-------|
-| Name | |
-| Code | Unique, readonly after create |
-| Description | |
-| Available | `MudSwitch` inline — thumb `--accent`, track `--border-subtle`. Calls `PUT /api/serviceproducts/{id}` |
-| Int. Key | Chip — **Active**: Outlined `--accent`, **None**: Text `--text-secondary`. Click → `/integration-keys?serviceProductId={id}` |
-| Actions | Edit · View Keys |
+| Column | Spec |
+|--------|------|
+| Name | Status dot (primary = available, gray = unavailable) + bold name |
+| Code | Mono badge on `--bg-elevated`, `--primary` text |
+| Description | `--text-secondary` or em dash |
+| Available | `MudSwitch` inline — calls `PUT /api/serviceproducts/{id}` on toggle |
+| Int. Key | **Active**: mono chip `{CODE}_KEY`, clickable → `/integration-keys?productId={id}`. **None**: uppercase error-toned badge |
+| Actions | Edit + View Keys icon buttons; visible on row hover |
 
-### Add/Edit service dialog
+Table footer: “Showing 1–N of N results” mono caption on `--surface-container-low`.
 
-Follows [Form patterns](#form-patterns).
+### Insights row (when catalog non-empty)
+
+2-column grid (stacks on mobile):
+
+| Panel | Spec |
+|-------|------|
+| Service Performance Matrix | Decorative bar chart placeholder; caption “License volume distribution across catalog services.” |
+| Automated Health Checks | Glass card with sparkle icon; catalog health copy |
+
+### Add service dialog
+
+`ServiceProductCreateDialog` — follows [Form patterns](#form-patterns).
 
 | Field | Component | Notes |
 |-------|-----------|-------|
+| Warning | `MudAlert` Severity.Warning | Keys cannot be recovered after generation |
 | Name | `MudTextField` | Required, max 200 |
-| Code | `MudTextField` | Required, max 50, **readonly after create** |
+| Code | `MudTextField` | Required, max 50, auto-uppercase |
 | Description | `MudTextField` multiline | Optional, max 2000 |
 | Available for sale | `MudSwitch` | Default true |
 
-### Post-create integration key prompt
+### Edit service dialog
 
-After `POST /api/serviceproducts` → 201, show inline prompt:
+`ServiceProductEditDialog` — code readonly display; Name, Description, Available for sale.
 
-```
-┌──────────────────────────────────────────┐
-│ ✓ Service "{Name}" created               │
-│                                          │
-│ An integration key is required for       │
-│ external apps to validate licenses for   │
-│ this service.                            │
-│                                          │
-│ [Generate Integration Key]  [Skip]       │
-└──────────────────────────────────────────┘
-```
+### Empty state
 
-**[Generate Integration Key]** → `POST /api/integration-keys?serviceProductId={id}` → one-time key reveal dialog (see Integration Keys section).
+Centered message + “Add Service” primary CTA inside table panel.
 
-**[Skip]** → closes prompt. Service shows "Int.Key: None". Admin can generate later via `/integration-keys`.
+### Loading
 
-### Security notice
-
-`MudAlert` Severity.Warning, border-left `--accent`: "Integration keys cannot be recovered after generation. Store them securely."
+Centered `MudProgressCircular` — no skeleton wrapper that hides the grid (avoid ServerData chicken-and-egg).
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list | Card list | `MudDataGrid` |
-| Create dialog: bottom sheet | Centered 420px | Centered 480px |
-| Post-create prompt: bottom sheet | Centered 400px | Centered 440px |
+| xs (<600px) | md+ (≥768px) |
+|-------------|--------------|
+| Stats 1-col | Stats 4-col |
+| Header stacks | Header row, CTA right |
+| Insights stack | Insights 2-col |
+| Horizontal scroll table | Full table |
 
 ### Components
 
-`MudDataGrid`, `MudSwitch`, `MudChip`, `MudDialog`, `MudTextField`, `MudAlert`, `MudIconButton`
+`Services.razor.css`, `ServiceProductCreateDialog`, `ServiceProductEditDialog`, `MudTable`, `MudSwitch`, `MudIconButton`, `MudDialog`, `MudAlert`
 
 ### API
 
@@ -299,49 +429,51 @@ After `POST /api/serviceproducts` → 201, show inline prompt:
 
 **Purpose:** Global license lifecycle — issue, activate, renew, suspend, revoke.
 
+Reference mock: Licenses page (May 2026) — filter grid, multi-select table, glass bulk bar.
+
+### Page header
+
+| Element | Spec |
+|---------|------|
+| Title | H1 “Licenses”, 32px `--text-primary` |
+| Subtitle | “Manage software entitlements and API access keys.” |
+| CTA | Primary button “Issue License” → `LicenseIssueDialog` |
+
+### Filters grid
+
+4-column grid (1 → 4 cols), uppercase mono labels:
+
+| Filter | Notes |
+|--------|-------|
+| Customer | All + list; server `customerId` filter |
+| Service | All + products; client filter |
+| Status | All + enum; client filter |
+| More Filters | Toggles search panel |
+
+Search (More Filters): debounced — customer, service code, plan.
+
 ### Grid
 
-`GET /api/licenses?page=1&pageSize=25&customerId=&includeSuspendedCustomers=false`
+`GET /api/licenses?page=1&pageSize=25&customerId=` — `MudDataGrid` multi-select in `.licenses-table-panel`.
 
-| Column | Notes |
-|--------|-------|
-| Customer | |
-| Service | Service product code |
+| Column | Spec |
+|--------|------|
+| ☐ | Select column |
+| Customer | Name + mono `ID: {shortId}-{NAME}` |
+| Service | Product name (fallback code) |
 | Plan | Plan name |
-| Status | Chip — see table below |
-| Expires | ExpiresAt date |
-| Key Sent | Chip — **Sent**: Outlined `--accent`, **—**: Text `--text-secondary` |
-| Actions | Activate · Renew · Suspend · Revoke · Update |
+| Status | Pill — Active primary fill; Expired error; Pending/Suspended outline; Revoked muted |
+| Expires | Mono date; error when Expired |
+| Key Sent | YES/NO chips with icons |
+| Actions | `MoreVert` menu (status-dependent) |
 
-### Filters
+### Bulk actions bar
 
-Search, Customer `MudAutocomplete` (async), Service `MudSelect`, Status `MudSelect`, Date range `MudDateRangePicker`. Bulk: `[Suspend]` `[Renew]` appear when rows selected.
+Fixed bottom glass panel when rows selected (see [design-system bulk actions bar](design-system.md#component-tokens)): **Resend Keys** (info — API TBD), **Renew** (single selection), **Revoke** (bulk confirm per [destructive dialog](design-system.md#destructive-confirmation-dialog)), close to clear.
 
-### Status chips
+### Issue License dialog
 
-All chips use `--accent`. Differentiate by MudBlazor variant:
-
-| Status | Variant | Available transitions |
-|--------|---------|----------------------|
-| Pending | Outlined | Activate |
-| Active | **Filled** | Suspend · Renew · Revoke · Update |
-| Suspended | Outlined | Activate · Revoke |
-| Revoked | Text | (none — permanent) |
-| Expired | Text | Activate · Renew |
-
-### Issue License modal
-
-Follows [Form patterns](#form-patterns).
-
-`POST /api/licenses` → 201, status = Pending.
-
-| Field | Component | Notes |
-|-------|-----------|-------|
-| Customer | `MudAutocomplete` | Async search `GET /api/customers`, required |
-| Service | `MudSelect` | HOSTEL · LAUNDRY · SCHOOL · ASSET, required |
-| Plan Name | `MudTextField` | Required, max 100 |
-| Expires At | `MudDatePicker` | Optional |
-| Notes | `MudTextField` | Optional |
+`LicenseIssueDialog` — Customer, Service, Plan, Expires. `POST /api/licenses` → Pending.
 
 ### Activate License flow (two-step)
 
@@ -384,19 +516,19 @@ Follows [Form patterns](#form-patterns). Same two-step modal as Activate, plus o
 
 ### Customer-scoped view
 
-Navigate `/licenses?customerId={id}` from customer detail drawer or row action. Grid pre-filters by customer. Breadcrumb: Customers > {Name} > Licenses.
+Navigate `/licenses?customerId={id}`. Customer filter pre-selected. `?add=1` opens Issue dialog.
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list | Card list | `MudDataGrid` multi-select |
-| Issue/Activate: bottom sheet | Centered 440px | Centered 520px |
-| Key reveal: full-screen | Centered 420px | Centered 480px |
+| xs (<600px) | md+ (≥768px) |
+|-------------|--------------|
+| Filters 1-col | Filters 4-col |
+| Header stacks | Header row |
+| Bulk bar wraps | Bulk bar centered |
 
 ### Components
 
-`MudDataGrid` multi-select, `MudChip`, `MudAutocomplete`, `MudSelect`, `MudTextField`, `MudDatePicker`, `MudDialog`, `MudBadge`, `MudIconButton`, `MudSnackbar`
+`Licenses.razor.css`, `LicenseIssueDialog`, `ActivateLicenseDialog`, `RenewLicenseDialog`, `LicenseEditDialog`, `LicenseActionResultDialog`, `MudDataGrid`, `MudMenu`
 
 ### API
 
@@ -408,24 +540,96 @@ Navigate `/licenses?customerId={id}` from customer detail drawer or row action. 
 
 **Purpose:** List and manage bills. Record payments.
 
+Reference mock: Invoices page (May 2026) — stats bento, filter panel, styled grid, insights row.
+
+### Page header
+
+| Element | Spec |
+|---------|------|
+| Title | H1 “Invoices”, 32px `--primary` |
+| Subtitle | “Manage billing, customer accounts, and transaction history.” |
+| CTAs | Primary “CREATE INVOICE” + outlined “EXPORT CSV” |
+
+### Stats bento (when invoices exist)
+
+4-column grid:
+
+| Stat | Source |
+|------|--------|
+| Total Revenue | Sum `TotalAmount` for Paid invoices |
+| Outstanding | Sum `AmountDue` for Sent/PartiallyPaid/Overdue |
+| Paid This Month | Paid invoices with `IssueDate` in current month |
+| Quick Filter | Chip toggles: ALL · UNPAID · SENT |
+
+Footnotes use real overdue/transaction counts; revenue trend line decorative (+12.5%).
+
+### Filters panel
+
+`--surface-container-low` container, 4-col grid:
+
+| Filter | Component |
+|--------|-----------|
+| Customer | Search text field |
+| Status | Select (All + enum) |
+| Date Range | `MudDateRangePicker` on IssueDate |
+| Actions | RESET + FILTER buttons |
+
 ### Grid
 
-`GET /api/invoices?page=1&pageSize=25&customerId=`
+`GET /api/invoices?page=1&pageSize=25&customerId=` — `MudDataGrid` in `.invoices-table-panel`.
 
-| Column | Notes |
-|--------|-------|
-| Invoice # | Format `INV-{year}-{00000..}`, link → `/invoices/{id}` |
-| Customer | |
-| Total | TotalAmount |
-| Paid | AmountPaid (sum of receipts) |
-| Due | AmountDue (Total − Paid) |
-| Status | Chip — see below |
-| Issue Date | |
-| Actions | |
+| Column | Spec |
+|--------|------|
+| Invoice # | Mono primary link text; row click → detail |
+| Customer | Circle avatar initials + name |
+| Total / Paid / Due | Right-aligned mono amounts; due bold error when Overdue |
+| Status | Pill badge — Paid primary-container; Sent outline; Partially Paid outline primary; Overdue error fill |
+| Issue Date | `MMM dd, yyyy` |
+| Actions | `MoreVert` — View, Record payment, Void (when allowed) |
 
-### Status chips
+Overdue rows: subtle error-container background tint.
 
-All chips use `--accent`. Differentiate by variant:
+### Insights row
+
+2:1 grid (stacks mobile):
+
+| Panel | Spec |
+|-------|------|
+| Automated Billing Rules | Decorative card + VIEW SETTINGS info snackbar |
+| Q3 Projection | Revenue projection bar from paid/revenue ratio |
+
+### Create Invoice
+
+`CreateInvoiceDialog` via CREATE INVOICE. `POST /api/invoices` → navigate to detail.
+
+### Export CSV
+
+Client-side export of current filtered grid rows via `platformDownloadText`.
+
+### Detail `/invoices/{id}`
+
+Unchanged — see existing detail spec below.
+
+### Empty state
+
+Centered message + CREATE INVOICE CTA.
+
+### Responsive
+
+| xs | md+ |
+|----|-----|
+| Stats/filters stack | 4-col stats + filters |
+| Insights stack | 2:1 insights |
+
+### Components
+
+`Invoices.razor.css`, `CreateInvoiceDialog`, `MudDataGrid`, `MudMenu`, `MudDateRangePicker`
+
+### API
+
+`GET/POST /api/invoices`, `POST /api/invoices/{id}/void`, `POST /api/invoices/{id}/receipts`
+
+### Status chips (detail reference)
 
 | Status | Variant |
 |--------|---------|
@@ -436,9 +640,9 @@ All chips use `--accent`. Differentiate by variant:
 | Overdue | **Filled** |
 | Void | Text |
 
-### Filters
+### Filters (legacy detail)
 
-Customer `MudAutocomplete`, Status `MudSelect`, Date range `MudDateRangePicker`.
+Customer autocomplete also supported via customer ID query param on API.
 
 ### Create Invoice
 
@@ -524,75 +728,72 @@ Audit logs `ReceiptRecorded`.
 
 **Purpose:** Manage API keys that authorize external license validation. One active key per service product.
 
-### Grid
+Reference mock: Integration Keys page (May 2026) — security alert, stats row, bento key cards.
 
-`GET /api/integration-keys?serviceProductId=`
+### Page header
 
-| Column | Notes |
-|--------|-------|
-| Service | Service product name + code |
-| Masked Preview | `<code>` — `pk_HOSTEL_••••••••••••`. Never show full hash. |
-| Active | `MudChip` — **Active**: Filled `--accent`, **Revoked**: Text `--text-secondary` |
-| Created | |
-| Last Used | |
-| Actions | Revoke |
-
-### Filter
-
-Service product `MudSelect` to scope the grid to one product.
+| Element | Spec |
+|---------|------|
+| Title | H1 “Integration Keys”, 32px `--primary` |
+| Subtitle | “Manage API credentials and authentication tokens for your enterprise services.” |
+| CTA | Primary “Generate New Key” → `IntegrationKeyGenerateDialog` |
 
 ### Security notice
 
-`MudAlert` Severity.Warning, border-left `--accent`: "Integration keys cannot be recovered after generation. Store them securely."
+Error-toned alert banner (not MudAlert inline): warning icon + bold “Security Notice” — keys cannot be recovered after creation.
+
+### Stats row (when keys exist)
+
+3-column grid:
+
+| Stat | Source |
+|------|--------|
+| Active Keys | Count where `IsActive` |
+| Requests / 24h | Decorative static 1.2M |
+| Avg Latency | Decorative static 14ms |
+
+### Bento card grid
+
+`GET /api/integration-keys` — responsive auto-fill grid (min 320px), one card per key.
+
+| Element | Spec |
+|---------|------|
+| Header | Service icon + name + description subtitle + Active/Revoked pill |
+| Service Key | Masked `pk_{CODE}_••••••••••••` in dark mono box + copy (info snackbar — key not recoverable) |
+| Footer | Created date + Revoke button (active keys only) |
+
+Revoked cards: dimmed, non-interactive.
 
 ### Generate Key flow
 
-Follows [Form patterns](#form-patterns).
+**Step 1 — `IntegrationKeyGenerateDialog`:** Service select + rotation warning. If active key exists, confirm rotate.
 
-**Step 1 — Select service:**
+**Step 2 — `IntegrationKeyRevealDialog`:** One-time plain key reveal with copy, `X-Integration-Key` header note, “I've Saved It” dismiss. No backdrop dismiss.
 
-`[Generate Key]` → `MudDialog`.
-
-| Field | Component | Notes |
-|-------|-----------|-------|
-| Service | `MudSelect` | Required |
-
-Warning: "Creating a new key will revoke the previous active key for this service. Any app using the old key will fail validation."
-
-`POST /api/integration-keys?serviceProductId={id}` → Returns `{ Key: IntegrationKeyDto, PlainKey }`.
-
-**Step 2 — One-time key reveal:**
-
-- Dialog title: "Integration Key Created"
-- Service name + code
-- `<code class="license-key">` displays plain key (JetBrains Mono, same styling as license key reveal)
-- `MudIconButton` copy → Snackbar "Copied"
-- Warning: "Store this key securely. It will never be displayed again. Any app validating licenses for {service} must send this key in the X-Integration-Key header."
-- `[I've Saved It]` button dismisses. No dismiss-by-click-outside. No close X.
-
-API auto-revokes previous active key in transaction. Audit logs `IntegrationKeyCreated` + `IntegrationKeyRevoked` for old key.
+`POST /api/integration-keys?serviceProductId={id}` → auto-revokes previous active key.
 
 ### Revoke Key
 
-Confirm dialog: "Revoke integration key for {Service}? External apps using this key will fail validation. This cannot be undone."
-
-`POST /api/integration-keys/{id}/revoke`. Audit logs `IntegrationKeyRevoked`.
+Confirm dialog with irreversible warning → `POST /api/integration-keys/{id}/revoke`.
 
 ### Bridge from Services
 
-When a service is created without a key, navigate here via `/integration-keys?serviceProductId={id}`. The post-create prompt from the Services page also flows directly here — the service product is pre-selected, so the dialog skips straight to the one-time key reveal.
+`/integration-keys?productId={id}` auto-opens generate dialog with service pre-selected.
+
+### Empty state
+
+Centered panel + Generate New Key CTA.
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list | Card list | `MudDataGrid` |
-| Generate: bottom sheet | Centered 400px | Centered 480px |
-| Key reveal: full-screen | Centered 420px | Centered 480px |
+| xs | md+ |
+|----|-----|
+| Stats stack | Stats 3-col |
+| Bento 1-col | Bento auto-fill |
 
 ### Components
 
-`MudDataGrid`, `MudChip`, `MudSelect`, `MudDialog`, `MudAlert`, `MudIconButton`, `MudSnackbar`
+`IntegrationKeys.razor.css`, `IntegrationKeyGenerateDialog`, `IntegrationKeyRevealDialog`, `ConfirmDialog`
 
 ### API
 
@@ -604,38 +805,64 @@ When a service is created without a key, navigate here via `/integration-keys?se
 
 **Purpose:** Read-only compliance trail of all admin actions.
 
-### Grid
+Reference mock: Audit Log page (May 2026) — header search, expandable table, pagination footer, stats bento.
 
-`GET /api/audit-logs?limit=100&customerId=&licenseId=&invoiceId=&action=`
+### Page header
 
-| Column | Notes |
-|--------|-------|
-| Timestamp | Sortable, descending default |
-| Admin | PerformedBy (from JWT name claim) |
-| Action | Action name — see list below |
-| Target | Customer / License / Invoice link where available |
-| IP | IpAddress |
+| Element | Spec |
+|---------|------|
+| Title | H1 “Audit Log”, 32px `--primary` |
+| Subtitle | “Comprehensive tracking of all administrative actions and security events.” |
+| Search | Debounced header search field |
+| Export | Outlined “Export CSV” button (filtered data) |
+
+### Filters panel
+
+Compact bar below header: Action select, Customer select, Refresh.
+
+Query params: `customerId`, `licenseId` passed to API.
+
+### Table
+
+Custom expandable `<table>` in `.audit-table-panel` (not MudExpansionPanels).
+
+| Column | Spec |
+|--------|------|
+| ☐ | Chevron — rotates 90° + primary when expanded |
+| Timestamp | Mono `yyyy-MM-dd HH:mm:ss` |
+| Admin | Avatar initials + email/name |
+| Action | UPPER_SNAKE badge — primary / neutral / danger variants |
+| Target | Customer name, license label, or invoice short id |
+| IP Address | Mono or em dash |
+| ⋮ | MoreVert menu — view customer/license/invoice, copy details |
 
 ### Expandable row
 
-Click to expand → `MudCodeBlock` or `<pre class="text-code">` with formatted `DetailsJson`:
-- Font: JetBrains Mono, 0.8125rem
-- Background: `--bg-elevated`
-- Text: `--text-primary`
-- Border: `1px solid --border-subtle`
+Click row toggles JSON panel:
 
-### Filters
+- Header: `DETAILS_JSON` + Copy button
+- `<pre>` formatted JSON in primary mono (`FormatJson` pretty-print)
+- Background `--background` inset panel
 
-| Filter | Component | Notes |
-|--------|-----------|-------|
-| Action | `MudSelect` | 25 audit actions |
-| Customer | `MudAutocomplete` | Scope to one customer |
-| License | | Query param only (linked from license detail) |
-| Invoice | | Query param only (linked from invoice detail) |
-| Date range | `MudDateRangePicker` | |
-| Admin | `MudTextField` | Search by performer name |
+### Pagination footer
 
-### Audit actions (25)
+Client-side on filtered results:
+
+- Items per page: 10 / 25 / 50 / 100
+- Range label + first/prev/page nums/next/last controls
+
+### Stats bento (when data loaded)
+
+4 cards below table:
+
+| Stat | Source |
+|------|--------|
+| Total Logs | Filtered count |
+| Security Flags | Revoke/suspend/void action count |
+| Avg Retained | Static 90 Days |
+| Storage Used | Estimated from loaded payload size |
+
+### Audit actions (20)
 
 `CustomerCreated`, `CustomerUpdated`, `CustomerSuspended`, `CustomerReactivated`,
 `ServiceProductCreated`, `ServiceProductUpdated`,
@@ -646,61 +873,73 @@ Click to expand → `MudCodeBlock` or `<pre class="text-code">` with formatted `
 
 ### Export
 
-`[Export CSV]` button → downloads currently filtered data as CSV. Client-side from visible grid data.
+CSV of filtered rows: Timestamp, Action, PerformedBy, Target, IpAddress, Details.
 
 ### Responsive
 
-| xs (<600px) | sm (600–959px) | md+ (≥960px) |
-|-------------|----------------|--------------|
-| Card list, JSON collapsed | Card list, JSON expandable | `MudDataGrid`, JSON in expand row |
-| Filters in panel | Filters in panel | Filters inline bar |
-| Export button: full width | Auto width | Auto width |
+| xs | md+ |
+|----|-----|
+| Header stacks | Header row with search + export |
+| Stats 1-col | Stats 4-col |
+| Horizontal scroll table | Full table |
 
 ### Components
 
-`MudDataGrid`, `MudSelect`, `MudAutocomplete`, `MudDateRangePicker`, `MudTextField`, `MudCodeBlock`, `MudButton`, `MudExpansionPanel`
+`Audit.razor.css`, `MudTextField`, `MudSelect`, `MudMenu`, `MudIcon`
 
 ### API
 
-`GET /api/audit-logs` with query filters: `customerId`, `licenseId`, `invoiceId`, `action`, `limit` (1–500, default 100)
+`GET /api/audit-logs?limit=500&customerId=&licenseId=&action=`
 
 ---
 
-## Validate License `/tools/validate`
+## Validate License `/validate`
 
 **Purpose:** Admin debug tool for testing `POST /api/licenses/validate`.
 
-### Form
+Reference mock: License Debugger page (May 2026) — split layout with terminal response panel.
 
-Follows [Form patterns](#form-patterns).
+**Canonical route:** `/validate`  
+**Alias:** `/tools/validate` (same page or redirect)
 
-| Field | Component | Notes |
-|-------|-----------|-------|
-| License Key | `MudTextField` multiline | 6 rows, JetBrains Mono, required |
-| Service | `MudSelect` | Optional — HOSTEL · LAUNDRY · SCHOOL · ASSET. Auto-detect if blank. |
-| X-Integration-Key | `MudTextField` | Required, label "X-Integration-Key header" |
+### Page header
 
-Info text: "Sends to `POST /api/licenses/validate` with the `X-Integration-Key` header. Rate limited to 60 requests per minute."
+| Element | Spec |
+|---------|------|
+| Title | H1 “License Debugger”, 32px `--primary` |
+| Subtitle | Low-level validation tool for license keys and integration keys |
 
-### Test button
+### Layout
 
-`MudButton` Variant.Filled `--accent`. `[Test Validation]`.
+5:7 asymmetric grid: Input Parameters (left) + Response terminal (right).
 
-### Response panel
+### Form fields
 
-`MudExpansionPanel` "Response" — shows after API call.
+| Field | Notes |
+|-------|-------|
+| License Key | Required mono textarea (8 lines) |
+| Service Context | Optional product code select; auto-detect when empty |
+| X-Integration-Key | Required, key-icon prefixed input |
 
-| Result | Display |
-|--------|---------|
-| Loading | `MudProgressLinear` indeterminate |
-| Valid | Green `--accent`: `{ "isValid": true, "planName": "Pro Annual", "expiresAt": "2027-05-15" }` in JetBrains Mono |
-| Invalid | `--text-secondary`: `{ "isValid": false, "message": "License key not found or expired." }` |
-| Integration key invalid | `{ "isValid": false, "message": "Invalid integration key." }` |
-| Rate limited (429) | `MudAlert` Severity.Error: "Too many requests. Try again later." |
+### Response terminal
+
+Black terminal panel with traffic-light dots, `response_log.json` label, Copy/Clear toolbar, pretty-printed JSON, status bar (Status + Latency).
+
+| State | Status text |
+|-------|-------------|
+| Idle | Awaiting execution empty state |
+| Loading | Processing… |
+| Valid | 200 OK |
+| Invalid | 403 Invalid |
+| Error | Error |
+
+### Info cards
+
+Validation API card (endpoint + 60/min rate limit) + decorative validator behavior card.
 
 ### Components
 
-`MudTextField`, `MudSelect`, `MudButton`, `MudExpansionPanel`, `MudProgressLinear`, `MudAlert`
+`Validate.razor.css`, `MudForm`, `MudTextField`, `MudSelect`, `MudIcon`
 
 ### API
 

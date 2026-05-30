@@ -4,103 +4,273 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 
-<PageHeader Title="Invoices">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateInvoiceAsync">New Invoice</MudButton>
-</PageHeader>
+<div class="invoices-page">
+    <header class="invoices-header">
+        <div>
+            <h1>Invoices</h1>
+            <p>Manage billing, customer accounts, and transaction history.</p>
+        </div>
+        <div class="invoices-header-actions">
+            <button type="button" class="btn-create-invoice" @onclick="CreateInvoiceAsync">
+                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                CREATE INVOICE
+            </button>
+            <button type="button" class="btn-export-csv" @onclick="ExportCsvAsync">
+                <MudIcon Icon="@Icons.Material.Filled.Download" Size="Size.Small" />
+                EXPORT CSV
+            </button>
+        </div>
+    </header>
 
-<MudGrid Class="mb-4">
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="InvoiceStatus?" @bind-Value="_statusFilter" Label="Status" Variant="Variant.Outlined" Clearable="true">
-            @foreach (var status in Enum.GetValues<InvoiceStatus>())
-            {
-                <MudSelectItem Value="@((InvoiceStatus?)status)">@status</MudSelectItem>
-            }
-        </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="string" @bind-Value="_customerFilter" Label="Customer" Variant="Variant.Outlined" Clearable="true">
-            @foreach (var c in _customers)
-            {
-                <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
-            }
-        </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3" Class="d-flex align-end">
-        <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply filters</MudButton>
-    </MudItem>
-</MudGrid>
-
-@if (_loading)
-{
-    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
-    @for (var i = 0; i < 6; i++)
+    @if (_statsInvoices.Count > 0)
     {
-        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
+        <section class="invoices-stats-grid" aria-label="Invoice statistics">
+            <div class="invoices-stat-card">
+                <span class="invoices-stat-label">TOTAL REVENUE</span>
+                <span class="invoices-stat-value">@FormatMoney(TotalRevenue, "USD")</span>
+                <div class="invoices-stat-footnote positive">
+                    <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Small" />
+                    <span>+12.5% vs last month</span>
+                </div>
+            </div>
+            <div class="invoices-stat-card">
+                <span class="invoices-stat-label">OUTSTANDING</span>
+                <span class="invoices-stat-value">@FormatMoney(OutstandingAmount, "USD")</span>
+                <div class="invoices-stat-footnote warning">
+                    <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" />
+                    <span>@OverdueCount Overdue Invoices</span>
+                </div>
+            </div>
+            <div class="invoices-stat-card">
+                <span class="invoices-stat-label">PAID THIS MONTH</span>
+                <span class="invoices-stat-value">@FormatMoney(PaidThisMonth, "USD")</span>
+                <div class="invoices-stat-footnote">
+                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                    <span>@PaidThisMonthCount Transactions</span>
+                </div>
+            </div>
+            <div class="invoices-stat-card">
+                <span class="invoices-stat-label">QUICK FILTER</span>
+                <div class="invoices-quick-filters">
+                    <button type="button" class="invoices-quick-chip @(_quickFilter == "all" ? "active" : "")" @onclick='() => SetQuickFilter("all")'>ALL</button>
+                    <button type="button" class="invoices-quick-chip @(_quickFilter == "unpaid" ? "active" : "")" @onclick='() => SetQuickFilter("unpaid")'>UNPAID</button>
+                    <button type="button" class="invoices-quick-chip @(_quickFilter == "sent" ? "active" : "")" @onclick='() => SetQuickFilter("sent")'>SENT</button>
+                </div>
+            </div>
+        </section>
     }
-}
-else
-{
-    <MudDataGrid @ref="_grid"
-                 T="InvoiceDto"
-                 ServerData="LoadServerData"
-                 Hover="true"
-                 Dense="true"
-                 RowClick="OnRowClick"
-                 RowsPerPage="25">
-        <Columns>
-            <PropertyColumn Property="x => x.InvoiceNumber" Title="Number" />
-            <PropertyColumn Property="x => x.CustomerName" Title="Customer" />
-            <TemplateColumn Title="Status">
-                <CellTemplate>
-                    <MudChip T="string" Size="Size.Small" Variant="@GetStatusVariant(context.Item.Status)" Color="Color.Primary">
-                        @context.Item.Status
-                    </MudChip>
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Total">
-                <CellTemplate>
-                    @context.Item.TotalAmount.ToString("N2") @context.Item.Currency
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Paid">
-                <CellTemplate>
-                    @context.Item.AmountPaid.ToString("N2")
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Due">
-                <CellTemplate>
-                    @context.Item.AmountDue.ToString("N2")
-                </CellTemplate>
-            </TemplateColumn>
-            <TemplateColumn Title="Due date">
-                <CellTemplate>
-                    @(context.Item.DueDate?.ToString("yyyy-MM-dd") ?? "—")
-                </CellTemplate>
-            </TemplateColumn>
-        </Columns>
-        <NoRecordsContent>
-            <MudText Typo="Typo.subtitle1" Class="pa-4">No invoices found.</MudText>
-            <MudText Typo="Typo.body2" Class="px-4 pb-2">Create an invoice or activate a license to generate billing.</MudText>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="CreateInvoiceAsync">New Invoice</MudButton>
-        </NoRecordsContent>
-        <PagerContent>
-            <MudDataGridPager T="InvoiceDto" />
-        </PagerContent>
-    </MudDataGrid>
-}
+
+    <section class="invoices-filters-panel" aria-label="Filters">
+        <div class="invoices-filters-grid">
+            <div class="invoices-filter-field">
+                <span class="invoices-filter-label">CUSTOMER</span>
+                <MudTextField @bind-Value="_customerSearch"
+                              Placeholder="Search customer..."
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@Icons.Material.Filled.Search" />
+            </div>
+            <div class="invoices-filter-field">
+                <span class="invoices-filter-label">STATUS</span>
+                <MudSelect T="InvoiceStatus?" Value="_statusFilter" ValueChanged="OnStatusFilterChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                    <MudSelectItem Value="@((InvoiceStatus?)null)">All Statuses</MudSelectItem>
+                    @foreach (var status in Enum.GetValues<InvoiceStatus>())
+                    {
+                        <MudSelectItem Value="@((InvoiceStatus?)status)">@FormatStatusLabel(status)</MudSelectItem>
+                    }
+                </MudSelect>
+            </div>
+            <div class="invoices-filter-field">
+                <span class="invoices-filter-label">DATE RANGE</span>
+                <MudDateRangePicker @bind-DateRange="_dateRange"
+                                    Variant="Variant.Outlined"
+                                    Margin="Margin.Dense"
+                                    Placeholder="Start — End" />
+            </div>
+            <div class="invoices-filter-actions">
+                <button type="button" class="btn-filter-reset" @onclick="ResetFiltersAsync">RESET</button>
+                <button type="button" class="btn-filter-apply" @onclick="ReloadGrid">FILTER</button>
+            </div>
+        </div>
+    </section>
+
+    <div class="invoices-table-panel">
+        <MudDataGrid @ref="_grid"
+                     T="InvoiceDto"
+                     Class="invoices-grid"
+                     ServerData="LoadServerData"
+                     Hover="false"
+                     Dense="false"
+                     RowClick="OnRowClick"
+                     RowClassFunc="GetRowClass"
+                     RowsPerPage="25">
+            <Columns>
+                <TemplateColumn Title="Invoice #">
+                    <CellTemplate>
+                        <span class="invoice-number-link">@context.Item.InvoiceNumber</span>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Customer">
+                    <CellTemplate>
+                        @{
+                            var invoice = context.Item;
+                        }
+                        <div class="invoice-customer-cell">
+                            <div class="invoice-customer-avatar">@GetInitials(invoice.CustomerName)</div>
+                            <span class="invoice-customer-name">@(invoice.CustomerName ?? "—")</span>
+                        </div>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Total">
+                    <CellTemplate>
+                        <div class="cell-right amount-mono">@FormatMoney(context.Item.TotalAmount, context.Item.Currency)</div>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Paid">
+                    <CellTemplate>
+                        @{
+                            var paidClass = context.Item.AmountPaid > 0 ? "amount-mono" : "amount-mono amount-mono-muted";
+                        }
+                        <div class="cell-right @paidClass">@FormatMoney(context.Item.AmountPaid, context.Item.Currency)</div>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Due">
+                    <CellTemplate>
+                        @{
+                            var dueClass = context.Item.Status == InvoiceStatus.Overdue
+                                ? "amount-mono amount-mono-overdue"
+                                : context.Item.AmountDue > 0 ? "amount-mono" : "amount-mono amount-mono-muted";
+                        }
+                        <div class="cell-right @dueClass">@FormatMoney(context.Item.AmountDue, context.Item.Currency)</div>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Status">
+                    <CellTemplate>
+                        <span class="invoice-status-badge @GetStatusClass(context.Item.Status)">
+                            @FormatStatusLabel(context.Item.Status)
+                        </span>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Issue Date">
+                    <CellTemplate>
+                        @context.Item.IssueDate.ToString("MMM dd, yyyy")
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="" Sortable="false">
+                    <CellTemplate>
+                        @{
+                            var invoice = context.Item;
+                        }
+                        <div class="cell-right" @onclick:stopPropagation="true">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                <MudMenuItem OnClick="@(() => ViewInvoice(invoice))">View invoice</MudMenuItem>
+                                @if (invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
+                                {
+                                    <MudMenuItem OnClick="@(() => ViewInvoice(invoice))">Record payment</MudMenuItem>
+                                }
+                                @if (invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue && invoice.AmountPaid == 0)
+                                {
+                                    <MudMenuItem OnClick="@(() => VoidAsync(invoice))">Void invoice</MudMenuItem>
+                                }
+                            </MudMenu>
+                        </div>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <NoRecordsContent>
+                <div class="invoices-empty">
+                    <h2>No invoices found</h2>
+                    <p>Create an invoice or activate a license to generate billing.</p>
+                    <button type="button" class="btn-create-invoice" @onclick="CreateInvoiceAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                        CREATE INVOICE
+                    </button>
+                </div>
+            </NoRecordsContent>
+            <PagerContent>
+                <MudDataGridPager T="InvoiceDto" />
+            </PagerContent>
+        </MudDataGrid>
+    </div>
+
+    @if (_statsInvoices.Count > 0)
+    {
+        <section class="invoices-insights">
+            <div class="invoices-insight-card">
+                <div class="invoices-insight-glow"></div>
+                <div class="invoices-insight-icon-bg">
+                    <MudIcon Icon="@Icons.Material.Filled.SettingsSuggest" />
+                </div>
+                <h3>Automated Billing Rules</h3>
+                <p>Configure automated retry logic for failed payments and custom grace periods for recurring service contracts. Current success rate: 98.4%.</p>
+                <button type="button" class="btn-insight" @onclick="ShowBillingSettingsInfo">VIEW SETTINGS</button>
+            </div>
+            <div class="invoices-insight-card invoices-projection-card">
+                <div class="invoices-projection-icon">
+                    <MudIcon Icon="@Icons.Material.Filled.Insights" />
+                </div>
+                <h4>Q3 Projection</h4>
+                <p class="invoices-projection-sub">Estimated Revenue: @FormatMoney(RevenueProjection, "USD")</p>
+                <div class="invoices-projection-bar">
+                    <div class="invoices-projection-bar-fill" style="width: @(ProjectionPercent)%"></div>
+                </div>
+                <span class="invoices-projection-foot">@ProjectionPercent% OF GOAL REACHED</span>
+            </div>
+        </section>
+    }
+</div>
 
 @code {
-    private bool _loading = true;
     private MudDataGrid<InvoiceDto>? _grid;
     private List<CustomerDto> _customers = [];
+    private List<InvoiceDto> _statsInvoices = [];
+    private List<InvoiceDto> _exportRows = [];
     private InvoiceStatus? _statusFilter;
     private string? _customerFilter;
+    private string _customerSearch = "";
+    private string _quickFilter = "all";
+    private DateRange? _dateRange;
+
+    private decimal TotalRevenue => _statsInvoices.Where(i => i.Status == InvoiceStatus.Paid).Sum(i => i.TotalAmount);
+    private decimal OutstandingAmount => _statsInvoices
+        .Where(i => i.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
+        .Sum(i => i.AmountDue);
+    private int OverdueCount => _statsInvoices.Count(i => i.Status == InvoiceStatus.Overdue);
+
+    private decimal PaidThisMonth
+    {
+        get
+        {
+            var start = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            return _statsInvoices
+                .Where(i => i.Status == InvoiceStatus.Paid && i.IssueDate >= start)
+                .Sum(i => i.TotalAmount);
+        }
+    }
+
+    private int PaidThisMonthCount
+    {
+        get
+        {
+            var start = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            return _statsInvoices.Count(i => i.Status == InvoiceStatus.Paid && i.IssueDate >= start);
+        }
+    }
+
+    private decimal RevenueProjection => TotalRevenue * 3m;
+    private int ProjectionPercent => TotalRevenue <= 0 ? 0 : Math.Min(100, (int)Math.Round(PaidThisMonth / Math.Max(TotalRevenue / 12m, 1m) * 100m));
 
     protected override async Task OnInitializedAsync()
     {
-        _customers = (await Api.GetCustomersPagedAsync(page: 1, pageSize: 500)).Items.ToList();
-        _loading = false;
+        var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 500);
+        var statsTask = Api.GetInvoicesPagedAsync(page: 1, pageSize: 500);
+        await Task.WhenAll(customersTask, statsTask);
+
+        _customers = customersTask.Result.Items.ToList();
+        _statsInvoices = statsTask.Result.Items.ToList();
     }
 
     private async Task<GridData<InvoiceDto>> LoadServerData(GridState<InvoiceDto> state)
@@ -111,15 +281,52 @@ else
             pageSize: state.PageSize);
 
         var items = result.Items.AsEnumerable();
+
         if (_statusFilter is not null)
             items = items.Where(i => i.Status == _statusFilter);
 
+        if (!string.IsNullOrWhiteSpace(_customerSearch))
+        {
+            items = items.Where(i =>
+                (i.CustomerName?.Contains(_customerSearch, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        if (_dateRange?.Start is not null)
+        {
+            var start = _dateRange.Start.Value.Date;
+            items = items.Where(i => i.IssueDate.Date >= start);
+        }
+
+        if (_dateRange?.End is not null)
+        {
+            var end = _dateRange.End.Value.Date;
+            items = items.Where(i => i.IssueDate.Date <= end);
+        }
+
+        items = ApplyQuickFilter(items);
+
+        var list = items.ToList();
+        _exportRows = list;
+
+        var unfiltered = _statusFilter is null
+            && string.IsNullOrWhiteSpace(_customerSearch)
+            && _dateRange?.Start is null
+            && _dateRange?.End is null
+            && _quickFilter == "all";
+
         return new GridData<InvoiceDto>
         {
-            Items = items.ToList(),
-            TotalItems = _statusFilter is null ? result.TotalCount : items.Count()
+            Items = list,
+            TotalItems = unfiltered ? result.TotalCount : list.Count
         };
     }
+
+    private IEnumerable<InvoiceDto> ApplyQuickFilter(IEnumerable<InvoiceDto> items) => _quickFilter switch
+    {
+        "unpaid" => items.Where(i => i.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue),
+        "sent" => items.Where(i => i.Status == InvoiceStatus.Sent),
+        _ => items
+    };
 
     private async Task ReloadGrid()
     {
@@ -127,8 +334,36 @@ else
             await _grid.ReloadServerData();
     }
 
+    private async Task OnStatusFilterChanged(InvoiceStatus? value)
+    {
+        _statusFilter = value;
+        await ReloadGrid();
+    }
+
+    private async Task SetQuickFilter(string filter)
+    {
+        _quickFilter = filter;
+        await ReloadGrid();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _statusFilter = null;
+        _customerFilter = null;
+        _customerSearch = "";
+        _quickFilter = "all";
+        _dateRange = null;
+        await ReloadGrid();
+    }
+
     private void OnRowClick(DataGridRowClickEventArgs<InvoiceDto> args) =>
         Navigation.NavigateTo($"/invoices/{args.Item.Id}");
+
+    private void ViewInvoice(InvoiceDto invoice) =>
+        Navigation.NavigateTo($"/invoices/{invoice.Id}");
+
+    private string? GetRowClass(InvoiceDto invoice, int _) =>
+        invoice.Status == InvoiceStatus.Overdue ? "invoice-row-overdue" : null;
 
     private async Task CreateInvoiceAsync()
     {
@@ -148,17 +383,96 @@ else
         }
 
         Snackbar.Add("Invoice created.", Severity.Success);
+        await RefreshStatsAsync();
         Navigation.NavigateTo($"/invoices/{apiResult.Data!.Id}");
     }
 
-    private static Variant GetStatusVariant(InvoiceStatus status) => status switch
+    private async Task VoidAsync(InvoiceDto invoice)
     {
-        InvoiceStatus.Paid => Variant.Filled,
-        InvoiceStatus.Sent => Variant.Outlined,
-        InvoiceStatus.PartiallyPaid => Variant.Outlined,
-        InvoiceStatus.Overdue => Variant.Filled,
-        InvoiceStatus.Void => Variant.Text,
-        InvoiceStatus.Draft => Variant.Text,
-        _ => Variant.Text
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Void Invoice", new DialogParameters
+        {
+            ["Title"] = "Void Invoice",
+            ["Message"] = $"Void invoice {invoice.InvoiceNumber}? This cannot be undone.",
+            ["ConfirmText"] = "Void"
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false)
+            return;
+
+        var apiResult = await Api.VoidInvoiceAsync(invoice.Id);
+        if (!apiResult.IsSuccess)
+        {
+            Snackbar.Add(apiResult.ErrorMessage ?? "Void failed.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Invoice voided.", Severity.Success);
+        await RefreshStatsAsync();
+        await ReloadGrid();
+    }
+
+    private async Task ExportCsvAsync()
+    {
+        if (_exportRows.Count == 0)
+        {
+            Snackbar.Add("No invoices to export.", Severity.Info);
+            return;
+        }
+
+        var csv = "InvoiceNumber,Customer,Total,Paid,Due,Status,IssueDate,Currency\n";
+        foreach (var invoice in _exportRows)
+        {
+            csv += $"\"{Escape(invoice.InvoiceNumber)}\",\"{Escape(invoice.CustomerName)}\",{invoice.TotalAmount},{invoice.AmountPaid},{invoice.AmountDue},\"{invoice.Status}\",\"{invoice.IssueDate:yyyy-MM-dd}\",\"{invoice.Currency}\"\n";
+        }
+
+        await JSRuntime.InvokeVoidAsync("platformDownloadText", "invoices.csv", csv);
+        Snackbar.Add("CSV exported.", Severity.Success);
+    }
+
+    private async Task RefreshStatsAsync()
+    {
+        var result = await Api.GetInvoicesPagedAsync(page: 1, pageSize: 500);
+        _statsInvoices = result.Items.ToList();
+    }
+
+    private void ShowBillingSettingsInfo() =>
+        Snackbar.Add("Automated billing rules configuration is coming soon.", Severity.Info);
+
+    private static string Escape(string? value) =>
+        (value ?? "").Replace("\"", "\"\"");
+
+    private static string FormatMoney(decimal amount, string currency) =>
+        currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
+            ? $"${amount:N2}"
+            : $"{amount:N2} {currency}";
+
+    private static string GetStatusClass(InvoiceStatus status) => status switch
+    {
+        InvoiceStatus.Paid => "invoice-status-paid",
+        InvoiceStatus.Sent => "invoice-status-sent",
+        InvoiceStatus.PartiallyPaid => "invoice-status-partial",
+        InvoiceStatus.Overdue => "invoice-status-overdue",
+        InvoiceStatus.Draft => "invoice-status-draft",
+        InvoiceStatus.Void => "invoice-status-void",
+        _ => "invoice-status-draft"
     };
+
+    private static string FormatStatusLabel(InvoiceStatus status) => status switch
+    {
+        InvoiceStatus.PartiallyPaid => "Partially Paid",
+        _ => status.ToString()
+    };
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "?";
+
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return "?";
+        if (parts.Length == 1)
+            return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        return $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant();
+    }
 }

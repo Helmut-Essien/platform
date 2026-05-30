@@ -1,0 +1,390 @@
+.validate-page {
+    max-width: 80rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.validate-header h1 {
+    font-size: 2rem;
+    line-height: 2.5rem;
+    font-weight: 600;
+    color: var(--primary, #92d959);
+    margin: 0 0 0.5rem;
+    letter-spacing: -0.02em;
+}
+
+.validate-header p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.validate-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+    .validate-layout {
+        grid-template-columns: 5fr 7fr;
+    }
+}
+
+.validate-form-column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.validate-input-panel {
+    background: var(--surface-container-low, #191d14);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+}
+
+.validate-input-panel h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--on-surface, #e0e4d6);
+    margin: 0 0 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.validate-input-panel h2 ::deep .mud-icon-root {
+    color: var(--primary, #92d959);
+}
+
+.validate-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.validate-field-label {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.validate-license-input ::deep textarea {
+    font-family: 'JetBrains Mono', ui-monospace, monospace !important;
+    font-size: 0.8125rem !important;
+    min-height: 10rem !important;
+    color: var(--primary, #92d959) !important;
+    background: var(--surface, #10150c) !important;
+}
+
+.validate-integration-wrap {
+    display: flex;
+    align-items: stretch;
+    background: var(--surface, #10150c);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.125rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.validate-integration-wrap:focus-within {
+    border-color: var(--primary, #92d959);
+    box-shadow: 0 0 0 1px var(--primary, #92d959);
+}
+
+.validate-integration-wrap ::deep .mud-icon-root {
+    color: var(--text-secondary);
+    margin: auto 0.5rem;
+    flex-shrink: 0;
+}
+
+.validate-integration-wrap ::deep .mud-input-root {
+    flex: 1;
+}
+
+.validate-integration-wrap ::deep input {
+    font-family: 'JetBrains Mono', ui-monospace, monospace !important;
+    font-size: 0.8125rem !important;
+    color: var(--primary, #92d959) !important;
+}
+
+.btn-test-validation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 1rem;
+    margin-top: 0.5rem;
+    background: var(--primary, #92d959);
+    color: var(--on-primary, #193800);
+    border: none;
+    border-radius: 0.125rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.btn-test-validation:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+.btn-test-validation:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+.btn-test-validation:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.validate-info-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: var(--surface-container-lowest, #0b0f08);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    opacity: 0.9;
+}
+
+.validate-info-card ::deep .mud-icon-root {
+    color: var(--primary-container, #5ea126);
+    flex-shrink: 0;
+}
+
+.validate-info-card h4 {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    color: var(--primary, #92d959);
+    margin: 0 0 0.25rem;
+}
+
+.validate-info-card p {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.validate-info-card code {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    color: var(--primary, #92d959);
+}
+
+.validate-results-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 24rem;
+}
+
+.validate-terminal {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    background: #000;
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    min-height: 20rem;
+}
+
+.validate-terminal-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--surface-container-high, #272b22);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.validate-terminal-dots {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.validate-terminal-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+}
+
+.validate-terminal-dot.red {
+    background: var(--error, #ffb4ab);
+}
+
+.validate-terminal-dot.yellow {
+    background: #f1c40f;
+}
+
+.validate-terminal-dot.green {
+    background: var(--primary, #92d959);
+}
+
+.validate-terminal-filename {
+    margin-left: 1rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.validate-terminal-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.validate-terminal-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.validate-terminal-btn:hover {
+    color: var(--primary, #92d959);
+}
+
+.validate-terminal-btn.danger:hover {
+    color: var(--error, #ffb4ab);
+}
+
+.validate-terminal-body {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+}
+
+.validate-terminal-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 12rem;
+    gap: 1rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.validate-terminal-empty ::deep .mud-icon-root {
+    font-size: 3rem;
+    opacity: 0.2;
+}
+
+.validate-terminal-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--primary, #92d959);
+}
+
+.validate-json-pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--primary, #92d959);
+}
+
+.validate-json-pre.valid {
+    color: var(--primary-fixed, #adf772);
+}
+
+.validate-json-pre.invalid {
+    color: var(--error, #ffb4ab);
+}
+
+.validate-terminal-statusbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--surface-container, #1d2118);
+    border-top: 1px solid var(--border-subtle);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.validate-terminal-statusbar .status-ok {
+    color: var(--primary, #92d959);
+}
+
+.validate-terminal-statusbar .status-error {
+    color: var(--error, #ffb4ab);
+}
+
+.validate-terminal-statusbar .status-busy {
+    color: var(--primary, #92d959);
+    animation: validate-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes validate-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.validate-decorative-card {
+    margin-top: 1.5rem;
+    padding: 1.5rem;
+    border-left: 2px solid var(--primary, #92d959);
+    background: rgba(29, 33, 24, 0.5);
+    position: relative;
+    overflow: hidden;
+}
+
+.validate-decorative-card h5 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--primary, #92d959);
+    margin: 0 0 0.5rem;
+}
+
+.validate-decorative-card p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0;
+    max-width: 28rem;
+}
+
+.validate-decorative-icon {
+    position: absolute;
+    right: -1rem;
+    bottom: -1rem;
+    opacity: 0.05;
+    pointer-events: none;
+    transition: transform 0.7s ease, opacity 0.7s ease;
+}
+
+.validate-decorative-card:hover .validate-decorative-icon {
+    opacity: 0.1;
+    transform: rotate(0deg);
+}
+
+.validate-decorative-icon ::deep .mud-icon-root {
+    font-size: 7.5rem;
+    color: var(--primary, #92d959);
+    transform: rotate(-12deg);
+}

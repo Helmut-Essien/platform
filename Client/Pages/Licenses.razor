@@ -5,174 +5,224 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<PageHeader Title="Licenses">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OpenAddPanel">Issue License</MudButton>
-</PageHeader>
+<div class="licenses-page">
+    <header class="licenses-header">
+        <div>
+            <h1>Licenses</h1>
+            <p>Manage software entitlements and API access keys.</p>
+        </div>
+        <button type="button" class="btn-issue-license" @onclick="OpenIssueDialogAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+            Issue License
+        </button>
+    </header>
 
-<MudExpansionPanels Class="mb-4">
-    <MudExpansionPanel Text="Issue license" Expanded="_addPanelExpanded">
-        <MudForm @ref="_form" Model="_issue" @bind-IsValid="_formValid">
-            <MudSelect T="string" @bind-Value="_issue.CustomerId"
-                       Label="Customer"
-                       Variant="Variant.Outlined"
-                       Required="true"
-                       RequiredError="Customer is required"
-                       Disabled="_busy"
-                       Class="mb-2">
+    <section class="licenses-filters-grid" aria-label="Filters">
+        <div class="licenses-filter-field">
+            <span class="licenses-filter-label">Customer</span>
+            <MudSelect T="string" Value="_filterCustomerId" ValueChanged="OnCustomerFilterChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem Value="@((string?)null)">All Customers</MudSelectItem>
                 @foreach (var c in _customers)
                 {
                     <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
                 }
             </MudSelect>
-            <MudSelect T="string" @bind-Value="_issue.ServiceProductId"
-                       Label="Service"
-                       Variant="Variant.Outlined"
-                       Required="true"
-                       RequiredError="Service is required"
-                       Disabled="_busy"
-                       Class="mb-2">
+        </div>
+        <div class="licenses-filter-field">
+            <span class="licenses-filter-label">Service</span>
+            <MudSelect T="string" Value="_filterServiceId" ValueChanged="OnServiceFilterChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem Value="@((string?)null)">All Services</MudSelectItem>
                 @foreach (var p in _products)
                 {
-                    <MudSelectItem Value="@p.Id">@p.Code — @p.Name</MudSelectItem>
+                    <MudSelectItem Value="@p.Id">@p.Name</MudSelectItem>
                 }
             </MudSelect>
-            <MudTextField @bind-Value="_issue.PlanName"
-                          For="@(() => _issue.PlanName)"
-                          Label="Plan"
-                          Variant="Variant.Outlined"
-                          Required="true"
-                          RequiredError="Plan is required"
-                          Disabled="_busy"
-                          Class="mb-2" />
-            <MudDatePicker @bind-Date="_issue.ExpiresAt"
-                           Label="Expires"
-                           Variant="Variant.Outlined"
-                           Required="true"
-                           RequiredError="Expiry date is required"
-                           Disabled="_busy"
-                           Class="mb-2" />
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       Disabled="@(!_formValid || _busy)"
-                       OnClick="IssueAsync">
-                @(_busy ? "Issuing..." : "Issue (Pending)")
-            </MudButton>
-        </MudForm>
-    </MudExpansionPanel>
-</MudExpansionPanels>
-
-<MudGrid Class="mb-4">
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="string" @bind-Value="_filterCustomerId" Label="Customer" Variant="Variant.Outlined" Clearable="true">
-            @foreach (var c in _customers)
-            {
-                <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
-            }
-        </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="string" @bind-Value="_filterServiceId" Label="Service" Variant="Variant.Outlined" Clearable="true">
-            @foreach (var p in _products)
-            {
-                <MudSelectItem Value="@p.Id">@p.Code</MudSelectItem>
-            }
-        </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudSelect T="LicenseStatus?" @bind-Value="_filterStatus" Label="Status" Variant="Variant.Outlined" Clearable="true">
-            @foreach (var status in Enum.GetValues<LicenseStatus>())
-            {
-                <MudSelectItem Value="@((LicenseStatus?)status)">@status</MudSelectItem>
-            }
-        </MudSelect>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudTextField @bind-Value="_search" Label="Search" Variant="Variant.Outlined" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
-    </MudItem>
-    <MudItem xs="12" Class="d-flex gap-2 flex-wrap">
-        <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply filters</MudButton>
-        @if (_selected.Count > 0)
-        {
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="BulkSuspendAsync">Suspend selected (@_selected.Count)</MudButton>
-        }
-    </MudItem>
-</MudGrid>
-
-<MudDataGrid @ref="_grid"
-             T="LicenseDto"
-             ServerData="LoadServerData"
-             Hover="true"
-             Dense="true"
-             MultiSelection="true"
-             @bind-SelectedItems="_selected"
-             RowsPerPage="25">
-    <Columns>
-        <SelectColumn T="LicenseDto" />
-        <PropertyColumn Property="x => x.CustomerName" Title="Customer" />
-        <PropertyColumn Property="x => x.ServiceProductCode" Title="Service" />
-        <PropertyColumn Property="x => x.PlanName" Title="Plan" />
-        <TemplateColumn Title="Status">
-            <CellTemplate>
-                <LicenseStatusChip Status="context.Item.Status" />
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn Title="Expires">
-            <CellTemplate>
-                @(context.Item.ExpiresAt?.ToString("yyyy-MM-dd") ?? "—")
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn Title="Key Sent">
-            <CellTemplate>
-                @(context.Item.LicenseKeySentAt?.ToString("yyyy-MM-dd") ?? "—")
-            </CellTemplate>
-        </TemplateColumn>
-        <TemplateColumn Title="Actions" Sortable="false">
-            <CellTemplate>
-                @{
-                    var license = context.Item;
-                }
-                @if (license.Status == LicenseStatus.Pending || license.Status == LicenseStatus.Suspended || license.Status == LicenseStatus.Expired)
+        </div>
+        <div class="licenses-filter-field">
+            <span class="licenses-filter-label">Status</span>
+            <MudSelect T="LicenseStatus?" Value="_filterStatus" ValueChanged="OnStatusFilterChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem Value="@((LicenseStatus?)null)">All Statuses</MudSelectItem>
+                @foreach (var status in Enum.GetValues<LicenseStatus>())
                 {
-                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => ActivateAsync(license))">Activate</MudButton>
+                    <MudSelectItem Value="@((LicenseStatus?)status)">@status</MudSelectItem>
                 }
-                @if (license.Status == LicenseStatus.Active)
-                {
-                    <MudButton Size="Size.Small" OnClick="@(() => RenewAsync(license))">Renew</MudButton>
-                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => EditAsync(license))">Edit</MudButton>
-                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => SuspendAsync(license.Id))">Suspend</MudButton>
-                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => RevokeAsync(license.Id))">Revoke</MudButton>
-                }
-            </CellTemplate>
-        </TemplateColumn>
-    </Columns>
-    <NoRecordsContent>
-        <MudText Typo="Typo.subtitle1" Class="pa-4">No licenses found.</MudText>
-        <MudText Typo="Typo.body2" Class="px-4 pb-2">Issue a license for a customer and service product.</MudText>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ma-4" OnClick="OpenAddPanel">Issue License</MudButton>
-    </NoRecordsContent>
-    <PagerContent>
-        <MudDataGridPager T="LicenseDto" />
-    </PagerContent>
-</MudDataGrid>
+            </MudSelect>
+        </div>
+        <div class="licenses-filter-actions">
+            <button type="button" class="btn-more-filters" @onclick="ToggleMoreFilters">
+                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
+                More Filters
+            </button>
+        </div>
+    </section>
 
-@code {
-    private sealed class IssueLicenseModel
+    @if (_showMoreFilters)
     {
-        public string? CustomerId { get; set; }
-        public string? ServiceProductId { get; set; }
-        public string PlanName { get; set; } = "Pro";
-        public DateTime? ExpiresAt { get; set; } = DateTime.UtcNow.AddYears(1);
+        <section class="licenses-more-filters" aria-label="Additional filters">
+            <MudTextField @bind-Value="_search"
+                          Placeholder="Search customer, service, or plan..."
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Class="flex-grow-1"
+                          Immediate="true"
+                          DebounceInterval="300"
+                          OnDebounceIntervalElapsed="ReloadGrid" />
+            <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply</MudButton>
+        </section>
     }
 
-    private bool _busy;
-    private bool _formValid;
-    private bool _addPanelExpanded;
-    private MudForm? _form;
+    <div class="licenses-table-panel">
+        <MudDataGrid @ref="_grid"
+                     T="LicenseDto"
+                     Class="licenses-grid"
+                     ServerData="LoadServerData"
+                     Hover="false"
+                     Dense="false"
+                     MultiSelection="true"
+                     @bind-SelectedItems="_selected"
+                     RowsPerPage="25">
+            <Columns>
+                <SelectColumn T="LicenseDto" />
+                <TemplateColumn Title="Customer">
+                    <CellTemplate>
+                        @{
+                            var license = context.Item;
+                        }
+                        <div class="license-customer-cell">
+                            <span class="license-customer-name">@(license.CustomerName ?? "—")</span>
+                            <span class="license-customer-id">@FormatCustomerRef(license)</span>
+                        </div>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Service">
+                    <CellTemplate>
+                        @GetServiceLabel(context.Item)
+                    </CellTemplate>
+                </TemplateColumn>
+                <PropertyColumn Property="x => x.PlanName" Title="Plan" />
+                <TemplateColumn Title="Status">
+                    <CellTemplate>
+                        <span class="license-status-badge @GetStatusClass(context.Item.Status)">
+                            @context.Item.Status
+                        </span>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Expires">
+                    <CellTemplate>
+                        @{
+                            var expires = context.Item.ExpiresAt;
+                        }
+                        @if (expires is null)
+                        {
+                            <span>—</span>
+                        }
+                        else
+                        {
+                            <span class="license-expires-mono @(context.Item.Status == LicenseStatus.Expired ? "license-expires-expired" : "")">
+                                @expires.Value.ToString("yyyy-MM-dd")
+                            </span>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Key Sent">
+                    <CellTemplate>
+                        @if (KeyWasSent(context.Item))
+                        {
+                            <span class="key-sent-chip key-sent-yes">
+                                <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+                                YES
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="key-sent-chip key-sent-no">
+                                <MudIcon Icon="@Icons.Material.Filled.Cancel" Size="Size.Small" />
+                                NO
+                            </span>
+                        }
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Actions" Sortable="false">
+                    <CellTemplate>
+                        @{
+                            var license = context.Item;
+                        }
+                        <div class="cell-right" @onclick:stopPropagation="true">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                @if (license.Status is LicenseStatus.Pending or LicenseStatus.Suspended or LicenseStatus.Expired)
+                                {
+                                    <MudMenuItem OnClick="@(() => ActivateAsync(license))">Activate</MudMenuItem>
+                                }
+                                @if (license.Status == LicenseStatus.Active)
+                                {
+                                    <MudMenuItem OnClick="@(() => RenewAsync(license))">Renew</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => EditAsync(license))">Edit</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => SuspendAsync(license.Id))">Suspend</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => RevokeAsync(license.Id))">Revoke</MudMenuItem>
+                                }
+                                @if (license.Status == LicenseStatus.Suspended)
+                                {
+                                    <MudMenuItem OnClick="@(() => RevokeAsync(license.Id))">Revoke</MudMenuItem>
+                                }
+                                @if (license.Status is LicenseStatus.Expired)
+                                {
+                                    <MudMenuItem OnClick="@(() => RenewAsync(license))">Renew</MudMenuItem>
+                                }
+                            </MudMenu>
+                        </div>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <NoRecordsContent>
+                <div class="licenses-empty">
+                    <h2>No licenses found</h2>
+                    <p>Issue a license for a customer and service product.</p>
+                    <button type="button" class="btn-issue-license" @onclick="OpenIssueDialogAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                        Issue License
+                    </button>
+                </div>
+            </NoRecordsContent>
+            <PagerContent>
+                <MudDataGridPager T="LicenseDto" />
+            </PagerContent>
+        </MudDataGrid>
+    </div>
+</div>
+
+<div class="licenses-bulk-bar @(_selected.Count > 0 ? "visible" : "")">
+    <div class="licenses-bulk-count">
+        <span class="licenses-bulk-count-badge">@_selected.Count</span>
+        <span class="licenses-bulk-count-text">Items selected</span>
+    </div>
+    <div class="licenses-bulk-divider"></div>
+    <div class="licenses-bulk-actions">
+        <button type="button" class="licenses-bulk-btn" @onclick="BulkResendKeysAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Mail" Size="Size.Small" />
+            Resend Keys
+        </button>
+        <button type="button" class="licenses-bulk-btn" @onclick="BulkRenewAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Update" Size="Size.Small" />
+            Renew
+        </button>
+        <button type="button" class="licenses-bulk-btn licenses-bulk-btn-danger" @onclick="BulkRevokeAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Block" Size="Size.Small" />
+            Revoke
+        </button>
+    </div>
+    <button type="button" class="licenses-bulk-close" aria-label="Clear selection" @onclick="ClearSelection">
+        <MudIcon Icon="@Icons.Material.Filled.Close" />
+    </button>
+</div>
+
+@code {
+    private bool _showMoreFilters;
     private MudDataGrid<LicenseDto>? _grid;
     private HashSet<LicenseDto> _selected = [];
     private List<CustomerDto> _customers = [];
     private List<ServiceProductDto> _products = [];
-    private IssueLicenseModel _issue = new();
     private string? _filterCustomerId;
     private string? _filterServiceId;
     private LicenseStatus? _filterStatus;
@@ -183,21 +233,18 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (!string.IsNullOrEmpty(Add))
-            _addPanelExpanded = true;
-
         var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 200);
         var productsTask = Api.GetServiceProductsAsync();
         await Task.WhenAll(customersTask, productsTask);
 
         _customers = customersTask.Result.Items.ToList();
-        _products = await productsTask;
+        _products = (await productsTask).ToList();
 
         if (!string.IsNullOrEmpty(CustomerId))
             _filterCustomerId = CustomerId;
 
-        _issue.CustomerId ??= _customers.FirstOrDefault()?.Id;
-        _issue.ServiceProductId ??= _products.FirstOrDefault()?.Id;
+        if (!string.IsNullOrEmpty(Add))
+            await OpenIssueDialogAsync();
     }
 
     private async Task<GridData<LicenseDto>> LoadServerData(GridState<LicenseDto> state)
@@ -223,12 +270,12 @@
                 l.PlanName.Contains(_search, StringComparison.OrdinalIgnoreCase));
         }
 
+        var unfiltered = _filterServiceId is null && _filterStatus is null && string.IsNullOrWhiteSpace(_search);
+
         return new GridData<LicenseDto>
         {
             Items = items.ToList(),
-            TotalItems = _filterServiceId is null && _filterStatus is null && string.IsNullOrWhiteSpace(_search)
-                ? result.TotalCount
-                : items.Count()
+            TotalItems = unfiltered ? result.TotalCount : items.Count()
         };
     }
 
@@ -238,50 +285,49 @@
             await _grid.ReloadServerData();
     }
 
-    private void OpenAddPanel() => _addPanelExpanded = true;
+    private void ToggleMoreFilters() => _showMoreFilters = !_showMoreFilters;
 
-    private async Task IssueAsync()
+    private async Task OnCustomerFilterChanged(string? value)
     {
-        if (_form is null)
+        _filterCustomerId = value;
+        await ReloadGrid();
+    }
+
+    private async Task OnServiceFilterChanged(string? value)
+    {
+        _filterServiceId = value;
+        await ReloadGrid();
+    }
+
+    private async Task OnStatusFilterChanged(LicenseStatus? value)
+    {
+        _filterStatus = value;
+        await ReloadGrid();
+    }
+
+    private void ClearSelection() => _selected.Clear();
+
+    private async Task OpenIssueDialogAsync()
+    {
+        var dialog = await DialogService.ShowAsync<LicenseIssueDialog>("Issue License", new DialogParameters
+        {
+            [nameof(LicenseIssueDialog.Customers)] = _customers,
+            [nameof(LicenseIssueDialog.Products)] = _products,
+            [nameof(LicenseIssueDialog.DefaultCustomerId)] = _filterCustomerId ?? CustomerId
+        });
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false || dialogResult.Data is not CreateLicenseRequest request)
             return;
 
-        await _form.Validate();
-        if (!_formValid)
+        var result = await Api.CreateLicenseAsync(request);
+        if (!result.IsSuccess)
         {
-            Snackbar.Add("Please fix the errors in the form.", Severity.Warning);
+            Snackbar.Add(result.ErrorMessage ?? "Failed to issue license.", Severity.Error);
             return;
         }
 
-        if (string.IsNullOrEmpty(_issue.CustomerId) || string.IsNullOrEmpty(_issue.ServiceProductId))
-        {
-            Snackbar.Add("Please select a customer and service.", Severity.Warning);
-            return;
-        }
-
-        _busy = true;
-        try
-        {
-            var result = await Api.CreateLicenseAsync(new CreateLicenseRequest
-            {
-                CustomerId = _issue.CustomerId,
-                ServiceProductId = _issue.ServiceProductId,
-                PlanName = _issue.PlanName,
-                ExpiresAt = _issue.ExpiresAt ?? DateTime.UtcNow.AddYears(1)
-            });
-
-            if (!result.IsSuccess)
-            {
-                Snackbar.Add(result.ErrorMessage ?? "Failed to issue license.", Severity.Error);
-                return;
-            }
-
-            Snackbar.Add("License issued (Pending).", Severity.Success);
-            await ReloadGrid();
-        }
-        finally
-        {
-            _busy = false;
-        }
+        Snackbar.Add("License issued (Pending).", Severity.Success);
+        await ReloadGrid();
     }
 
     private async Task ActivateAsync(LicenseDto license)
@@ -399,31 +445,92 @@
         await ReloadGrid();
     }
 
-    private async Task BulkSuspendAsync()
+    private Task BulkResendKeysAsync()
     {
-        var active = _selected.Where(l => l.Status == LicenseStatus.Active).ToList();
-        if (active.Count == 0)
+        Snackbar.Add("Resend keys is not available yet. Activate or renew licenses to email keys.", Severity.Info);
+        return Task.CompletedTask;
+    }
+
+    private async Task BulkRenewAsync()
+    {
+        var renewable = _selected.Where(l => l.Status is LicenseStatus.Active or LicenseStatus.Expired).ToList();
+        if (renewable.Count == 0)
         {
-            Snackbar.Add("No active licenses selected.", Severity.Warning);
+            Snackbar.Add("No renewable licenses selected.", Severity.Warning);
             return;
         }
 
-        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Suspend Licenses", new DialogParameters
+        if (renewable.Count > 1)
         {
-            ["Title"] = "Suspend Licenses",
-            ["Message"] = $"Suspend {active.Count} active license(s)?",
-            ["ConfirmText"] = "Suspend"
+            Snackbar.Add("Select one license at a time to renew with billing details.", Severity.Info);
+            return;
+        }
+
+        await RenewAsync(renewable[0]);
+        _selected.Clear();
+    }
+
+    private async Task BulkRevokeAsync()
+    {
+        var revokable = _selected.Where(l => l.Status is LicenseStatus.Active or LicenseStatus.Suspended).ToList();
+        if (revokable.Count == 0)
+        {
+            Snackbar.Add("No revokable licenses selected.", Severity.Warning);
+            return;
+        }
+
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Revoke Licenses", new DialogParameters
+        {
+            ["Title"] = "Revoke Licenses",
+            ["Message"] = $"Permanently revoke {revokable.Count} license(s)? This cannot be undone.",
+            ["ConfirmText"] = "Revoke"
         });
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;
 
-        var tasks = active.Select(l => Api.SuspendLicenseAsync(l.Id)).ToList();
-        var results = await Task.WhenAll(tasks);
+        var results = await Task.WhenAll(revokable.Select(l => Api.RevokeLicenseAsync(l.Id)));
         var success = results.Count(r => r.IsSuccess);
 
-        Snackbar.Add($"Suspended {success} of {active.Count} license(s).", success == active.Count ? Severity.Success : Severity.Warning);
+        Snackbar.Add($"Revoked {success} of {revokable.Count} license(s).", success == revokable.Count ? Severity.Success : Severity.Warning);
         _selected.Clear();
         await ReloadGrid();
+    }
+
+    private string GetServiceLabel(LicenseDto license)
+    {
+        var product = _products.FirstOrDefault(p => p.Id == license.ServiceProductId);
+        return product?.Name ?? license.ServiceProductCode ?? "—";
+    }
+
+    private static bool KeyWasSent(LicenseDto license) => license.LicenseKeySentAt.HasValue;
+
+    private static string GetStatusClass(LicenseStatus status) => status switch
+    {
+        LicenseStatus.Active => "license-status-active",
+        LicenseStatus.Expired => "license-status-expired",
+        LicenseStatus.Pending => "license-status-pending",
+        LicenseStatus.Suspended => "license-status-suspended",
+        LicenseStatus.Revoked => "license-status-revoked",
+        _ => "license-status-revoked"
+    };
+
+    private static string FormatCustomerRef(LicenseDto license)
+    {
+        var idPart = FormatShortId(license.CustomerId);
+        if (string.IsNullOrWhiteSpace(license.CustomerName))
+            return $"ID: {idPart}";
+
+        var nameToken = license.CustomerName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        if (nameToken.Length > 4)
+            nameToken = nameToken[..4];
+
+        return $"ID: {idPart}-{nameToken.ToUpperInvariant()}";
+    }
+
+    private static string FormatShortId(string id)
+    {
+        var compact = id.Replace("-", "", StringComparison.Ordinal);
+        return compact[..Math.Min(8, compact.Length)].ToUpperInvariant();
     }
 }

@@ -1,0 +1,402 @@
+.licenses-page {
+    max-width: 1600px;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.licenses-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+    .licenses-header {
+        flex-direction: row;
+        align-items: flex-end;
+        justify-content: space-between;
+    }
+}
+
+.licenses-header h1 {
+    font-size: 2rem;
+    line-height: 2.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.licenses-header p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0.25rem 0 0;
+}
+
+.btn-issue-license {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.5rem;
+    background: var(--primary, #92d959);
+    color: var(--on-primary, #193800);
+    border: none;
+    border-radius: 0.25rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.15s ease;
+    width: fit-content;
+}
+
+.btn-issue-license:hover {
+    background: var(--accent-hover);
+}
+
+.btn-issue-license:active {
+    transform: scale(0.98);
+}
+
+.licenses-filters-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+@media (min-width: 768px) {
+    .licenses-filters-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.licenses-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.licenses-filter-label {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.625rem;
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.licenses-filter-actions {
+    display: flex;
+    align-items: flex-end;
+}
+
+.btn-more-filters {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    background: var(--bg-elevated, #2a2a2a);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.btn-more-filters:hover {
+    background: var(--surface-container-high, #272b22);
+}
+
+.licenses-more-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--surface-container-low, #191d14);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+}
+
+@media (min-width: 768px) {
+    .licenses-more-filters {
+        flex-direction: row;
+        align-items: center;
+    }
+}
+
+.licenses-table-panel {
+    background: var(--surface, #10150c);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.licenses-table-panel ::deep .licenses-grid {
+    background: transparent;
+}
+
+.licenses-table-panel ::deep .licenses-grid .mud-table-head {
+    background: var(--surface-container-low, #191d14);
+}
+
+.licenses-table-panel ::deep .licenses-grid .mud-table-head .mud-table-cell {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 1rem 1rem;
+}
+
+.licenses-table-panel ::deep .licenses-grid .mud-table-row {
+    transition: background 0.2s ease;
+}
+
+.licenses-table-panel ::deep .licenses-grid .mud-table-row:hover {
+    background: #252525 !important;
+}
+
+.licenses-table-panel ::deep .licenses-grid .mud-table-row.mud-selected {
+    background: var(--surface-container-highest, #32362c) !important;
+}
+
+.licenses-table-panel ::deep .licenses-grid .mud-table-cell {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 1rem 1rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    vertical-align: middle;
+}
+
+.licenses-table-panel ::deep .licenses-grid .mud-table-pagination {
+    background: var(--surface-container-low, #191d14);
+    border-top: 1px solid var(--border-subtle);
+    padding: 1rem 1.5rem;
+}
+
+.license-customer-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.license-customer-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.license-customer-id {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.license-status-badge {
+    display: inline-flex;
+    padding: 0.125rem 0.625rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.license-status-active {
+    background: var(--primary, #92d959);
+    color: var(--on-primary, #193800);
+}
+
+.license-status-expired {
+    background: var(--error-container, #93000a);
+    color: var(--error, #ffb4ab);
+}
+
+.license-status-pending,
+.license-status-suspended {
+    background: transparent;
+    color: var(--primary, #92d959);
+    border: 1px solid var(--primary, #92d959);
+}
+
+.license-status-revoked {
+    background: var(--bg-elevated, #2a2a2a);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+}
+
+.license-expires-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+}
+
+.license-expires-expired {
+    color: var(--error, #ffb4ab);
+}
+
+.key-sent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.key-sent-yes {
+    background: var(--bg-elevated, #2a2a2a);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+}
+
+.key-sent-no {
+    background: rgba(147, 0, 10, 0.2);
+    color: var(--error, #ffb4ab);
+    border: 1px solid rgba(255, 180, 171, 0.2);
+}
+
+.key-sent-chip ::deep .mud-icon-root {
+    font-size: 0.875rem;
+}
+
+.cell-right {
+    text-align: right;
+}
+
+.licenses-empty {
+    padding: 3rem 1.5rem;
+    text-align: center;
+}
+
+.licenses-empty h2 {
+    font-size: 1.125rem;
+    color: var(--text-primary);
+    margin: 0 0 0.5rem;
+}
+
+.licenses-empty p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin: 0 0 1.5rem;
+}
+
+.licenses-bulk-bar {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(6rem);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    min-width: 25rem;
+    padding: 1rem 1.5rem;
+    background: rgba(30, 30, 30, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 0.75rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.licenses-bulk-bar.visible {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.licenses-bulk-count {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.licenses-bulk-count-badge {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--primary, #92d959);
+    color: var(--on-primary, #193800);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.licenses-bulk-count-text {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.licenses-bulk-divider {
+    width: 1px;
+    height: 1.5rem;
+    background: var(--border-subtle);
+}
+
+.licenses-bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.licenses-bulk-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.licenses-bulk-btn:hover {
+    color: var(--primary, #92d959);
+}
+
+.licenses-bulk-btn-danger {
+    color: var(--error, #ffb4ab);
+}
+
+.licenses-bulk-btn-danger:hover {
+    color: rgba(255, 180, 171, 0.8);
+}
+
+.licenses-bulk-close {
+    margin-left: 0.5rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.licenses-bulk-close:hover {
+    color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+    .licenses-bulk-bar {
+        min-width: auto;
+        width: calc(100% - 2rem);
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+}

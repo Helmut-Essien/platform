@@ -1,0 +1,44 @@
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center gap-2">
+            <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" />
+            <MudText Typo="Typo.h6">Integration Key Created</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudText Class="mb-3">Service: <strong>@ServiceCode</strong> — @ServiceName</MudText>
+        <div class="integration-key-reveal-box">
+            <code class="license-key">@PlainKey</code>
+            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                           Size="Size.Small"
+                           Color="Color.Inherit"
+                           OnClick="CopyAsync"
+                           aria-label="Copy key to clipboard" />
+        </div>
+        <MudAlert Severity="Severity.Warning" Class="mt-4" Dense="true">
+            Store this key securely. It will never be displayed again. Any app validating licenses for @ServiceCode must send this key in the <code>X-Integration-Key</code> header.
+        </MudAlert>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">I've Saved It</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Inject] public ISnackbar Snackbar { get; set; } = default!;
+    [Inject] public IJSRuntime JSRuntime { get; set; } = default!;
+
+    [Parameter] public required string PlainKey { get; set; }
+    [Parameter] public required string ServiceName { get; set; }
+    [Parameter] public required string ServiceCode { get; set; }
+
+    private async Task CopyAsync()
+    {
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", PlainKey);
+        Snackbar.Add("Key copied to clipboard.", Severity.Success);
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

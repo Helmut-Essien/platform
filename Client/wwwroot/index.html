@@ -45,6 +45,107 @@
             link.click();
             URL.revokeObjectURL(url);
         };
+
+        // #region agent log
+        window.platformShellDebugLog = (message, data, hypothesisId) => {
+            fetch('http://127.0.0.1:7855/ingest/0a148943-1fff-4cc8-a446-6d5a47b4f1af', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '8992ff' },
+                body: JSON.stringify({
+                    sessionId: '8992ff',
+                    location: 'index.html:platformShell',
+                    message,
+                    data: data || {},
+                    hypothesisId: hypothesisId || 'nav',
+                    timestamp: Date.now(),
+                    runId: 'sidebar-redesign'
+                })
+            }).catch(() => {});
+        };
+        // #endregion
+
+        window.platformShell = {
+            isNavOverlay: () => window.matchMedia('(max-width: 1023.98px)').matches,
+            isMobileNav: () => window.matchMedia('(max-width: 767.98px)').matches,
+            isTabletNav: () => {
+                const mq = window.matchMedia('(min-width: 768px) and (max-width: 1023.98px)');
+                return mq.matches;
+            },
+            isDesktopNav: () => window.matchMedia('(min-width: 1024px)').matches,
+            _escapeHandler: null,
+            _cmdKHandler: null,
+            _resizeHandler: null,
+            _dotNetRef: null,
+            syncNavMode: () => {
+                const desktop = platformShell.isDesktopNav();
+                document.body.classList.toggle('nav-desktop', desktop);
+                document.body.classList.toggle('nav-overlay', !desktop);
+                if (platformShell._dotNetRef) {
+                    platformShell._dotNetRef.invokeMethodAsync('SyncDrawerFromViewport', desktop);
+                }
+            },
+            openSearchPlaceholder: () => {
+                platformShellDebugLog('searchPlaceholder', { width: window.innerWidth }, 'search');
+            },
+            registerNavShell: (dotNetRef) => {
+                platformShell._dotNetRef = dotNetRef;
+                platformShell._escapeHandler = (e) => {
+                    if (e.key === 'Escape' && platformShell.isNavOverlay()) {
+                        platformShellDebugLog('escapeCloseOverlayDrawer', { key: e.key }, 'H4');
+                        dotNetRef.invokeMethodAsync('CloseDrawerFromEscape');
+                    }
+                };
+                platformShell._cmdKHandler = (e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                        e.preventDefault();
+                        platformShell.openSearchPlaceholder();
+                    }
+                };
+                platformShell._resizeHandler = () => platformShell.syncNavMode();
+                document.addEventListener('keydown', platformShell._escapeHandler);
+                document.addEventListener('keydown', platformShell._cmdKHandler);
+                window.addEventListener('resize', platformShell._resizeHandler);
+                platformShell.syncNavMode();
+                platformShellDebugLog('navShellRegistered', { width: window.innerWidth }, 'H4');
+            },
+            unregisterNavShell: () => {
+                if (platformShell._escapeHandler) {
+                    document.removeEventListener('keydown', platformShell._escapeHandler);
+                    platformShell._escapeHandler = null;
+                }
+                if (platformShell._cmdKHandler) {
+                    document.removeEventListener('keydown', platformShell._cmdKHandler);
+                    platformShell._cmdKHandler = null;
+                }
+                if (platformShell._resizeHandler) {
+                    window.removeEventListener('resize', platformShell._resizeHandler);
+                    platformShell._resizeHandler = null;
+                }
+                platformShell._dotNetRef = null;
+                document.body.classList.remove('nav-desktop', 'nav-overlay');
+            },
+            logSidebarLayout: () => {
+                const sidebar = document.querySelector('.platform-sidebar');
+                const main = document.querySelector('.platform-main-content');
+                platformShellDebugLog('sidebarLayout', {
+                    width: window.innerWidth,
+                    overlay: platformShell.isNavOverlay(),
+                    desktop: platformShell.isDesktopNav(),
+                    sidebarWidth: sidebar ? sidebar.getBoundingClientRect().width : null,
+                    mainMarginLeft: main ? getComputedStyle(main).marginLeft : null
+                }, 'H1');
+            }
+        };
+
+        window.addEventListener('load', () => {
+            platformShell.logSidebarLayout();
+            window.addEventListener('resize', () => platformShell.logSidebarLayout());
+            const sidebar = document.querySelector('.platform-sidebar');
+            if (sidebar) {
+                sidebar.addEventListener('mouseenter', () => platformShellDebugLog('sidebarHoverEnter', { width: sidebar.getBoundingClientRect().width }, 'H2'));
+                sidebar.addEventListener('focusin', () => platformShellDebugLog('sidebarFocusWithin', { width: sidebar.getBoundingClientRect().width }, 'H2'));
+            }
+        });
     </script>
 </body>
 

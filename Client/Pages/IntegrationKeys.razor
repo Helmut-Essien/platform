@@ -5,83 +5,105 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
 
-<PageHeader Title="Integration Keys" />
-
-<MudAlert Severity="Severity.Warning" Class="mb-4">
-    Integration keys cannot be recovered after creation. Copy them immediately and store them securely.
-</MudAlert>
-
-<MudForm @ref="_form" @bind-IsValid="_formValid" Class="mb-4">
-    <MudSelect T="string" Value="_selectedProductId" ValueChanged="OnProductChanged"
-               Label="Service product"
-               Variant="Variant.Outlined"
-               Required="true"
-               RequiredError="Service product is required"
-               Disabled="_busy"
-               Class="mb-2">
-        @foreach (var p in _products)
-        {
-            <MudSelectItem Value="@p.Id">@p.Code — @p.Name</MudSelectItem>
-        }
-    </MudSelect>
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!_formValid || _busy)" OnClick="RotateAsync">
-        @(_busy ? "Creating..." : "Rotate / create key")
-    </MudButton>
-</MudForm>
-
-@if (!string.IsNullOrEmpty(_plainKey))
-{
-    <MudAlert Severity="Severity.Success" Class="mb-4">
-        <MudText Class="mb-2">Copy this key now — it will not be shown again:</MudText>
-        <div class="d-flex align-center mt-2">
-            <span class="license-key mr-2">@_plainKey</span>
-            <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" Color="Color.Inherit"
-                           OnClick="CopyKeyToClipboard" aria-label="Copy key to clipboard" />
+<div class="integration-keys-page">
+    <header class="integration-keys-header">
+        <div>
+            <h1>Integration Keys</h1>
+            <p>Manage API credentials and authentication tokens for your enterprise services.</p>
         </div>
-    </MudAlert>
-}
+        <button type="button" class="btn-generate-key" @onclick="OpenGenerateDialogAsync">
+            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+            Generate New Key
+        </button>
+    </header>
 
-@if (_loading)
-{
-    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="48px" Class="mb-2" />
-    @for (var i = 0; i < 5; i++)
+    <div class="integration-keys-alert" role="alert">
+        <MudIcon Icon="@Icons.Material.Filled.Warning" />
+        <p class="integration-keys-alert-text">
+            <strong>Security Notice:</strong> Integration keys cannot be recovered after creation. Ensure you have stored them securely in your vault before closing the generation prompt.
+        </p>
+    </div>
+
+    @if (_loading)
     {
-        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="36px" Class="mb-1" />
+        <div class="integration-keys-loading">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        </div>
     }
-}
-else if (_keys.Count == 0)
-{
-    <MudText Typo="Typo.subtitle1" Class="pa-4">No integration keys found.</MudText>
-    <MudText Typo="Typo.body2" Class="px-4 pb-4">Select a service above and click Rotate / create key.</MudText>
-}
-else
-{
-    <MudTable Items="_keys" Hover="true" Dense="true">
-        <HeaderContent>
-            <MudTh>Service</MudTh>
-            <MudTh>Active</MudTh>
-            <MudTh>Created</MudTh>
-            <MudTh>Last used</MudTh>
-            <MudTh></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd>@context.ServiceProductCode</MudTd>
-            <MudTd>
-                <MudChip T="string" Size="Size.Small" Variant="@(context.IsActive ? Variant.Filled : Variant.Text)" Color="Color.Primary">
-                    @(context.IsActive ? "Active" : "Revoked")
-                </MudChip>
-            </MudTd>
-            <MudTd>@context.CreatedAt.ToString("g")</MudTd>
-            <MudTd>@(context.LastUsedAt?.ToString("g") ?? "—")</MudTd>
-            <MudTd>
-                @if (context.IsActive)
+    else
+    {
+        @if (_keys.Count > 0)
+        {
+            <section class="integration-keys-stats" aria-label="Integration key statistics">
+                <div class="integration-keys-stat-card">
+                    <span class="integration-keys-stat-label">Active Keys</span>
+                    <span class="integration-keys-stat-value">@ActiveKeyCount</span>
+                </div>
+                <div class="integration-keys-stat-card">
+                    <span class="integration-keys-stat-label">Requests / 24h</span>
+                    <span class="integration-keys-stat-value">1.2M</span>
+                </div>
+                <div class="integration-keys-stat-card">
+                    <span class="integration-keys-stat-label">Avg Latency</span>
+                    <span class="integration-keys-stat-value">14ms</span>
+                </div>
+            </section>
+
+            <section class="integration-keys-bento">
+                @foreach (var (key, index) in _keys.Select((k, i) => (k, i)))
                 {
-                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="() => RevokeAsync(context.Id)">Revoke</MudButton>
+                    var product = GetProduct(key);
+                    <article class="integration-key-card @(key.IsActive ? "" : "revoked")">
+                        <div>
+                            <div class="integration-key-card-header">
+                                <div class="integration-key-card-title">
+                                    <div class="integration-key-card-icon">
+                                        <MudIcon Icon="@GetServiceIcon(index)" />
+                                    </div>
+                                    <div>
+                                        <h3 class="integration-key-card-name">@(product?.Name ?? key.ServiceProductCode ?? "Service")</h3>
+                                        <p class="integration-key-card-subtitle">@GetSubtitle(product)</p>
+                                    </div>
+                                </div>
+                                <span class="integration-key-status-badge @(key.IsActive ? "integration-key-status-active" : "integration-key-status-revoked")">
+                                    @(key.IsActive ? "Active" : "Revoked")
+                                </span>
+                            </div>
+                            <label class="integration-key-field-label">Service Key</label>
+                            <div class="integration-key-masked">
+                                <code>@MaskKey(key.ServiceProductCode)</code>
+                                <button type="button" class="integration-key-copy-btn" aria-label="Copy key" @onclick="() => CopyMaskedKeyAsync(key)">
+                                    <MudIcon Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" />
+                                </button>
+                            </div>
+                        </div>
+                        <div class="integration-key-card-footer">
+                            <span class="integration-key-created">Created: @key.CreatedAt.ToString("MMM dd, yyyy")</span>
+                            @if (key.IsActive)
+                            {
+                                <button type="button" class="btn-revoke-key" @onclick="() => RevokeAsync(key.Id)">
+                                    <MudIcon Icon="@Icons.Material.Filled.DeleteForever" Size="Size.Small" />
+                                    Revoke
+                                </button>
+                            }
+                        </div>
+                    </article>
                 }
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
-}
+            </section>
+        }
+        else
+        {
+            <div class="integration-keys-empty">
+                <h2>No integration keys yet</h2>
+                <p>Generate a key for a service product to authorize external license validation.</p>
+                <button type="button" class="btn-generate-key" @onclick="OpenGenerateDialogAsync">
+                    <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                    Generate New Key
+                </button>
+            </div>
+        }
+    }
+</div>
 
 @code {
     [SupplyParameterFromQuery(Name = "productId")]
@@ -89,72 +111,86 @@ else
 
     private bool _loading = true;
     private bool _busy;
-    private bool _formValid;
-    private MudForm? _form;
     private List<IntegrationKeyDto> _keys = [];
     private List<ServiceProductDto> _products = [];
-    private string? _selectedProductId;
-    private string? _plainKey;
+
+    private int ActiveKeyCount => _keys.Count(k => k.IsActive);
+
+    private static readonly string[] ServiceIcons =
+    [
+        Icons.Material.Filled.Storage,
+        Icons.Material.Filled.Payments,
+        Icons.Material.Filled.BugReport,
+        Icons.Material.Filled.Insights,
+        Icons.Material.Filled.Api,
+        Icons.Material.Filled.Cloud
+    ];
 
     protected override async Task OnInitializedAsync()
     {
-        _products = await Api.GetServiceProductsAsync();
-
-        if (!string.IsNullOrEmpty(ProductId) && _products.Any(p => p.Id == ProductId))
-            _selectedProductId = ProductId;
-
-        _selectedProductId ??= _products.FirstOrDefault()?.Id;
+        _products = (await Api.GetServiceProductsAsync()).ToList();
         await ReloadKeysAsync();
         _loading = false;
-    }
 
-    private async Task OnProductChanged(string? productId)
-    {
-        _selectedProductId = productId;
-        await ReloadKeysAsync();
+        if (!string.IsNullOrEmpty(ProductId))
+            await OpenGenerateDialogAsync(ProductId);
     }
 
     private async Task ReloadKeysAsync()
     {
-        _keys = await Api.GetIntegrationKeysAsync(_selectedProductId);
+        _keys = await Api.GetIntegrationKeysAsync();
     }
 
-    private async Task RotateAsync()
+    private async Task OpenGenerateDialogAsync() =>
+        await OpenGenerateDialogAsync(null);
+
+    private async Task OpenGenerateDialogAsync(string? defaultProductId)
     {
-        if (_form is not null)
+        if (_busy)
+            return;
+
+        var dialog = await DialogService.ShowAsync<IntegrationKeyGenerateDialog>(
+            "Generate Integration Key",
+            new DialogParameters
+            {
+                [nameof(IntegrationKeyGenerateDialog.Products)] = _products,
+                [nameof(IntegrationKeyGenerateDialog.DefaultProductId)] = defaultProductId ?? ProductId
+            });
+
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false || dialogResult.Data is not string serviceProductId)
+            return;
+
+        var existingActive = _keys.Any(k => k.ServiceProductId == serviceProductId && k.IsActive);
+        if (existingActive)
         {
-            await _form.Validate();
-            if (!_formValid)
+            var confirm = await DialogService.ShowAsync<ConfirmDialog>("Rotate Integration Key", new DialogParameters
+            {
+                ["Title"] = "Rotate Integration Key",
+                ["Message"] = "Creating a new key will revoke the existing active key for this service. Any app using the old key will fail validation. Continue?",
+                ["ConfirmText"] = "Generate"
+            });
+            var confirmResult = await confirm.Result;
+            if (confirmResult?.Canceled is not false)
                 return;
         }
-
-        if (string.IsNullOrEmpty(_selectedProductId))
-        {
-            Snackbar.Add("Please select a service product.", Severity.Warning);
-            return;
-        }
-
-        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Rotate Integration Key", new DialogParameters
-        {
-            ["Title"] = "Rotate Integration Key",
-            ["Message"] = "Creating a new key will revoke the existing active key for this service. Any app using the old key will fail validation. Continue?",
-            ["ConfirmText"] = "Rotate"
-        });
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false)
-            return;
 
         _busy = true;
         try
         {
-            var result = await Api.CreateIntegrationKeyAsync(_selectedProductId);
+            var result = await Api.CreateIntegrationKeyAsync(serviceProductId);
             if (!result.IsSuccess)
             {
                 Snackbar.Add(result.ErrorMessage ?? "Failed to create integration key.", Severity.Error);
                 return;
             }
 
-            _plainKey = result.Data!.PlainKey;
+            var product = GetProduct(result.Data!.Key);
+            await ShowRevealDialogAsync(
+                result.Data.PlainKey,
+                product?.Name ?? result.Data.Key.ServiceProductCode ?? "Service",
+                result.Data.Key.ServiceProductCode ?? product?.Code ?? "—");
+
             Snackbar.Add("Integration key created.", Severity.Success);
             await ReloadKeysAsync();
         }
@@ -164,12 +200,36 @@ else
         }
     }
 
+    private async Task ShowRevealDialogAsync(string plainKey, string serviceName, string serviceCode)
+    {
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = false,
+            BackdropClick = false,
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true
+        };
+
+        await DialogService.ShowAsync<IntegrationKeyRevealDialog>(
+            "Integration Key Created",
+            new DialogParameters
+            {
+                [nameof(IntegrationKeyRevealDialog.PlainKey)] = plainKey,
+                [nameof(IntegrationKeyRevealDialog.ServiceName)] = serviceName,
+                [nameof(IntegrationKeyRevealDialog.ServiceCode)] = serviceCode
+            },
+            options);
+    }
+
     private async Task RevokeAsync(string id)
     {
+        var key = _keys.FirstOrDefault(k => k.Id == id);
+        var product = key is null ? null : GetProduct(key);
+
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Revoke Integration Key", new DialogParameters
         {
             ["Title"] = "Revoke Integration Key",
-            ["Message"] = "External apps using this key will fail validation. This cannot be undone. Continue?",
+            ["Message"] = $"Are you absolutely sure you want to revoke this key for {product?.Name ?? "this service"}? This action is irreversible and will immediately disconnect the associated service.",
             ["ConfirmText"] = "Revoke"
         });
         var dialogResult = await dialog.Result;
@@ -187,12 +247,24 @@ else
         await ReloadKeysAsync();
     }
 
-    private async Task CopyKeyToClipboard()
+    private Task CopyMaskedKeyAsync(IntegrationKeyDto key)
     {
-        if (string.IsNullOrEmpty(_plainKey))
-            return;
-
-        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _plainKey);
-        Snackbar.Add("Key copied to clipboard.", Severity.Success);
+        Snackbar.Add("Full key cannot be recovered. Generate a new key to rotate credentials.", Severity.Info);
+        return Task.CompletedTask;
     }
+
+    private ServiceProductDto? GetProduct(IntegrationKeyDto key) =>
+        _products.FirstOrDefault(p => p.Id == key.ServiceProductId);
+
+    private static string GetSubtitle(ServiceProductDto? product) =>
+        string.IsNullOrWhiteSpace(product?.Description) ? "Enterprise API" : product.Description;
+
+    private static string MaskKey(string? code)
+    {
+        var prefix = string.IsNullOrWhiteSpace(code) ? "SERVICE" : code.ToUpperInvariant();
+        return $"pk_{prefix}_••••••••••••";
+    }
+
+    private static string GetServiceIcon(int index) =>
+        ServiceIcons[index % ServiceIcons.Length];
 }

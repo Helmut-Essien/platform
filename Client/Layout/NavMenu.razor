@@ -1,10 +1,82 @@
-﻿<MudNavMenu>
-    <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
-    <MudNavLink Href="/customers" Icon="@Icons.Material.Filled.People">Customers</MudNavLink>
-    <MudNavLink Href="/services" Icon="@Icons.Material.Filled.Apps">Service Catalog</MudNavLink>
-    <MudNavLink Href="/licenses" Icon="@Icons.Material.Filled.VpnKey">Licenses</MudNavLink>
-    <MudNavLink Href="/invoices" Icon="@Icons.Material.Filled.Receipt">Invoices</MudNavLink>
-    <MudNavLink Href="/integration-keys" Icon="@Icons.Material.Filled.Key">Integration Keys</MudNavLink>
-    <MudNavLink Href="/audit" Icon="@Icons.Material.Filled.History">Audit Log</MudNavLink>
-    <MudNavLink Href="/validate" Icon="@Icons.Material.Filled.Science">Validate License</MudNavLink>
-</MudNavMenu>
+﻿<nav class="platform-nav" aria-label="Main navigation">
+    <div class="platform-nav-links">
+        @foreach (var item in NavItems)
+        {
+            <NavLink href="@item.Href"
+                     Match="@item.Match"
+                     class="platform-nav-item"
+                     ActiveClass="active"
+                     title="@item.Label"
+                     @onclick="HandleNavClick">
+                <span class="platform-nav-icon-slot" aria-hidden="true">
+                    <MudIcon Icon="@item.Icon" Size="Size.Medium" />
+                </span>
+                <span class="platform-nav-label">@item.Label</span>
+            </NavLink>
+        }
+    </div>
+
+    @* Desktop footer: Settings *@
+    <footer class="platform-nav-footer platform-nav-footer-desktop">
+        <div class="platform-nav-item platform-nav-settings" role="presentation">
+            <span class="platform-nav-icon-slot" aria-hidden="true">
+                <MudIcon Icon="@Icons.Material.Filled.Settings" Size="Size.Medium" />
+            </span>
+            <span class="platform-nav-label">Settings</span>
+        </div>
+    </footer>
+
+    @* Tablet footer: System Status *@
+    <footer class="platform-nav-footer platform-nav-footer-tablet">
+        <div class="platform-nav-status-card">
+            <p class="platform-nav-status-label">System Status</p>
+            <div class="platform-nav-status-row">
+                <span class="platform-nav-status-dot" aria-hidden="true"></span>
+                <p class="platform-nav-status-text">Node: 01-PROD (OK)</p>
+            </div>
+        </div>
+    </footer>
+
+    @* Mobile footer: Logout *@
+    <footer class="platform-nav-footer platform-nav-footer-mobile">
+        <MudButton Variant="Variant.Filled"
+                   Class="platform-nav-logout-btn"
+                   OnClick="HandleLogout"
+                   StartIcon="@Icons.Material.Filled.Logout"
+                   FullWidth="true">
+            LOGOUT
+        </MudButton>
+    </footer>
+</nav>
+
+@code {
+    [Parameter] public string Email { get; set; } = "";
+    [Parameter] public EventCallback OnNavigate { get; set; }
+    [Parameter] public EventCallback OnLogout { get; set; }
+
+    private sealed record NavItem(string Href, string Label, string Icon, NavLinkMatch Match = NavLinkMatch.Prefix);
+
+    private static readonly NavItem[] NavItems =
+    [
+        new("/", "Dashboard", Icons.Material.Filled.Dashboard, NavLinkMatch.All),
+        new("/customers", "Customers", Icons.Material.Filled.Group),
+        new("/services", "Service Catalog", Icons.Material.Filled.Inventory2),
+        new("/licenses", "Licenses", Icons.Material.Filled.VpnKey),
+        new("/invoices", "Invoices", Icons.Material.Filled.ReceiptLong),
+        new("/integration-keys", "Integration Keys", Icons.Material.Filled.Key),
+        new("/audit", "Audit Log", Icons.Material.Filled.History),
+        new("/validate", "Validate License", Icons.Material.Filled.VerifiedUser)
+    ];
+
+    private async Task HandleNavClick()
+    {
+        if (OnNavigate.HasDelegate)
+            await OnNavigate.InvokeAsync();
+    }
+
+    private async Task HandleLogout()
+    {
+        if (OnLogout.HasDelegate)
+            await OnLogout.InvokeAsync();
+    }
+}
