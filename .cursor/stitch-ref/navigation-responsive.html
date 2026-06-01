@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Platform Admin - Responsive Navigation Spec</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #10150c;
+            color: #ededed;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .sidebar-transition {
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-panel {
+            backdrop-filter: blur(16px);
+            background: rgba(30, 30, 30, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "bg-surface": "#1e1e1e",
+                        "secondary": "#c8c6c5",
+                        "on-secondary-fixed": "#1c1b1b",
+                        "surface-tint": "#92d959",
+                        "surface-container-lowest": "#0b0f08",
+                        "text-secondary": "#a0a0a0",
+                        "on-surface-variant": "#c1cab4",
+                        "text-primary": "#ededed",
+                        "secondary-fixed-dim": "#c8c6c5",
+                        "tertiary-fixed-dim": "#ffaede",
+                        "surface-dim": "#10150c",
+                        "secondary-container": "#4a4949",
+                        "primary-container": "#5ea126",
+                        "primary": "#92d959",
+                        "tertiary-container": "#df64b6",
+                        "on-tertiary-container": "#540041",
+                        "surface-container-highest": "#32362c",
+                        "surface-variant": "#32362c",
+                        "on-error": "#690005",
+                        "primary-fixed-dim": "#92d959",
+                        "on-tertiary-fixed": "#3b002d",
+                        "on-secondary-container": "#bab8b7",
+                        "tertiary-fixed": "#ffd8ec",
+                        "outline-variant": "#414939",
+                        "on-primary-container": "#153000",
+                        "border-subtle": "#2c2c2c",
+                        "on-primary-fixed-variant": "#275100",
+                        "on-primary": "#193800",
+                        "surface": "#10150c",
+                        "background": "#10150c",
+                        "tertiary": "#ffaede",
+                        "secondary-fixed": "#e5e2e1",
+                        "error": "#ffb4ab",
+                        "inverse-surface": "#e0e4d6",
+                        "bg-elevated": "#2a2a2a",
+                        "on-tertiary": "#60004a",
+                        "primary-fixed": "#adf772",
+                        "on-secondary-fixed-variant": "#474646",
+                        "on-error-container": "#ffdad6",
+                        "surface-container-low": "#191d14",
+                        "inverse-on-surface": "#2d3228",
+                        "on-background": "#e0e4d6",
+                        "error-container": "#93000a",
+                        "accent-hover": "#7ccf2e",
+                        "accent-active": "#3a7014",
+                        "on-secondary": "#313030",
+                        "surface-bright": "#363b31",
+                        "outline": "#8b9480",
+                        "inverse-primary": "#356b00",
+                        "surface-container-high": "#272b22",
+                        "on-tertiary-fixed-variant": "#831267",
+                        "on-surface": "#e0e4d6",
+                        "surface-container": "#1d2118",
+                        "on-primary-fixed": "#0c2000"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "section-gap": "32px",
+                        "gutter": "16px",
+                        "container-margin": "24px"
+                    },
+                    "fontFamily": {
+                        "code-sm": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "label-mono": ["JetBrains Mono"],
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "code-sm": ["12px", {"lineHeight": "18px", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "label-mono": ["13px", {"lineHeight": "16px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background text-text-primary">
+<!-- Top Navigation Bar -->
+<header class="flex justify-between items-center h-16 px-gutter w-full sticky top-0 z-40 bg-background border-b border-border-subtle">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined md:hidden cursor-pointer text-primary" onclick="toggleMobileNav()">menu</span>
+<span class="text-headline-sm font-headline-sm font-bold text-primary">Platform Admin</span>
+</div>
+<div class="flex items-center gap-6">
+<span class="text-body-md font-body-md text-text-secondary cursor-pointer hover:text-accent-hover transition-colors">Logout</span>
+<span class="material-symbols-outlined text-primary cursor-pointer active:opacity-80" data-icon="account_circle">account_circle</span>
+</div>
+</header>
+<div class="flex min-h-screen">
+<!-- Side Navigation Bar (Desktop Persistent Mini-Drawer) -->
+<aside class="fixed left-0 top-0 h-full flex flex-col pt-16 z-30 bg-surface-container-low border-r border-border-subtle sidebar-transition w-[64px] hover:w-[240px] group overflow-hidden hidden md:flex" id="sidebar">
+<div class="flex flex-col h-full py-4">
+<!-- Navigation Items -->
+<nav class="flex-1 space-y-1">
+<!-- Dashboard (Active) -->
+<div class="group flex items-center h-12 cursor-pointer transition-all text-primary border-l-2 border-primary bg-surface-container-highest">
+<div class="w-[64px] min-w-[64px] flex justify-center items-center">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+</div>
+<span class="text-label-mono font-label-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">Dashboard</span>
+</div>
+<!-- Customers -->
+<div class="group flex items-center h-12 cursor-pointer transition-all text-text-secondary hover:text-on-surface hover:bg-surface-container">
+<div class="w-[64px] min-w-[64px] flex justify-center items-center">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+</div>
+<span class="text-label-mono font-label-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">Customers</span>
+</div>
+<!-- Service Catalog -->
+<div class="group flex items-center h-12 cursor-pointer transition-all text-text-secondary hover:text-on-surface hover:bg-surface-container">
+<div class="w-[64px] min-w-[64px] flex justify-center items-center">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+</div>
+<span class="text-label-mono font-label-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">Service Catalog</span>
+</div>
+<!-- Licenses -->
+<div class="group flex items-center h-12 cursor-pointer transition-all text-text-secondary hover:text-on-surface hover:bg-surface-container">
+<div class="w-[64px] min-w-[64px] flex justify-center items-center">
+<span class="material-symbols-outlined" data-icon="vpn_key">vpn_key</span>
+</div>
+<span class="text-label-mono font-label-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">Licenses</span>
+</div>
+<!-- Invoices -->
+<div class="group flex items-center h-12 cursor-pointer transition-all text-text-secondary hover:text-on-surface hover:bg-surface-container">
+<div class="w-[64px] min-w-[64px] flex justify-center items-center">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+</div>
+<span class="text-label-mono font-label-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">Invoices</span>
+</div>
+<!-- Audit Log -->
+<div class="group flex items-center h-12 cursor-pointer transition-all text-text-secondary hover:text-on-surface hover:bg-surface-container">
+<div class="w-[64px] min-w-[64px] flex justify-center items-center">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+</div>
+<span class="text-label-mono font-label-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">Audit Log</span>
+</div>
+<!-- Validate License -->
+<div class="group flex items-center h-12 cursor-pointer transition-all text-text-secondary hover:text-on-surface hover:bg-surface-container">
+<div class="w-[64px] min-w-[64px] flex justify-center items-center">
+<span class="material-symbols-outlined" data-icon="verified_user">verified_user</span>
+</div>
+<span class="text-label-mono font-label-mono whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">Validate License</span>
+</div>
+</nav>
+<!-- Footer Admin Profile -->
+<div class="mt-auto px-2 flex items-center gap-4 h-16 border-t border-border-subtle group-hover:px-4 transition-all overflow-hidden">
+<div class="w-10 h-10 rounded-full bg-surface-container-highest flex-shrink-0 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl">person</span>
+</div>
+<div class="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+<span class="text-label-mono font-bold text-text-primary">Admin</span>
+<span class="text-[10px] text-text-secondary uppercase tracking-widest">Superuser</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-[64px] p-container-margin transition-all">
+<div class="max-w-6xl mx-auto">
+<header class="mb-section-gap">
+<h1 class="font-headline-lg text-headline-lg text-text-primary mb-2">Navigation Responsive Spec</h1>
+<p class="font-body-lg text-text-secondary max-w-2xl">Visual documentation of the Platform Admin shell behavior across different viewports, ensuring high-density utility and focus.</p>
+</header>
+<!-- Bento Grid Navigation Showcase -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Desktop Spec (Large Card) -->
+<div class="lg:col-span-2 bg-bg-surface border border-border-subtle rounded-lg p-6 flex flex-col gap-6">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-primary mb-1">1. Desktop (md+)</h3>
+<p class="font-code-sm text-code-sm text-text-secondary">Persistent Mini-Drawer Shell</p>
+</div>
+<span class="bg-surface-container-highest text-primary px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase">Active Viewport</span>
+</div>
+<!-- Diagram Desktop -->
+<div class="relative bg-surface-container rounded-lg p-8 border border-border-subtle flex gap-4 overflow-hidden min-h-[300px]">
+<!-- Mock Sidebar Mini -->
+<div class="w-12 h-48 bg-bg-surface border border-border-subtle rounded flex flex-col items-center py-4 gap-4 animate-pulse">
+<div class="w-6 h-6 rounded bg-primary-container opacity-50"></div>
+<div class="w-6 h-6 rounded bg-border-subtle"></div>
+<div class="w-6 h-6 rounded bg-border-subtle"></div>
+<div class="w-6 h-6 rounded bg-border-subtle"></div>
+</div>
+<!-- Mock Hover State -->
+<div class="w-48 h-48 bg-bg-surface border-2 border-primary rounded flex flex-col py-4 gap-4 shadow-xl z-10 translate-x-4">
+<div class="flex items-center px-4 gap-3">
+<div class="w-6 h-6 rounded bg-primary"></div>
+<div class="h-2 w-24 bg-primary opacity-30 rounded"></div>
+</div>
+<div class="flex items-center px-4 gap-3">
+<div class="w-6 h-6 rounded bg-text-secondary opacity-30"></div>
+<div class="h-2 w-20 bg-text-secondary opacity-20 rounded"></div>
+</div>
+<div class="flex items-center px-4 gap-3">
+<div class="w-6 h-6 rounded bg-text-secondary opacity-30"></div>
+<div class="h-2 w-28 bg-text-secondary opacity-20 rounded"></div>
+</div>
+</div>
+<div class="flex-1 bg-surface-container-low border border-border-subtle rounded p-4 opacity-40">
+<div class="h-4 w-1/2 bg-text-secondary rounded mb-4"></div>
+<div class="space-y-2">
+<div class="h-2 w-full bg-border-subtle rounded"></div>
+<div class="h-2 w-full bg-border-subtle rounded"></div>
+<div class="h-2 w-3/4 bg-border-subtle rounded"></div>
+</div>
+</div>
+<!-- Interaction Label -->
+<div class="absolute bottom-4 right-4 text-primary font-code-sm flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">touch_app</span> Hover to expand
+                            </div>
+</div>
+<ul class="space-y-3 font-body-md text-text-secondary border-t border-border-subtle pt-4">
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary text-lg">check_circle</span>
+<span>64px collapsed state maximizes horizontal real estate for data tables.</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary text-lg">check_circle</span>
+<span>240px hover expansion provides semantic clarity without context switching.</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary text-lg">check_circle</span>
+<span>Active item indicated by <span class="text-primary font-bold">#5c9f24</span> border-left and tonal shift.</span>
+</li>
+</ul>
+</div>
+<!-- Tablet Spec -->
+<div class="bg-bg-surface border border-border-subtle rounded-lg p-6 flex flex-col gap-6">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">2. Tablet (sm)</h3>
+<p class="font-code-sm text-code-sm text-text-secondary">Temporary Overlay Drawer</p>
+</div>
+<div class="aspect-square bg-surface-container rounded-lg border border-border-subtle relative flex items-center justify-center overflow-hidden">
+<!-- Tablet Frame -->
+<div class="w-40 h-56 bg-bg-surface border-4 border-surface-container-highest rounded-xl flex flex-col shadow-2xl">
+<div class="h-4 border-b border-border-subtle flex items-center px-2">
+<div class="w-2 h-2 rounded-full bg-primary opacity-50"></div>
+</div>
+<div class="flex-1 flex relative">
+<!-- Overlay Drawer -->
+<div class="absolute inset-y-0 left-0 w-2/3 bg-surface-container-low border-r border-border-subtle z-20 shadow-2xl animate-pulse">
+<div class="p-2 space-y-2">
+<div class="h-1 w-full bg-primary opacity-20"></div>
+<div class="h-1 w-3/4 bg-border-subtle"></div>
+<div class="h-1 w-4/5 bg-border-subtle"></div>
+</div>
+</div>
+<!-- Scrim -->
+<div class="absolute inset-0 bg-black/40 z-10"></div>
+<div class="flex-1 p-2">
+<div class="w-full h-full bg-surface opacity-30 rounded"></div>
+</div>
+</div>
+</div>
+</div>
+<p class="font-body-md text-text-secondary">
+                            Closed by default. Triggered via a top-left hamburger menu. Uses a backdrop scrim to maintain focus on the navigation task.
+                        </p>
+</div>
+<!-- Mobile Spec -->
+<div class="bg-bg-surface border border-border-subtle rounded-lg p-6 flex flex-col gap-6">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">3. Mobile (xs)</h3>
+<p class="font-code-sm text-code-sm text-text-secondary">Bottom Sheet / Full Overlay</p>
+</div>
+<div class="aspect-square bg-surface-container rounded-lg border border-border-subtle relative flex items-center justify-center">
+<!-- Phone Frame -->
+<div class="w-24 h-48 bg-bg-surface border-4 border-surface-container-highest rounded-2xl flex flex-col shadow-2xl overflow-hidden">
+<div class="h-2 bg-surface-container-highest w-1/2 mx-auto mt-2 rounded-full"></div>
+<div class="flex-1 mt-4 p-2 relative">
+<div class="w-full h-2 bg-primary opacity-20 rounded mb-4"></div>
+<div class="space-y-2">
+<div class="h-1 w-full bg-border-subtle rounded"></div>
+<div class="h-1 w-full bg-border-subtle rounded"></div>
+</div>
+<!-- Bottom Sheet Mock -->
+<div class="absolute bottom-0 left-0 right-0 bg-bg-elevated border-t border-primary h-2/3 p-2 translate-y-2 shadow-2xl">
+<div class="w-4 h-0.5 bg-border-subtle mx-auto mb-2"></div>
+<div class="flex items-center gap-2 mb-2">
+<div class="w-4 h-4 bg-primary rounded"></div>
+<div class="h-1 w-12 bg-text-primary rounded"></div>
+</div>
+<div class="flex items-center gap-2 mb-2">
+<div class="w-4 h-4 bg-border-subtle rounded"></div>
+<div class="h-1 w-10 bg-text-secondary rounded"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p class="font-body-md text-text-secondary">
+                            Optimized for touch. Bottom sheet behavior provides 48dp+ tap targets for accessibility and one-handed operation.
+                        </p>
+</div>
+<!-- Technical Token Spec -->
+<div class="lg:col-span-3 bg-bg-surface border border-border-subtle rounded-lg p-6">
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">terminal</span> Component Style Tokens
+                        </h3>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+<div>
+<h4 class="font-label-mono text-primary text-xs uppercase tracking-tighter mb-4 border-b border-primary/20 pb-2">Transitions</h4>
+<div class="space-y-2 font-code-sm text-text-secondary">
+<div class="flex justify-between">
+<span>Duration</span>
+<span class="text-text-primary">300ms</span>
+</div>
+<div class="flex justify-between">
+<span>Easing</span>
+<span class="text-text-primary">Cubic-Bezier</span>
+</div>
+<div class="flex justify-between">
+<span>Property</span>
+<span class="text-text-primary">Width, Opacity</span>
+</div>
+</div>
+</div>
+<div>
+<h4 class="font-label-mono text-primary text-xs uppercase tracking-tighter mb-4 border-b border-primary/20 pb-2">Colors</h4>
+<div class="space-y-2 font-code-sm text-text-secondary">
+<div class="flex justify-between">
+<span>Surface</span>
+<span class="text-text-primary">#1E1E1E</span>
+</div>
+<div class="flex justify-between">
+<span>Active</span>
+<span class="text-text-primary">#5C9F24</span>
+</div>
+<div class="flex justify-between">
+<span>Border</span>
+<span class="text-text-primary">#2C2C2C</span>
+</div>
+</div>
+</div>
+<div>
+<h4 class="font-label-mono text-primary text-xs uppercase tracking-tighter mb-4 border-b border-primary/20 pb-2">Spacing</h4>
+<div class="space-y-2 font-code-sm text-text-secondary">
+<div class="flex justify-between">
+<span>Icon Width</span>
+<span class="text-text-primary">64px</span>
+</div>
+<div class="flex justify-between">
+<span>Expanded</span>
+<span class="text-text-primary">240px</span>
+</div>
+<div class="flex justify-between">
+<span>Item Height</span>
+<span class="text-text-primary">48px</span>
+</div>
+</div>
+</div>
+<div>
+<h4 class="font-label-mono text-primary text-xs uppercase tracking-tighter mb-4 border-b border-primary/20 pb-2">Typography</h4>
+<div class="space-y-2 font-code-sm text-text-secondary">
+<div class="flex justify-between">
+<span>Labels</span>
+<span class="text-text-primary">Inter 13px</span>
+</div>
+<div class="flex justify-between">
+<span>Mono</span>
+<span class="text-text-primary">JetBrains 12px</span>
+</div>
+<div class="flex justify-between">
+<span>Weight</span>
+<span class="text-text-primary">Semibold (600)</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Live Responsive Preview Card -->
+<section class="mt-section-gap mb-12">
+<div class="bg-surface-container rounded-lg p-1 border border-border-subtle overflow-hidden">
+<div class="bg-bg-surface p-8 text-center border-b border-border-subtle">
+<h2 class="font-headline-md text-headline-md text-text-primary mb-4">Responsive Context Mock</h2>
+<p class="text-text-secondary">The navigation adapts automatically based on standard Tailwind breakpoints.</p>
+</div>
+<div class="relative min-h-[500px] flex items-center justify-center bg-surface-container-lowest p-8 overflow-hidden group/canvas">
+<div class="absolute inset-0 bg-[radial-gradient(#2c2c2c_1px,transparent_1px)] [background-size:20px_20px] opacity-20"></div>
+<img alt="Platform Admin Dashboard Preview" class="w-full max-w-4xl rounded-lg shadow-2xl border border-border-subtle transform group-hover/canvas:scale-[1.02] transition-transform duration-700" data-alt="A cinematic, high-fidelity visualization of a futuristic cyber-security dashboard displayed on a sleek monitor. The UI features intricate data visualizations, network nodes, and high-contrast lime green accents against a deep charcoal background. The atmosphere is professional and technologically advanced, with soft focus on the surrounding dark studio environment." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBo1MtkmsytPFjarBUGdHobXGFmCVkLmf2HAGIpLrR9wlj3C8jk1QKICgMgMiMHLnr7Lzy83zq8z09OlgRiyJkpAD1uxQwDLsP82r1NbwI2g4B81FhVFT0O5SInsalZ1UPTMEEp8rgtNxk0TiPixt0j4lTL2RKm-6SauiAap1-xIB5pWJLdU7TR6voWMSyOXm1AjWvrk6jL-A_VdUTiWjrO2xf55oyheKet-jEntVOzAbKtCh_DF_iyxCS52fnKOKS9RfjJNyY_EIQ"/>
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full flex items-center justify-center pointer-events-none">
+<div class="glass-panel p-8 rounded-xl max-w-md border border-primary/20">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-3 h-3 rounded-full bg-primary animate-ping"></div>
+<span class="font-code-sm text-primary uppercase tracking-widest font-bold">Live Status: Validated</span>
+</div>
+<p class="text-text-primary font-body-lg mb-6 leading-relaxed">The system maintains a rigid 64px structural anchor to ensure that administrators never lose access to primary tools while performing complex tasks.</p>
+<div class="flex gap-4">
+<button class="bg-primary hover:bg-accent-hover text-on-primary-fixed px-6 py-2 rounded font-bold transition-all flex items-center gap-2 active:scale-95 pointer-events-auto">
+                                            Test Breakpoints
+                                        </button>
+<button class="border border-border-subtle text-text-primary px-6 py-2 rounded font-bold hover:bg-surface-container-highest transition-all pointer-events-auto">
+                                            Docs
+                                        </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</div>
+<!-- Mobile Navigation Overlay (Hidden by Default) -->
+<div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm opacity-0 pointer-events-none transition-opacity duration-300 md:hidden" id="mobile-nav">
+<div class="absolute right-0 top-0 bottom-0 w-4/5 bg-surface-container-low p-6 flex flex-col shadow-2xl translate-x-full transition-transform duration-300" id="mobile-drawer">
+<div class="flex justify-between items-center mb-8">
+<span class="text-headline-sm font-bold text-primary">Admin Menu</span>
+<span class="material-symbols-outlined text-text-secondary cursor-pointer" onclick="toggleMobileNav()">close</span>
+</div>
+<nav class="flex flex-col gap-2">
+<a class="flex items-center gap-4 p-4 rounded bg-surface-container-highest text-primary border-l-4 border-primary" href="#">
+<span class="material-symbols-outlined">dashboard</span> Dashboard
+                </a>
+<a class="flex items-center gap-4 p-4 rounded text-text-secondary hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined">group</span> Customers
+                </a>
+<a class="flex items-center gap-4 p-4 rounded text-text-secondary hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined">inventory_2</span> Service Catalog
+                </a>
+<a class="flex items-center gap-4 p-4 rounded text-text-secondary hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined">vpn_key</span> Licenses
+                </a>
+<a class="flex items-center gap-4 p-4 rounded text-text-secondary hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined">receipt_long</span> Invoices
+                </a>
+<a class="flex items-center gap-4 p-4 rounded text-text-secondary hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined">history</span> Audit Log
+                </a>
+<a class="flex items-center gap-4 p-4 rounded text-text-secondary hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined">verified_user</span> Validate
+                </a>
+</nav>
+<div class="mt-auto pt-6 border-t border-border-subtle">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-surface-container-highest flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">person</span>
+</div>
+<div>
+<p class="text-text-primary font-bold">Admin</p>
+<p class="text-xs text-text-secondary uppercase">Superuser</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+        function toggleMobileNav() {
+            const overlay = document.getElementById('mobile-nav');
+            const drawer = document.getElementById('mobile-drawer');
+            
+            if (overlay.classList.contains('opacity-0')) {
+                overlay.classList.remove('opacity-0', 'pointer-events-none');
+                drawer.classList.remove('translate-x-full');
+            } else {
+                overlay.classList.add('opacity-0', 'pointer-events-none');
+                drawer.classList.add('translate-x-full');
+            }
+        }
+
+        // Add subtle hover tracking effect to bento cards
+        document.querySelectorAll('.bg-bg-surface').forEach(card => {
+            card.addEventListener('mousemove', e => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--mouse-x', `${x}px`);
+                card.style.setProperty('--mouse-y', `${y}px`);
+            });
+        });
+    </script>
+</body></html>

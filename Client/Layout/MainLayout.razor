@@ -66,26 +66,21 @@
         </div>
     </MudAppBar>
 
+    @* Desktop (≥1024px): Stitch-style CSS rail — width 64px → 280px on hover *@
+    <aside class="platform-sidebar-rail" tabindex="-1" aria-label="Main navigation panel">
+        <NavMenu Email="@(_email ?? "")" />
+    </aside>
+
+    @* Tablet/mobile (<1024px): temporary overlay drawer *@
     <MudDrawer @bind-Open="_drawerOpen"
-               Variant="DrawerVariant.Mini"
-               Breakpoint="Breakpoint.Lg"
-               OpenMiniOnHover="false"
+               Variant="DrawerVariant.Temporary"
+               Anchor="Anchor.Start"
                Elevation="0"
                ClipMode="DrawerClipMode.Always"
-               Class="platform-sidebar"
-               MiniWidth="64px"
-               Width="240px">
-        @* Mobile overlay header (< 768px) *@
-        <div class="drawer-header drawer-header-mobile">
-            <div class="drawer-header-profile">
-                <div class="drawer-header-avatar" aria-hidden="true">
-                    <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Medium" />
-                </div>
-                <div class="drawer-header-meta">
-                    <p class="drawer-header-name">@DisplayName</p>
-                    <p class="drawer-header-role">Superuser</p>
-                </div>
-            </div>
+               Class="platform-sidebar platform-sidebar-overlay"
+               Width="280px">
+        <div class="drawer-header drawer-header-overlay">
+            <span class="drawer-admin-menu-title">Admin Menu</span>
             <MudIconButton Icon="@Icons.Material.Filled.Close"
                            Color="Color.Inherit"
                            OnClick="CloseOverlayDrawer"
@@ -93,22 +88,8 @@
                            Class="drawer-close-btn" />
         </div>
 
-        @* Tablet overlay header (768–1023px) *@
-        <div class="drawer-header drawer-header-tablet">
-            <div class="drawer-header-profile">
-                <div class="drawer-header-avatar" aria-hidden="true">
-                    <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Medium" />
-                </div>
-                <div class="drawer-header-meta">
-                    <p class="drawer-header-name">@DisplayName</p>
-                    <p class="drawer-header-role">Superuser</p>
-                </div>
-            </div>
-        </div>
-
         <NavMenu Email="@(_email ?? "")"
-                 OnNavigate="CloseDrawerIfOverlay"
-                 OnLogout="Logout" />
+                 OnNavigate="CloseDrawerIfOverlay" />
     </MudDrawer>
 
     <MudMainContent Class="platform-main-content">
@@ -165,10 +146,10 @@
     [JSInvokable]
     public async Task SyncDrawerFromViewport(bool isDesktop)
     {
-        var shouldOpen = isDesktop;
-        if (_drawerOpen != shouldOpen)
+        // Overlay drawer is closed on desktop; rail is always visible via CSS.
+        if (isDesktop && _drawerOpen)
         {
-            _drawerOpen = shouldOpen;
+            _drawerOpen = false;
             await InvokeAsync(StateHasChanged);
         }
     }
@@ -178,7 +159,8 @@
         try
         {
             var isDesktop = await JS.InvokeAsync<bool>("platformShell.isDesktopNav");
-            _drawerOpen = isDesktop;
+            if (isDesktop)
+                _drawerOpen = false;
         }
         catch
         {

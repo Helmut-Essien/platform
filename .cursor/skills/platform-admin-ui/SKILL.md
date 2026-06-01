@@ -47,9 +47,9 @@ Replace default Bootstrap layout in `Client/Layout/` with:
 
 | Viewport | Behavior |
 |----------|----------|
-| **≥ 1024px** (desktop) | Persistent **64px** icon rail; hover/focus-within → **240px** overlay; **Settings** footer; rich app bar |
-| **768px – 1023px** (tablet) | Hamburger → **left** overlay **280px**; profile header; **System Status** footer |
-| **< 768px** (mobile) | Hamburger → **left** overlay **280px** (max 85vw); profile header + close; **Logout** footer |
+| **≥ 1024px** (desktop) | Persistent **64px** icon rail; hover/focus-within → **240px** overlay; **profile** footer; rich app bar |
+| **768px – 1023px** (tablet) | Hamburger → **left** overlay **280px**; **Admin Menu** header; **profile** footer |
+| **< 768px** (mobile) | Hamburger → **left** overlay **280px** (max 85vw); **Admin Menu** + close; **profile** footer (Logout in app bar) |
 
 - `DrawerVariant.Mini`, `Breakpoint.Lg`, **`OpenMiniOnHover="false"`** — hover expand via CSS only at `nav-lg` (1024px)
 - Surface `--surface-container-low`; transitions **300ms** `cubic-bezier(0.4, 0, 0.2, 1)`

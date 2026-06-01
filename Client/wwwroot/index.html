@@ -72,6 +72,27 @@
                 return mq.matches;
             },
             isDesktopNav: () => window.matchMedia('(min-width: 1024px)').matches,
+            blurNavFocus: () => {
+                const active = document.activeElement;
+                if (active && typeof active.blur === 'function')
+                    active.blur();
+            },
+            collapseRailAfterNav: () => {
+                if (!platformShell.isDesktopNav())
+                    return;
+                const rail = document.querySelector('.platform-sidebar-rail');
+                if (rail)
+                    rail.classList.add('platform-sidebar-rail--collapsed');
+            },
+            initDesktopRail: () => {
+                const rail = document.querySelector('.platform-sidebar-rail');
+                if (!rail || rail.dataset.railInit === '1')
+                    return;
+                rail.dataset.railInit = '1';
+                rail.addEventListener('mouseleave', () => {
+                    rail.classList.remove('platform-sidebar-rail--collapsed');
+                });
+            },
             _escapeHandler: null,
             _cmdKHandler: null,
             _resizeHandler: null,
@@ -106,6 +127,7 @@
                 document.addEventListener('keydown', platformShell._cmdKHandler);
                 window.addEventListener('resize', platformShell._resizeHandler);
                 platformShell.syncNavMode();
+                platformShell.initDesktopRail();
                 platformShellDebugLog('navShellRegistered', { width: window.innerWidth }, 'H4');
             },
             unregisterNavShell: () => {
@@ -139,12 +161,8 @@
 
         window.addEventListener('load', () => {
             platformShell.logSidebarLayout();
+            platformShell.initDesktopRail();
             window.addEventListener('resize', () => platformShell.logSidebarLayout());
-            const sidebar = document.querySelector('.platform-sidebar');
-            if (sidebar) {
-                sidebar.addEventListener('mouseenter', () => platformShellDebugLog('sidebarHoverEnter', { width: sidebar.getBoundingClientRect().width }, 'H2'));
-                sidebar.addEventListener('focusin', () => platformShellDebugLog('sidebarFocusWithin', { width: sidebar.getBoundingClientRect().width }, 'H2'));
-            }
         });
     </script>
 </body>

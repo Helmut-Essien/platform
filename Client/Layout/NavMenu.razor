@@ -9,50 +9,32 @@
                      title="@item.Label"
                      @onclick="HandleNavClick">
                 <span class="platform-nav-icon-slot" aria-hidden="true">
-                    <MudIcon Icon="@item.Icon" Size="Size.Medium" />
+                    <MudIcon Icon="@item.Icon" Size="Size.Large" Color="Color.Inherit" />
                 </span>
                 <span class="platform-nav-label">@item.Label</span>
             </NavLink>
         }
     </div>
 
-    @* Desktop footer: Settings *@
-    <footer class="platform-nav-footer platform-nav-footer-desktop">
-        <div class="platform-nav-item platform-nav-settings" role="presentation">
-            <span class="platform-nav-icon-slot" aria-hidden="true">
-                <MudIcon Icon="@Icons.Material.Filled.Settings" Size="Size.Medium" />
-            </span>
-            <span class="platform-nav-label">Settings</span>
+    <footer class="platform-nav-profile">
+        <div class="platform-nav-profile-avatar" aria-hidden="true">
+            <MudIcon Icon="@Icons.Material.Filled.Person" Size="Size.Medium" Color="Color.Inherit" />
         </div>
-    </footer>
-
-    @* Tablet footer: System Status *@
-    <footer class="platform-nav-footer platform-nav-footer-tablet">
-        <div class="platform-nav-status-card">
-            <p class="platform-nav-status-label">System Status</p>
-            <div class="platform-nav-status-row">
-                <span class="platform-nav-status-dot" aria-hidden="true"></span>
-                <p class="platform-nav-status-text">Node: 01-PROD (OK)</p>
-            </div>
+        <div class="platform-nav-profile-meta">
+            <span class="platform-nav-profile-name">@DisplayName</span>
+            <span class="platform-nav-profile-role">Superuser</span>
         </div>
-    </footer>
-
-    @* Mobile footer: Logout *@
-    <footer class="platform-nav-footer platform-nav-footer-mobile">
-        <MudButton Variant="Variant.Filled"
-                   Class="platform-nav-logout-btn"
-                   OnClick="HandleLogout"
-                   StartIcon="@Icons.Material.Filled.Logout"
-                   FullWidth="true">
-            LOGOUT
-        </MudButton>
     </footer>
 </nav>
+
+@inject IJSRuntime JS
 
 @code {
     [Parameter] public string Email { get; set; } = "";
     [Parameter] public EventCallback OnNavigate { get; set; }
-    [Parameter] public EventCallback OnLogout { get; set; }
+
+    private string DisplayName =>
+        string.IsNullOrWhiteSpace(Email) ? "Admin" : Email.Split('@')[0];
 
     private sealed record NavItem(string Href, string Label, string Icon, NavLinkMatch Match = NavLinkMatch.Prefix);
 
@@ -72,11 +54,15 @@
     {
         if (OnNavigate.HasDelegate)
             await OnNavigate.InvokeAsync();
-    }
 
-    private async Task HandleLogout()
-    {
-        if (OnLogout.HasDelegate)
-            await OnLogout.InvokeAsync();
+        try
+        {
+            await JS.InvokeVoidAsync("platformShell.collapseRailAfterNav");
+            await JS.InvokeVoidAsync("platformShell.blurNavFocus");
+        }
+        catch
+        {
+            // JS not ready
+        }
     }
 }
