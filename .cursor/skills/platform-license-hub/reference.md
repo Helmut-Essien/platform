@@ -168,11 +168,17 @@ Use consistent route naming once established; prefer controllers + DTOs over exp
 
 ## MudBlazor UI patterns (Phase 6)
 
-- `MudDataGrid` for customers, licenses, audit logs
-- `MudForm` + `MudTextField` / `MudSelect` for create/edit dialogs
-- `MudChip` Color by `LicenseStatus` (Active=Success, Suspended=Warning, Revoked=Error)
-- `MudDialog` for confirm suspend/revoke
-- `MudSnackbar` for API errors
+See `.cursor/skills/platform-admin-ui/implementation-patterns.md` for full as-built detail.
+
+- **Pages:** `.page-title` / `.page-subtitle` / `.page-content` in `app.css`
+- **Boot:** `.app-splash` logo + green bar in `index.html`
+- **Grids:** `MudDataGrid` (customers, licenses, invoices); `MudTable` (services); custom table (audit)
+- **Forms:** `MudForm` in `MudDialog`; provider `MaxWidth.Medium`
+- **Confirms:** `PlatformDialogOptions.Confirm` on suspend/revoke/delete
+- **Filters:** string selects use `"all"` sentinel (customers status/created)
+- **Status:** `.status-badge` (customers); `LicenseStatusChip` / license badges (licenses)
+- **Mock KPIs:** `.demo-badge` (“Demo data”)
+- **Snackbar:** success uses accent styling per design-system (not Mud default green)
 
 ## Owned SaaS products (catalog)
 

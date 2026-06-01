@@ -2,8 +2,27 @@
 
 All screens use [design-system.md](design-system.md) tokens. Responsive behavior per [wireframes-phase1.md](wireframes-phase1.md). Layout: `MainLayout` shell or `LoginLayout` for `/login`.
 
+**As-built Client code:** [implementation-patterns.md](implementation-patterns.md).
+
 Feedback states (loading, empty, error, snackbar): [design-system.md](design-system.md#feedback-states).  
 Destructive confirmations: [design-system.md](design-system.md#destructive-confirmation-dialog).
+
+---
+
+## Global page layout (all authenticated pages)
+
+| Element | Implementation |
+|---------|----------------|
+| Root wrapper | `<div class="{page}-page page-content">` |
+| Title | `<h1 class="page-title">` — color `--primary` (`#92d959`) |
+| Subtitle | `<p class="page-subtitle">` |
+| Width | `.page-content` centered; 96rem → 100rem → 112rem at md/lg/xl breakpoints |
+| Drawer title | `.page-title-drawer` on customer detail |
+| Invoice detail | `<header class="invoice-detail-header">` + `.page-title` (no `PageHeader` component) |
+
+Boot splash (before WASM loads): logo + green progress bar — [implementation-patterns.md](implementation-patterns.md#wasm-boot-splash).
+
+Dialogs: provider `MaxWidth.Medium`; confirms use `PlatformDialogOptions.Confirm`.
 
 ---
 
@@ -249,19 +268,19 @@ Reference mock: Customers page (May 2026) — filter bar, styled grid, right det
 
 | Element | Spec |
 |---------|------|
-| Title | H1 “Customers”, 32px `--text-primary` |
-| Subtitle | “Manage platform accounts, licensing, and billing entities.” |
+| Title | `<h1 class="page-title">` “Customers” |
+| Subtitle | `.page-subtitle` — “Manage platform accounts…” |
 | CTA | Primary button “New Customer” with add icon → `CustomerCreateDialog` |
 
 ### Filters bar
 
-Container: `--surface-container-low`, border `--border-subtle`, rounded-xl, padding 16px.
+`.customers-filters` — search + two `MudSelect` controls (not a separate panel card in current build).
 
 | Control | Spec |
 |---------|------|
-| Search | Full-width, search icon, debounced 300ms — name, email, ID |
-| Status | Select: All / Active / Suspended |
-| Created | Select: All Time / Last 30 Days (client-side filter) |
+| Search | `MudTextField`, debounced 300ms — name, email, ID |
+| Status | `MudSelect` string: **`"all"`** (default) / `"active"` / `"suspended"` — labels All Statuses, Active, Suspended. **Do not use `""` or Clearable.** |
+| Created | `MudSelect` string: **`"all"`** (default) / `"30d"` — All Time, Last 30 Days (client-side) |
 
 ### Grid
 
@@ -906,7 +925,7 @@ Reference mock: License Debugger page (May 2026) — split layout with terminal 
 
 | Element | Spec |
 |---------|------|
-| Title | H1 “License Debugger”, 32px `--primary` |
+| Title | `<h1 class="page-title">` “Validate License” (matches nav label) |
 | Subtitle | Low-level validation tool for license keys and integration keys |
 
 ### Layout

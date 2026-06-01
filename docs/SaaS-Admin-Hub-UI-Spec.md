@@ -1,6 +1,6 @@
 # SaaS License Admin Hub — UI/UX Specification
 
-**Version:** 1.3 (three-tier navigation shell, May 2026)  
+**Version:** 1.4 (as-built Client alignment, June 2026)  
 **Stack:** Blazor WebAssembly + MudBlazor v7+  
 **Theme:** Dark-first, inspired by [helmut-essien.github.io/portfolio](https://helmut-essien.github.io/portfolio/)
 
@@ -95,9 +95,13 @@ Full responsive shell spec: `.cursor/skills/platform-admin-ui/navigation-shell.m
 
 | Viewport | Behavior |
 |----------|----------|
-| **≥ 1024px** (desktop) | Persistent **64px** icon rail; hover/focus-within → **240px** overlay; **Settings** footer; rich app bar (terminal logo, Cmd+K, notifications) |
-| **768px – 1023px** (tablet) | Hamburger → **left** overlay **280px**; profile header; **System Status** footer; scrim `rgba(0,0,0,0.6)` |
-| **< 768px** (mobile) | Hamburger → **left** overlay **280px** (max 85vw); profile header + close; **Logout** footer; scrim `rgba(16,21,12,0.9)` |
+| **≥ 1024px** (desktop) | Persistent **64px** icon rail; hover/focus-within → **280px** overlay; **profile** footer; app bar: logo badge, brand, user meta, logout |
+| **768px – 1023px** (tablet) | Hamburger → **left** overlay **280px**; **Admin Menu** header; **profile** footer; scrim `rgba(0,0,0,0.6)` |
+| **< 768px** (mobile) | Hamburger → **left** overlay **280px** (max 85vw); **Admin Menu** + close; **profile** footer; logout in app bar; scrim `rgba(16,21,12,0.9)` |
+
+**Deferred chrome:** Cmd+K search, notifications, account icon (removed from build until implemented).
+
+**Page content:** centered `.page-content` column; H1 via `.page-title` (`#92d959`). See `.cursor/skills/platform-admin-ui/implementation-patterns.md`.
 
 **Active:** `#92d959` text/icon, **2px `#5c9f24` left border**, `#32362c` background (all tiers).  
 **Inactive:** `#a0a0a0`; hover `#e0e4d6` on `#1d2118`.  
@@ -114,11 +118,12 @@ Breakpoint cheat sheet: `.cursor/skills/platform-admin-ui/design-system.md#break
 | 1 | `/` | KPI grid, custom audit timeline, sidebar quick actions + platform health |
 | 2 | `/customers` | Filter bar, avatar grid, MoreVert menu, detail drawer with tabs |
 | 3 | `/services` | Catalog CRUD, availability toggle |
-| 4 | `/licenses` | Global grid, issue modal, bulk actions |
-| 5 | `/customers/{id}/licenses` | Filtered license list (`?customerId=`) |
-| 6 | `/audit` | Expandable JSON, CSV export |
-| 7 | `/integration-keys` | Regenerate key once |
-| 8 | `/tools/validate` | Test validation API |
+| 4 | `/licenses` | Global grid, issue modal, bulk actions (`?customerId=`) |
+| 5 | `/invoices` | Stats, filters, grid, billing insights (demo badges) |
+| 6 | `/integration-keys` | Key cards, generate + one-time reveal |
+| 7 | `/audit` | Expandable JSON, CSV export, custom table |
+| 8 | `/validate`, `/tools/validate` | Validate License (alias) |
+| 9 | `/invoices/{id}` | Invoice detail, record payment |
 | — | `/login` | JWT login |
 
 Detailed specs: `.cursor/skills/platform-admin-ui/screens.md`
@@ -148,10 +153,10 @@ Detailed specs: `.cursor/skills/platform-admin-ui/screens.md`
 Detail: `.cursor/skills/platform-admin-ui/navigation-shell.md`
 
 - App bar `#10150c`, **64px**, sticky, title in `#92d959`
-- **≥ 1024px:** drawer `#191d14`, **64px** rail → **240px** hover overlay; Settings footer; rich app bar; main **`margin-left: 64px`**
-- **768–1023px:** hamburger, **left 280px** drawer, System Status footer, 60% scrim
-- **< 768px:** hamburger, **left 280px** drawer (max 85vw), Logout footer, close button, 90% scrim
-- Content `#10150c`, padding 24px (48px lg+)
+- **≥ 1024px:** drawer `#191d14`, **64px** rail → **280px** hover overlay; profile footer; desktop app bar; main **`margin-left: 64px`**
+- **768–1023px:** hamburger, **left 280px** drawer, profile footer, 60% scrim
+- **< 768px:** hamburger, **left 280px** drawer (max 85vw), profile footer, close button, logout in app bar, 90% scrim
+- Content `#10150c`, padding 24px (48px lg+), **`.page-content`** max-width centered
 
 ### Dashboard grid
 
@@ -184,7 +189,7 @@ Reference mock (May 2026): primary H1 with header search + Export CSV, expandabl
 
 ### Validate License
 
-Reference mock (May 2026): “License Debugger” split layout — input parameters panel (license key, service context, integration key) + terminal-style JSON response with copy/clear, status/latency bar.
+Page title **“Validate License”** (nav-aligned). Split layout — input parameters panel (license key, service context, integration key) + terminal-style JSON response with copy/clear, status/latency bar.
 
 Full ASCII wireframes: `.cursor/skills/platform-admin-ui/wireframes-phase1.md`
 
@@ -198,15 +203,31 @@ Complete C# `PlatformTheme.Dark` snippet: `.cursor/skills/platform-admin-ui/desi
 
 ## 10. UI delivery phases
 
-| Phase | Deliverable |
-|-------|-------------|
-| UI-1 | Shell + Dashboard |
-| UI-2 | Customers + Services |
-| UI-3 | Licenses |
-| UI-4 | Audit + Integration keys |
-| UI-5 | Validate tool + Login |
+| Phase | Deliverable | Status |
+|-------|-------------|--------|
+| UI-1 | Shell + Dashboard | Done |
+| UI-2 | Customers + Services | Done |
+| UI-3 | Licenses | Done |
+| UI-4 | Audit + Integration keys + Invoices | Done |
+| UI-5 | Validate + Login | Done |
 
-Confirm before each phase. Backend API phases (2–6) run separately per `platform-license-hub`.
+As-built patterns: `.cursor/skills/platform-admin-ui/implementation-patterns.md`. Backend Phase 6 complete per `platform-license-hub`.
+
+---
+
+## 13. Boot splash & dialogs
+
+### WASM boot splash (`index.html`)
+
+- HelmutCode logo (`images/login-logo.png`), rounded **1.25rem**
+- Green progress bar driven by `--blazor-load-percentage`
+- No default Blazor SVG ring loader
+
+### Dialogs
+
+- `MudDialogProvider`: `MaxWidth.Medium`, `FullWidth=true`
+- Confirms: `PlatformDialogOptions.Confirm` (Small)
+- Key reveal: `PlatformDialogOptions.KeyReveal` (non-dismissible backdrop)
 
 ---
 

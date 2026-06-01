@@ -209,5 +209,6 @@ Connection: `localhost:5432`, db `platform_db`, user `platform`, password `platf
 |-----|----------|
 | [phases.md](phases.md) | Full phase scope, folders, acceptance criteria |
 | [reference.md](reference.md) | Diagrams, enums, packages, API/UI structure |
-| [platform-admin-ui](../platform-admin-ui/SKILL.md) | Dark MudBlazor UI, wireframes, design tokens, Phase 6 screens |
+| [platform-admin-ui](../platform-admin-ui/SKILL.md) | Dark MudBlazor UI, design tokens, implementation-patterns, screens |
+| [implementation-patterns](../platform-admin-ui/implementation-patterns.md) | As-built Client: splash, dialogs, page layout, filters |
 | [docs/SaaS-Admin-Hub-UI-Spec.md](../../../docs/SaaS-Admin-Hub-UI-Spec.md) | Downloadable UI/UX specification |

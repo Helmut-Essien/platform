@@ -161,14 +161,14 @@ See [navigation-shell.md](navigation-shell.md) for tokens and MudBlazor mapping.
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ APP BAR  sticky z-40  var(--bg-base)  64px                                │
-│ [▣] Platform Admin          [Cmd+K] [🔔]     Admin/Superuser  Logout [👤]│
+│ [▣] Platform Admin              DisplayName / Superuser    Logout          │
 ├──────┬───────────────────────────────────────────────────────────────────┤
 │RAIL  │ MAIN  var(--bg-base)  margin-left: 64px (fixed)                    │
-│64px  │ padding: 24px → 48px (lg+)                                        │
+│64px  │ padding: 24px → 48px (lg+)  .page-content centered column          │
 │ hover│  @Body                                                            │
-│ →240 │  (sidebar hover expands OVER content, no layout push)             │
+│ →280│  (sidebar hover expands OVER content, no layout push)              │
 │ [≡] │                                                                    │
-│ [⚙] │  Settings footer                                                   │
+│profile│  Nav profile footer (avatar + name on expand)                    │
 └──────┴───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -177,7 +177,7 @@ See [navigation-shell.md](navigation-shell.md) for tokens and MudBlazor mapping.
 ```
 ┌──────────────────────────────────────────────────┐
 │ APP BAR                                           │
-│ [≡] Platform Admin                   Logout [👤]  │
+│ [≡] Platform Admin                        Logout  │
 ├──────────────────────────────────────────────────┤
 │ @Body   full width, padding 24px                  │
 │  (tap ≡ → left 280px drawer + 60% scrim)         │
@@ -185,7 +185,7 @@ See [navigation-shell.md](navigation-shell.md) for tokens and MudBlazor mapping.
 │ │ [avatar] Admin / Superuser                   │ │
 │ │ [icon] Dashboard                             │ │
 │ │ ...                                          │ │
-│ │ [System Status: Node 01-PROD (OK)]            │ │
+│ │ [profile footer: Admin / Superuser]            │ │
 │ └──────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────┘
 ```
@@ -195,7 +195,7 @@ See [navigation-shell.md](navigation-shell.md) for tokens and MudBlazor mapping.
 ```
 ┌──────────────────────────────────────────────────┐
 │ APP BAR                                           │
-│ [≡] Platform Admin                   Logout [👤]  │
+│ [≡] Platform Admin                        Logout  │
 ├──────────────────────────────────────────────────┤
 │ @Body   full width, padding 24px                  │
 │  (tap ≡ → left 280px drawer, max 85vw)           │
@@ -203,7 +203,7 @@ See [navigation-shell.md](navigation-shell.md) for tokens and MudBlazor mapping.
 │ │ [avatar] Admin / Superuser                   │ │
 │ │ [icon] Dashboard                             │ │
 │ │ ...                                          │ │
-│ │ [ LOGOUT button ]                            │ │
+│ │ [profile footer: Admin / Superuser]            │ │
 │ └──────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────┘
 ```
@@ -215,10 +215,11 @@ See [navigation-shell.md](navigation-shell.md) for tokens and MudBlazor mapping.
 | AppBar | `MudAppBar` | 64px, `--bg-base`, `--border-subtle` bottom border, Elevation 0, sticky |
 | Brand | `MudText` | “Platform Admin”, Inter 700, `--primary` |
 | Hamburger | `MudIconButton` | `Menu` icon; visible **< 1024px** only |
-| Desktop app bar | Custom markup | Terminal logo badge, Cmd+K search chip, notifications, user meta cluster |
-| User actions (compact) | `MudButton` + `MudIconButton` | Logout text link + `AccountCircle` icon |
-| Drawer | `MudDrawer` Mini | 64px rail ≥ 1024px; CSS hover → 240px; `Breakpoint.Lg`, `OpenMiniOnHover="false"` |
-| Nav | `NavMenu.razor` | Custom `NavLink` rows; tier-specific footers (Logout / System Status / Settings) |
+| Desktop app bar | Custom markup | Terminal logo badge, user meta, logout (search/notifications deferred) |
+| User actions (compact) | `MudButton` | Logout only |
+| Desktop rail | `aside.platform-sidebar-rail` | 64px; CSS hover → **280px**; profile footer |
+| Overlay drawer | `MudDrawer` Temporary | < 1024px; Admin Menu header; profile footer |
+| Nav | `NavMenu.razor` | Custom `NavLink` rows; profile footer all tiers |
 | Nav active | | `--primary` text, **2px `--accent` border**, `--surface-container-highest` bg |
 | Main content | `MudMainContent` | `--bg-base`, fixed 64px left offset ≥ 1024px |
 | Layout root | `MudLayout` | `--bg-base` background |

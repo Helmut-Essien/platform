@@ -1,10 +1,10 @@
 ---
 title: "Platform Admin UI Design System (Minimalist)"
-version: "1.2.0"
+version: "1.3.0"
 type: "design-system"
 description: "Dark admin console — lime primary + accent KPI values, Material-inspired surfaces"
 author: "Helmut Essien"
-last_updated: "2026-05-30"
+last_updated: "2026-06-01"
 ---
 
 # Design system — Platform Admin UI
@@ -77,7 +77,7 @@ Three systems coexist — **never mix them in the same CSS rule without commenti
 
 | Role | Font | Size | Weight |
 |------|------|------|--------|
-| Page title (H1) | Inter | 32px / 2rem | 600 |
+| Page title (H1) | Inter | 32px / 2rem | 600 | Color **`--primary`** via `.page-title` |
 | Section title (H2) | Inter | 20px | 700 |
 | Body | Inter | 14px | 400 |
 | KPI value | Inter | 32px | 700 |
@@ -89,8 +89,47 @@ Three systems coexist — **never mix them in the same CSS rule without commenti
 Load in `Client/wwwroot/index.html`:
 
 ```html
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 ```
+
+(Weights match [`Client/wwwroot/index.html`](../../../Client/wwwroot/index.html).)
+
+---
+
+## Page layout primitives (`Client/wwwroot/css/app.css`)
+
+Implemented patterns — full detail in [implementation-patterns.md](implementation-patterns.md).
+
+| Class | Usage |
+|-------|--------|
+| `.page-title` | All page H1s — `color: var(--primary)` |
+| `.page-subtitle` | Muted subtitle under H1 |
+| `.page-content` | Centered max-width column on every `*-page` root |
+| `.page-title-drawer` | Customer name in detail drawer |
+| `.demo-badge` | “Demo data” on mock KPIs / charts |
+
+---
+
+## WASM boot splash
+
+Before Blazor starts, `#app` shows branded splash (not the default SVG ring):
+
+- Logo: `images/login-logo.png`, `border-radius: 1.25rem`
+- Progress: 3px bar, `--blazor-load-percentage` width, accent→primary gradient + shimmer
+- Background: `--bg-base`; `theme-color` `#10150c`
+
+See [implementation-patterns.md](implementation-patterns.md#wasm-boot-splash).
+
+---
+
+## Dialogs (MudBlazor)
+
+| Layer | Spec |
+|-------|------|
+| Provider | `<MudDialogProvider MaxWidth="MaxWidth.Medium" FullWidth="true" />` in `App.razor` |
+| Form dialogs | Inherit provider default (~960px) |
+| Confirm | `PlatformDialogOptions.Confirm` — `MaxWidth.Small`, `FullWidth` true |
+| Key reveal | `PlatformDialogOptions.KeyReveal` — Small, no escape/backdrop dismiss |
 
 ---
 
@@ -129,12 +168,13 @@ Sidebar-only detail: [navigation-shell.md](navigation-shell.md).
 
 | Element | Spec |
 |---------|------|
-| App bar (compact) | 64px; `< 1024px`; hamburger + **Platform Admin** + logout + account |
-| App bar (desktop) | 64px; `≥ 1024px`; terminal logo badge, **Platform Admin**, Cmd+K search chip, notifications, Admin/Superuser meta, logout |
+| App bar (compact) | 64px; `< 1024px`; hamburger + **Platform Admin** + logout |
+| App bar (desktop) | 64px; `≥ 1024px`; terminal logo badge, **Platform Admin**, user display name + “Superuser”, logout |
 | Hamburger | `--primary` menu icon; visible **only < 1024px** |
-| Drawer (≥ 1024px) | Fixed **64px** rail, hover/focus-within expand to **240px** overlay; `--surface-container-low`; **Settings** footer; **no main-content push** |
-| Drawer (768–1023px) | Left overlay **280px**; profile header; **System Status** footer; scrim `rgba(0,0,0,0.6)` + blur |
-| Drawer (< 768px) | Left overlay **280px** (max 85vw); profile header + close; **Logout** footer; scrim `rgba(16,21,12,0.9)` + blur |
+| Drawer (≥ 1024px) | Fixed **64px** rail, hover/focus-within expand to **280px** overlay; `--surface-container-low`; **profile** footer; **no main-content push** |
+| Drawer (768–1023px) | Left overlay **280px**; **Admin Menu** header; **profile** footer; scrim `rgba(0,0,0,0.6)` + blur |
+| Drawer (< 768px) | Left overlay **280px** (max 85vw); **Admin Menu** + close; **profile** footer; logout in app bar; scrim `rgba(16,21,12,0.9)` + blur |
+| Deferred chrome | Cmd+K search, notifications, account menu — spec in navigation-shell; **not in current Client build** |
 | Active nav | `--primary` text/icon, **2px** left border **`--accent`**, bg `--surface-container-highest` |
 | Inactive nav | `--text-secondary`, hover `--on-surface` + `--surface-container` |
 | Nav item height | **40px** desktop; **48px** tablet; **56px** mobile overlay |
@@ -158,6 +198,8 @@ Sidebar-only detail: [navigation-shell.md](navigation-shell.md).
 | Timeline dot (default) | `--border-subtle` ring |
 | Card hover | border shifts to `--primary` at ~35% opacity |
 | **Bulk actions bar** | Fixed bottom, glass (`backdrop-filter: blur(12px)`), `--bg-elevated` at 90% opacity, 1px `--border-subtle`, padding 12px 24px; used on Licenses multi-select |
+| **Customer status badge** | `.status-badge-active` (lime tint) / `.status-badge-suspended` (gray) — grid + drawer |
+| **Filter select “all”** | MudSelect string filters use value `"all"` for unfiltered state — never `""` |
 
 ---
 

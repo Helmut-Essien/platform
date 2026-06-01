@@ -2,7 +2,7 @@
 name: platform-admin-ui
 description: >-
   Minimalist dark-theme MudBlazor UI/UX for the Platform admin hub (Blazor WASM).
-  Single lime accent (#5c9f24), Inter + JetBrains Mono, wireframes, and component specs.
+  Dark MudBlazor admin UI — lime primary (#92d959), accent (#5c9f24), Inter + JetBrains Mono, as-built patterns.
   Use when building Client layouts, pages, dialogs, grids, or Phase 6 UI. Pair with
   platform-license-hub for API and domain rules.
 ---
@@ -27,9 +27,10 @@ description: >-
 - **Framework:** Blazor WASM + MudBlazor v7+
 
 Full tokens and MudTheme: [design-system.md](design-system.md).  
-Navigation shell (sidebar only): [navigation-shell.md](navigation-shell.md).  
+**As-built Client patterns:** [implementation-patterns.md](implementation-patterns.md) (page layout, splash, dialogs, filters).  
+Navigation shell: [navigation-shell.md](navigation-shell.md).  
 Screen specs: [screens.md](screens.md).  
-Phase 1 shell + dashboard: [wireframes-phase1.md](wireframes-phase1.md).  
+Phase 1 wireframes: [wireframes-phase1.md](wireframes-phase1.md).  
 Human-readable export: [docs/SaaS-Admin-Hub-UI-Spec.md](../../../docs/SaaS-Admin-Hub-UI-Spec.md).
 
 **Viewport:** Mobile-ready, **desktop-optimized** (see design-system breakpoint cheat sheet).
@@ -39,7 +40,7 @@ Human-readable export: [docs/SaaS-Admin-Hub-UI-Spec.md](../../../docs/SaaS-Admin
 Replace default Bootstrap layout in `Client/Layout/` with:
 
 - `MudLayout` + `MudThemeProvider` (dark palette from design-system)
-- `MudAppBar` — 64px, `--bg-base`; **compact bar** (< 1024px) or **desktop bar** (≥ 1024px — terminal logo, Cmd+K search, notifications, user meta)
+- `MudAppBar` — 64px, `--bg-base`; **compact** (< 1024px: menu + brand + logout) or **desktop** (≥ 1024px: terminal logo badge, brand, user meta, logout). Search/notifications/account icons are **not** in the current build (see implementation-patterns).
 - `MudDrawer` — see [navigation-shell.md](navigation-shell.md) for full three-tier responsive spec
 - `MudMainContent` — `--bg-base`, padding `--container-margin` (24px) → 48px on lg+
 
@@ -47,7 +48,7 @@ Replace default Bootstrap layout in `Client/Layout/` with:
 
 | Viewport | Behavior |
 |----------|----------|
-| **≥ 1024px** (desktop) | Persistent **64px** icon rail; hover/focus-within → **240px** overlay; **profile** footer; rich app bar |
+| **≥ 1024px** (desktop) | Persistent **64px** icon rail; hover/focus-within → **280px** overlay; **profile** footer; desktop app bar |
 | **768px – 1023px** (tablet) | Hamburger → **left** overlay **280px**; **Admin Menu** header; **profile** footer |
 | **< 768px** (mobile) | Hamburger → **left** overlay **280px** (max 85vw); **Admin Menu** + close; **profile** footer (Logout in app bar) |
 
@@ -101,29 +102,32 @@ See also [design-system.md](design-system.md) for feedback states, destructive d
 9. **Snackbar success** — `--accent` bg, `--bg-base` text (not MudBlazor default green)
 10. **Motion** — honor `prefers-reduced-motion` globally (design-system)
 
-## UI implementation phases (deliver one at a time)
+## UI implementation phases
 
-| UI phase | Scope |
-|----------|--------|
-| UI-1 | Shell + Dashboard ([wireframes-phase1.md](wireframes-phase1.md)) |
-| UI-2 | Customers + Service catalog |
-| UI-3 | Licenses (+ customer-scoped route) |
-| UI-4 | Audit log + Integration keys + Invoices/Receipts |
-| UI-5 | Validate tool + Login page |
+All UI phases below are **implemented** in `Client/` (see [implementation-patterns.md](implementation-patterns.md)). Confirm with user before large new UI scope.
 
-Confirm with user before next UI phase. Match backend Phase 6 in `platform-license-hub/phases.md`.
+| UI phase | Scope | Status |
+|----------|--------|--------|
+| UI-1 | Shell + Dashboard | Done |
+| UI-2 | Customers + Service catalog | Done |
+| UI-3 | Licenses (+ `?customerId=`) | Done |
+| UI-4 | Audit + Integration keys + Invoices | Done |
+| UI-5 | Validate + Login | Done |
 
 ## Component cheat sheet
 
-| Need | MudBlazor |
-|------|-----------|
-| KPI cards | CSS grid + custom `.kpi-card` (see Dashboard.razor.css) |
-| Data tables | `MudDataGrid<T>` |
-| Forms | `MudForm`, `MudTextField`, `MudAutocomplete`, `MudDatePicker` |
-| Confirm | `MudDialog` / `DialogService.ShowMessageBox` |
-| Toast | `ISnackbar` — success: **`--accent` bg, `--bg-base` text** (see design-system) |
-| Code/JSON | `MudCodeBlock` or `<pre class="text-code">` |
-| Keys | `<code class="license-key">` + `MudIconButton` copy |
+| Need | Implementation |
+|------|----------------|
+| Page title | `<h1 class="page-title">` + `<p class="page-subtitle">` in `app.css` |
+| Page width | Root `class="*-page page-content"` — centered column (see implementation-patterns) |
+| KPI cards | CSS grid + `.kpi-card` (Dashboard.razor.css) |
+| Data tables | `MudDataGrid` (most pages), `MudTable` (Services), custom table (Audit) |
+| Forms | `MudForm`, `MudTextField`, … in `MudDialog` |
+| Dialogs | `MudDialogProvider` Medium + `PlatformDialogOptions` (Confirm / KeyReveal) |
+| Boot loading | `.app-splash` in `index.html` (logo + green bar) |
+| Mock metrics | `.demo-badge` label |
+| Toast | `ISnackbar` — success: **`--accent` bg, `--bg-base` text** |
+| Keys | `<code class="license-key">` + copy; one-time reveal dialog |
 
 ## Do not
 

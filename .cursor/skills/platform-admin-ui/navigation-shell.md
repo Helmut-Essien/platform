@@ -1,7 +1,7 @@
 ---
 title: "Platform Admin — Responsive Navigation Shell"
-version: "2.1.0"
-source: "Stitch Navigation Responsive Behavior (Jun 2026)"
+version: "2.2.0"
+source: "Stitch Navigation Responsive Behavior (Jun 2026); aligned to Client build Jun 2026"
 last_updated: "2026-06-01"
 ---
 
@@ -18,7 +18,7 @@ Page content breakpoints (grids, DataGrid) may use MudBlazor `md` (960px); **nav
 |------|-----------|----------------|
 | **Mobile overlay** | `< 768px` | Hamburger → **left** overlay **280px** (max **85vw**); **Admin Menu** header + **close**; **profile** footer; Logout in app bar only |
 | **Tablet overlay** | `768px – 1023px` | Hamburger → **left** overlay **280px**; **Admin Menu** header (no close); **profile** footer |
-| **Desktop mini-drawer** | `≥ 1024px` | Persistent **64px** icon rail; hover/focus-within → **240px** overlay; **profile** footer; rich app bar |
+| **Desktop mini-drawer** | `≥ 1024px` | Persistent **64px** icon rail; hover/focus-within → **280px** overlay; **profile** footer; desktop app bar |
 
 ### Breakpoint tokens
 
@@ -40,18 +40,23 @@ Shared tokens: height **64px**, background `--bg-base`, border-bottom `--border-
 | Hamburger | Material `menu`, `--primary`; visible **< 1024px** |
 | Brand | **Platform Admin**, Inter **700**, `--primary` |
 | Logout | Inter 14px, `--text-secondary`, hover `--accent-hover` |
-| Account | `account_circle` icon, `--primary` |
 
-### Desktop app bar (`≥ 1024px`)
+### Desktop app bar (`≥ 1024px`) — as-built
 
 | Element | Spec |
 |---------|------|
 | Logo badge | **32×32px**, `--primary-container` bg, `terminal` icon (filled), `--on-primary-container` |
 | Brand | **Platform Admin**, Inter **700**, `--primary` |
-| Search chip | `--surface-container-low` bg, border `--border-subtle`; search icon + **Cmd + K** label (JetBrains Mono 13px); click or **Cmd/Ctrl+K** opens search placeholder |
-| Notifications | `notifications` icon, `--text-secondary`, hover `--accent-hover` |
-| User cluster | Right-aligned; border-left `--border-subtle`; Admin name (Inter 14px) + Superuser (JetBrains Mono 12px); filled `account_circle`; Logout link |
+| User cluster | Right-aligned; border-left `--border-subtle`; display name from JWT email (Inter 14px) + “Superuser” (JetBrains Mono 12px); Logout button |
 | Hamburger | **Hidden** |
+
+### Deferred (not in current Client build)
+
+| Element | Planned spec |
+|---------|----------------|
+| Search chip | `--surface-container-low`, **Cmd + K** label; global search |
+| Notifications | `notifications` icon |
+| Account menu | `account_circle` icon |
 
 ---
 
@@ -61,7 +66,7 @@ Shared tokens: height **64px**, background `--bg-base`, border-bottom `--border-
 
 ```
 fixed left-0 top-0 h-full pt-16 z-30
-width: 64px → 240px on :hover / :focus-within
+width: 64px → 280px on :hover / :focus-within
 overflow: hidden
 background: --surface-container-low
 border-right: 1px --border-subtle
@@ -122,7 +127,7 @@ Collapsed rail shows **icons only**. Each `NavLink` includes a **`title`** attri
 
 ### Hover expand
 
-- Width **64px → 240px**
+- Width **64px → 280px** (`--nav-rail-expanded-width`)
 - `box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35)`
 - `z-index: 35`
 
@@ -218,7 +223,7 @@ Collapsed rail shows **icons only**. Each `NavLink` includes a **`title`** attri
 | Custom nav markup | `NavMenu.razor` with shared profile footer |
 | Overlay header | `.drawer-header-overlay` — Admin Menu + close (mobile only) |
 | Clip below app bar | `ClipMode="DrawerClipMode.Always"` |
-| Mini / expanded width | `MiniWidth="64px"`, `Width="240px"` |
+| Desktop rail expand | CSS `aside.platform-sidebar-rail` **64px → 280px** on hover (not MudDrawer) |
 | Viewport sync | `platformShell.syncNavMode()` — auto-open drawer on desktop, close on overlay |
 
 **Do not** use `OpenMiniOnHover` — hover expand is **CSS-only** with fixed `margin-left: 64px` on `MudMainContent`.
@@ -236,7 +241,8 @@ platformShell.isNavOverlay()   // max-width 1023.98px
 platformShell.isMobileNav()    // max-width 767.98px
 platformShell.isTabletNav()    // 768–1023px
 platformShell.isDesktopNav()   // min-width 1024px
-platformShell.openSearchPlaceholder()  // Cmd+K stub
+platformShell.syncNavMode()    // body.nav-desktop / nav-overlay
+platformShell.registerNavShell(dotNetRef)  // Escape closes overlay drawer
 ```
 
 ---
