@@ -58,10 +58,6 @@
     background: transparent !important;
 }
 
-::deep .account-btn .mud-icon-root {
-    font-size: 1.75rem;
-}
-
 /* Desktop app bar (≥ 1024px) */
 @media (min-width: 1024px) {
     .app-bar-compact {
@@ -96,47 +92,6 @@
         gap: 1.5rem;
     }
 
-    .app-bar-search-chip {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.375rem 0.75rem;
-        background: var(--surface-container-low, #191d14);
-        border: 1px solid var(--border-subtle);
-        border-radius: 0.125rem;
-        cursor: pointer;
-        transition: border-color 0.2s ease, color 0.2s ease;
-    }
-
-    .app-bar-search-chip:hover {
-        border-color: var(--outline-variant, #414939);
-    }
-
-    .app-bar-search-chip:hover ::deep .search-chip-icon,
-    .app-bar-search-chip:hover .search-chip-label {
-        color: var(--primary, #92d959);
-    }
-
-    ::deep .search-chip-icon {
-        color: var(--text-secondary);
-        transition: color 0.2s ease;
-    }
-
-    .search-chip-label {
-        font-family: 'JetBrains Mono', ui-monospace, monospace;
-        font-size: 0.8125rem;
-        color: var(--text-secondary);
-        transition: color 0.2s ease;
-    }
-
-    ::deep .notifications-btn {
-        color: var(--text-secondary) !important;
-    }
-
-    ::deep .notifications-btn:hover {
-        color: var(--accent-hover) !important;
-    }
-
     .app-bar-user-cluster {
         display: flex;
         align-items: center;
@@ -165,9 +120,6 @@
         margin: 0.25rem 0 0;
     }
 
-    ::deep .account-btn-filled .mud-icon-root {
-        font-size: 1.875rem;
-    }
 }
 
 /* Desktop Stitch rail (≥1024px) — matches aside w-[64px] hover:w-[240px] */

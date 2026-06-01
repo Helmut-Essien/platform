@@ -14,7 +14,7 @@
             <div class="customer-drawer-identity">
                 <div class="customer-drawer-avatar @(Customer.IsSuspended ? "suspended" : "")">@GetInitials(Customer.Name)</div>
                 <div class="min-width-0">
-                    <h2 class="customer-drawer-title">@Customer.Name</h2>
+                    <h2 class="page-title-drawer">@Customer.Name</h2>
                     <span class="status-badge @(Customer.IsSuspended ? "status-badge-suspended" : "status-badge-active")">
                         @(Customer.IsSuspended ? "Suspended" : "Active")
                     </span>
@@ -275,7 +275,7 @@
             ["Title"] = "Suspend Customer",
             ["Message"] = $"Suspend {Customer.Name}? All licenses will be denied immediately.",
             ["ConfirmText"] = "Suspend"
-        });
+        }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false)
             return;
@@ -301,7 +301,7 @@
             ["Title"] = "Reactivate Customer",
             ["Message"] = $"Reactivate {Customer.Name}? Deny-lists will be cleared.",
             ["ConfirmText"] = "Reactivate"
-        });
+        }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false)
             return;

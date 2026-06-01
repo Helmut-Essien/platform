@@ -5,11 +5,11 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<div class="licenses-page">
+<div class="licenses-page page-content">
     <header class="licenses-header">
         <div>
-            <h1>Licenses</h1>
-            <p>Manage software entitlements and API access keys.</p>
+            <h1 class="page-title">Licenses</h1>
+            <p class="page-subtitle">Manage software entitlements and API access keys.</p>
         </div>
         <button type="button" class="btn-issue-license" @onclick="OpenIssueDialogAsync">
             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
@@ -406,7 +406,7 @@
             ["Title"] = "Suspend License",
             ["Message"] = "This license will be denied immediately. Continue?",
             ["ConfirmText"] = "Suspend"
-        });
+        }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;
@@ -429,7 +429,7 @@
             ["Title"] = "Revoke License",
             ["Message"] = "This will permanently revoke this license. This cannot be undone. Continue?",
             ["ConfirmText"] = "Revoke"
-        });
+        }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;
@@ -484,7 +484,7 @@
             ["Title"] = "Revoke Licenses",
             ["Message"] = $"Permanently revoke {revokable.Count} license(s)? This cannot be undone.",
             ["ConfirmText"] = "Revoke"
-        });
+        }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;

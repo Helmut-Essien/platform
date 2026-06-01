@@ -1,23 +1,11 @@
 .validate-page {
-    max-width: 80rem;
     display: flex;
     flex-direction: column;
     gap: 2rem;
 }
 
-.validate-header h1 {
-    font-size: 2rem;
-    line-height: 2.5rem;
-    font-weight: 600;
-    color: var(--primary, #92d959);
-    margin: 0 0 0.5rem;
-    letter-spacing: -0.02em;
-}
-
-.validate-header p {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin: 0;
+.validate-header .page-title {
+    margin-bottom: 0.5rem;
 }
 
 .validate-layout {

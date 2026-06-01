@@ -5,27 +5,31 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
+<div class="page-content">
 @if (_loading)
 {
     <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" Class="mb-4" />
 }
 else if (_invoice is null)
 {
-    <MudText Typo="Typo.h6">Invoice not found.</MudText>
+    <h1 class="page-title">Invoice not found</h1>
     <MudButton Variant="Variant.Text" Href="/invoices">Back to invoices</MudButton>
 }
 else
 {
-    <PageHeader Title="@($"Invoice {_invoice.InvoiceNumber}")">
-        @if (_invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
-        {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
-        }
-        @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue)
-        {
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="VoidAsync">Void</MudButton>
-        }
-    </PageHeader>
+    <header class="invoice-detail-header">
+        <h1 class="page-title">Invoice @_invoice.InvoiceNumber</h1>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (_invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
+            }
+            @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="VoidAsync">Void</MudButton>
+            }
+        </div>
+    </header>
 
     <MudGrid Class="mb-4">
         <MudItem xs="12" md="6">
@@ -76,6 +80,7 @@ else
 
     <MudButton Variant="Variant.Text" Href="/invoices">Back to invoices</MudButton>
 }
+</div>
 
 @code {
     [Parameter] public string Id { get; set; } = "";
@@ -134,7 +139,7 @@ else
             ["Title"] = "Void Invoice",
             ["Message"] = "This will void the invoice. Continue?",
             ["ConfirmText"] = "Void"
-        });
+        }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false)
             return;

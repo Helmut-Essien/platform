@@ -47,6 +47,84 @@ html, body {
     -webkit-text-size-adjust: 100%;
 }
 
+.page-title {
+    font-size: 2rem;
+    line-height: 2.5rem;
+    font-weight: 600;
+    color: var(--primary, #92d959);
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.page-title-drawer {
+    font-size: 1.25rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+    color: var(--primary, #92d959);
+    margin: 0 0 0.375rem;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.page-subtitle {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0.25rem 0 0;
+}
+
+.demo-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--accent, #5c9f24);
+    color: var(--accent, #5c9f24);
+    background: rgba(92, 159, 36, 0.08);
+    vertical-align: middle;
+    margin-inline-start: 0.5rem;
+}
+
+/* Centered page column — grows on large viewports (design-system xl) */
+.page-content {
+    width: 100%;
+    max-width: 100%;
+    margin-inline: auto;
+    box-sizing: border-box;
+}
+
+@media (min-width: 960px) {
+    .page-content {
+        max-width: min(100%, 96rem);
+    }
+}
+
+@media (min-width: 1280px) {
+    .page-content {
+        max-width: min(100%, 100rem);
+    }
+}
+
+@media (min-width: 1920px) {
+    .page-content {
+        max-width: min(100%, 112rem);
+    }
+}
+
+.invoice-detail-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
 @media (max-width: 599px) {
     .mud-button-root {
         min-height: 2.75rem;
@@ -102,37 +180,100 @@ html, body {
     z-index: 1000;
 }
 
-.loading-progress {
+/* Blazor WASM initial load splash (#app content replaced when runtime starts) */
+#app {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--bg-base);
+}
+
+.app-splash {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 2rem;
+    width: min(100%, 20rem);
+}
+
+.app-splash-logo {
+    width: 5.5rem;
+    height: 5.5rem;
+    border-radius: 1.25rem;
+    object-fit: contain;
+    box-shadow:
+        0 4px 24px rgba(92, 159, 36, 0.15),
+        0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.app-splash-progress {
     position: relative;
-    display: block;
-    width: 8rem;
-    height: 8rem;
-    margin: 20vh auto 1rem auto;
+    width: 12rem;
+    max-width: 100%;
+    height: 3px;
+    background: var(--border-subtle);
+    border-radius: 999px;
+    overflow: hidden;
 }
 
-.loading-progress circle {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 0.6rem;
-    transform-origin: 50% 50%;
-    transform: rotate(-90deg);
+.app-splash-progress-fill {
+    position: relative;
+    height: 100%;
+    width: calc(var(--blazor-load-percentage, 0) * 1%);
+    min-width: 0;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--primary) 100%);
+    box-shadow: 0 0 12px rgba(146, 217, 89, 0.45);
+    transition: width 0.2s ease-out;
 }
 
-.loading-progress circle:last-child {
-    stroke: var(--border-subtle);
-    stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
-}
-
-.loading-progress-text {
+.app-splash-progress-fill::after {
+    content: "";
     position: absolute;
-    text-align: center;
-    font-weight: bold;
-    inset: calc(20vh + 3.25rem) 0 auto 0.2rem;
-    color: var(--text-primary);
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.35) 50%,
+        transparent 100%
+    );
+    transform: translateX(-100%);
+    animation: app-splash-shimmer 1.4s ease-in-out infinite;
 }
 
-.loading-progress-text:after {
+@keyframes app-splash-shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(200%);
+    }
+}
+
+.app-splash-status {
+    margin: 0;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.loading-progress-text::after {
     content: var(--blazor-load-percentage-text, "Loading");
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-splash-progress-fill::after {
+        animation: none;
+    }
+
+    .app-splash-progress-fill {
+        transition: none;
+    }
 }
 
 *:focus-visible {

@@ -5,11 +5,11 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
 
-<div class="integration-keys-page">
+<div class="integration-keys-page page-content">
     <header class="integration-keys-header">
         <div>
-            <h1>Integration Keys</h1>
-            <p>Manage API credentials and authentication tokens for your enterprise services.</p>
+            <h1 class="page-title">Integration Keys</h1>
+            <p class="page-subtitle">Manage API credentials and authentication tokens for your enterprise services.</p>
         </div>
         <button type="button" class="btn-generate-key" @onclick="OpenGenerateDialogAsync">
             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
@@ -40,11 +40,11 @@
                     <span class="integration-keys-stat-value">@ActiveKeyCount</span>
                 </div>
                 <div class="integration-keys-stat-card">
-                    <span class="integration-keys-stat-label">Requests / 24h</span>
+                    <span class="integration-keys-stat-label">Requests / 24h <span class="demo-badge">Demo data</span></span>
                     <span class="integration-keys-stat-value">1.2M</span>
                 </div>
                 <div class="integration-keys-stat-card">
-                    <span class="integration-keys-stat-label">Avg Latency</span>
+                    <span class="integration-keys-stat-label">Avg Latency <span class="demo-badge">Demo data</span></span>
                     <span class="integration-keys-stat-value">14ms</span>
                 </div>
             </section>
@@ -169,7 +169,7 @@
                 ["Title"] = "Rotate Integration Key",
                 ["Message"] = "Creating a new key will revoke the existing active key for this service. Any app using the old key will fail validation. Continue?",
                 ["ConfirmText"] = "Generate"
-            });
+            }, PlatformDialogOptions.Confirm);
             var confirmResult = await confirm.Result;
             if (confirmResult?.Canceled is not false)
                 return;
@@ -200,17 +200,8 @@
         }
     }
 
-    private async Task ShowRevealDialogAsync(string plainKey, string serviceName, string serviceCode)
-    {
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = false,
-            BackdropClick = false,
-            MaxWidth = MaxWidth.Small,
-            FullWidth = true
-        };
-
-        await DialogService.ShowAsync<IntegrationKeyRevealDialog>(
+    private Task ShowRevealDialogAsync(string plainKey, string serviceName, string serviceCode) =>
+        DialogService.ShowAsync<IntegrationKeyRevealDialog>(
             "Integration Key Created",
             new DialogParameters
             {
@@ -218,8 +209,7 @@
                 [nameof(IntegrationKeyRevealDialog.ServiceName)] = serviceName,
                 [nameof(IntegrationKeyRevealDialog.ServiceCode)] = serviceCode
             },
-            options);
-    }
+            PlatformDialogOptions.KeyReveal);
 
     private async Task RevokeAsync(string id)
     {
@@ -231,7 +221,7 @@
             ["Title"] = "Revoke Integration Key",
             ["Message"] = $"Are you absolutely sure you want to revoke this key for {product?.Name ?? "this service"}? This action is irreversible and will immediately disconnect the associated service.",
             ["ConfirmText"] = "Revoke"
-        });
+        }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;

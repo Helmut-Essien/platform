@@ -5,7 +5,7 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<div class="services-page">
+<div class="services-page page-content">
     @if (_showKeyPrompt)
     {
         <div class="services-success-banner">
@@ -25,8 +25,8 @@
 
     <header class="services-header">
         <div>
-            <h1>Service Catalog</h1>
-            <p>Manage microservices, API endpoints, and system-level integrations.</p>
+            <h1 class="page-title">Service Catalog</h1>
+            <p class="page-subtitle">Manage microservices, API endpoints, and system-level integrations.</p>
         </div>
         <button type="button" class="btn-add-service" @onclick="OpenCreateDialogAsync">
             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
@@ -50,7 +50,7 @@
                     <span class="services-stat-value">@ActiveServiceCount</span>
                 </div>
                 <div class="services-stat-card">
-                    <span class="services-stat-label">System Uptime</span>
+                    <span class="services-stat-label">System Uptime <span class="demo-badge">Demo data</span></span>
                     <span class="services-stat-value services-stat-value-neutral">99.98%</span>
                 </div>
                 <div class="services-stat-card">
@@ -149,7 +149,7 @@
         {
             <section class="services-insights">
                 <div class="services-insight-card">
-                    <h3>Service Performance Matrix</h3>
+                    <h3>Service Performance Matrix <span class="demo-badge">Demo data</span></h3>
                     <div class="services-chart-placeholder" aria-hidden="true">
                         @foreach (var height in _chartHeights)
                         {

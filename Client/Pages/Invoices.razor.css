@@ -1,5 +1,4 @@
 .invoices-page {
-    max-width: 1600px;
     display: flex;
     flex-direction: column;
     gap: 2rem;
@@ -17,21 +16,6 @@
         align-items: flex-end;
         justify-content: space-between;
     }
-}
-
-.invoices-header h1 {
-    font-size: 2rem;
-    line-height: 2.5rem;
-    font-weight: 600;
-    color: var(--primary, #92d959);
-    margin: 0;
-    letter-spacing: -0.02em;
-}
-
-.invoices-header p {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin: 0.25rem 0 0;
 }
 
 .invoices-header-actions {

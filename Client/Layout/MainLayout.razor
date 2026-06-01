@@ -24,10 +24,6 @@
             <MudSpacer />
             <div class="app-bar-actions">
                 <MudButton Variant="Variant.Text" Class="logout-btn" OnClick="Logout">Logout</MudButton>
-                <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
-                               Color="Color.Primary"
-                               aria-label="Account"
-                               Class="account-btn" />
             </div>
         </div>
 
@@ -43,23 +39,11 @@
             </div>
             <MudSpacer />
             <div class="app-bar-desktop-end">
-                <button type="button" class="app-bar-search-chip" @onclick="OpenSearchPlaceholder" aria-label="Open search (Cmd+K)">
-                    <MudIcon Icon="@Icons.Material.Filled.Search" Size="Size.Small" Class="search-chip-icon" />
-                    <span class="search-chip-label">Cmd + K</span>
-                </button>
-                <MudIconButton Icon="@Icons.Material.Filled.Notifications"
-                               Color="Color.Inherit"
-                               aria-label="Notifications"
-                               Class="notifications-btn" />
                 <div class="app-bar-user-cluster">
                     <div class="app-bar-user-meta">
                         <p class="app-bar-user-name">@DisplayName</p>
                         <p class="app-bar-user-role">Superuser</p>
                     </div>
-                    <MudIconButton Icon="@Icons.Material.Filled.AccountCircle"
-                                   Color="Color.Primary"
-                                   aria-label="Account"
-                                   Class="account-btn account-btn-filled" />
                     <MudButton Variant="Variant.Text" Class="logout-btn" OnClick="Logout">Logout</MudButton>
                 </div>
             </div>
@@ -177,18 +161,6 @@
         catch
         {
             return false;
-        }
-    }
-
-    private async Task OpenSearchPlaceholder()
-    {
-        try
-        {
-            await JS.InvokeVoidAsync("platformShell.openSearchPlaceholder");
-        }
-        catch
-        {
-            // stub unavailable
         }
     }
 

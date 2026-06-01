@@ -6,11 +6,11 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
 
-<div class="invoices-page">
+<div class="invoices-page page-content">
     <header class="invoices-header">
         <div>
-            <h1>Invoices</h1>
-            <p>Manage billing, customer accounts, and transaction history.</p>
+            <h1 class="page-title">Invoices</h1>
+            <p class="page-subtitle">Manage billing, customer accounts, and transaction history.</p>
         </div>
         <div class="invoices-header-actions">
             <button type="button" class="btn-create-invoice" @onclick="CreateInvoiceAsync">
@@ -33,6 +33,7 @@
                 <div class="invoices-stat-footnote positive">
                     <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Small" />
                     <span>+12.5% vs last month</span>
+                    <span class="demo-badge">Demo data</span>
                 </div>
             </div>
             <div class="invoices-stat-card">
@@ -204,7 +205,7 @@
                 <div class="invoices-insight-icon-bg">
                     <MudIcon Icon="@Icons.Material.Filled.SettingsSuggest" />
                 </div>
-                <h3>Automated Billing Rules</h3>
+                <h3>Automated Billing Rules <span class="demo-badge">Demo data</span></h3>
                 <p>Configure automated retry logic for failed payments and custom grace periods for recurring service contracts. Current success rate: 98.4%.</p>
                 <button type="button" class="btn-insight" @onclick="ShowBillingSettingsInfo">VIEW SETTINGS</button>
             </div>
@@ -394,7 +395,7 @@
             ["Title"] = "Void Invoice",
             ["Message"] = $"Void invoice {invoice.InvoiceNumber}? This cannot be undone.",
             ["ConfirmText"] = "Void"
-        });
+        }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;

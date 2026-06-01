@@ -5,11 +5,11 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<div class="customers-page">
+<div class="customers-page page-content">
     <header class="customers-header">
         <div>
-            <h1>Customers</h1>
-            <p>Manage platform accounts, licensing, and billing entities.</p>
+            <h1 class="page-title">Customers</h1>
+            <p class="page-subtitle">Manage platform accounts, licensing, and billing entities.</p>
         </div>
         <button type="button" class="btn-new-customer" @onclick="OpenCreateDialogAsync">
             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
@@ -29,8 +29,8 @@
                       DebounceInterval="300"
                       OnDebounceIntervalElapsed="ReloadGrid" />
         <div class="customers-filters-actions">
-            <MudSelect T="string" Value="_statusFilter" ValueChanged="OnStatusFilterChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="min-width: 10rem;">
-                <MudSelectItem Value="@("")">All Statuses</MudSelectItem>
+            <MudSelect T="string" Value="_statusFilter" ValueChanged="OnStatusFilterChanged" Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 10rem;">
+                <MudSelectItem Value="@("all")">All Statuses</MudSelectItem>
                 <MudSelectItem Value="@("active")">Active</MudSelectItem>
                 <MudSelectItem Value="@("suspended")">Suspended</MudSelectItem>
             </MudSelect>
@@ -137,7 +137,7 @@
 @code {
     private bool _drawerOpen;
     private string _search = "";
-    private string _statusFilter = "";
+    private string _statusFilter = "all";
     private string _dateFilter = "all";
     private MudDataGrid<CustomerDto>? _grid;
     private CustomerDto? _selectedCustomer;
@@ -174,7 +174,7 @@
             items = items.Where(c => c.CreatedAt >= cutoff);
         }
 
-        var unfiltered = string.IsNullOrWhiteSpace(_search) && string.IsNullOrEmpty(_statusFilter) && _dateFilter == "all";
+        var unfiltered = string.IsNullOrWhiteSpace(_search) && _statusFilter == "all" && _dateFilter == "all";
 
         return new GridData<CustomerDto>
         {
@@ -191,7 +191,7 @@
 
     private async Task OnStatusFilterChanged(string? value)
     {
-        _statusFilter = value ?? "";
+        _statusFilter = string.IsNullOrEmpty(value) ? "all" : value;
         await ReloadGrid();
     }
 
@@ -264,7 +264,7 @@
             ["Title"] = "Suspend Customer",
             ["Message"] = "All licenses for this customer will be denied immediately. Continue?",
             ["ConfirmText"] = "Suspend"
-        });
+        }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;
@@ -287,7 +287,7 @@
             ["Title"] = "Reactivate Customer",
             ["Message"] = $"Reactivate {customer.Name}? Deny-lists will be cleared.",
             ["ConfirmText"] = "Reactivate"
-        });
+        }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
             return;

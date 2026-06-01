@@ -3,10 +3,10 @@
 @inject PlatformApiClient Api
 @inject NavigationManager Navigation
 
-<div class="dashboard-page">
+<div class="dashboard-page page-content">
     <header class="dashboard-header">
-        <h1>Dashboard</h1>
-        <p>Platform overview and performance metrics.</p>
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">Platform overview and performance metrics.</p>
     </header>
 
     @if (_loading)
@@ -146,7 +146,7 @@
                     <div class="platform-health-watermark" aria-hidden="true">
                         <MudIcon Icon="@Icons.Material.Filled.Analytics" />
                     </div>
-                    <h3 class="platform-health-label">Platform Health</h3>
+                    <h3 class="platform-health-label">Platform Health <span class="demo-badge">Demo data</span></h3>
                     <div class="health-metric">
                         <div class="health-metric-head">
                             <span>API Uptime</span>
