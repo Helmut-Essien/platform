@@ -85,6 +85,9 @@ if (app.Environment.IsDevelopment())
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseCors("Client");
 
 app.UseAuthentication();
@@ -92,5 +95,6 @@ app.UseAuthorization();
 app.UseRateLimiter();
 
 app.MapControllers();
+app.MapFallbackToFile("index.html");
 
 app.Run();

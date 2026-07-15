@@ -19,12 +19,4 @@
     <ProjectReference Include="..\Shared\Shared.csproj" />
   </ItemGroup>
 
-  <Target Name="SetApiBaseUrl" BeforeTargets="BeforeBuild" Condition="'$(ApiBaseUrl)' != ''">
-    <WriteLinesToFile
-      File="wwwroot/appsettings.json"
-      Lines='{ "ApiBaseUrl": "$(ApiBaseUrl)" }'
-      Overwrite="true"
-      WriteOnlyWhenDifferent="false" />
-  </Target>
-
 </Project>

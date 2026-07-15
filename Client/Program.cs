@@ -22,8 +22,11 @@ builder.Services.AddScoped<ApiErrorHandler>();
 builder.Services.AddScoped<PlatformApiClient>();
 builder.Services.AddHttpClient<PlatformApiClient>(client =>
 {
-    var baseUrl = builder.Configuration["ApiBaseUrl"] ?? "http://localhost:5176";
-    client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+    var configBaseUrl = builder.Configuration["ApiBaseUrl"];
+    var baseUrl = !string.IsNullOrEmpty(configBaseUrl)
+        ? configBaseUrl.TrimEnd('/') + "/"
+        : builder.HostEnvironment.BaseAddress;
+    client.BaseAddress = new Uri(baseUrl);
 })
 .AddHttpMessageHandler<JwtAuthorizationMessageHandler>()
 .AddHttpMessageHandler<ApiErrorHandler>();
