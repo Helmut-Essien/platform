@@ -16,12 +16,20 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-                         ?? Environment.GetEnvironmentVariable("DB_CONNECTION");
+var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? Environment.GetEnvironmentVariable("DB_CONNECTION")
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+
+var connectionString = rawConnectionString?.Trim();
+
+Console.Error.WriteLine($"[Startup] ConnectionStrings__DefaultConnection  = {builder.Configuration.GetConnectionString("DefaultConnection") ?? "(null)"}");
+Console.Error.WriteLine($"[Startup] DB_CONNECTION                       = {Environment.GetEnvironmentVariable("DB_CONNECTION") ?? "(null)"}");
+Console.Error.WriteLine($"[Startup] DATABASE_URL                        = {Environment.GetEnvironmentVariable("DATABASE_URL") ?? "(null)"}");
+Console.Error.WriteLine($"[Startup] Resolved (len={connectionString?.Length ?? -1})     = '{connectionString?[..Math.Min(60, connectionString.Length)]}...'");
 
 if (string.IsNullOrEmpty(connectionString))
     throw new InvalidOperationException(
-        "Database connection string is missing. Set ConnectionStrings__DefaultConnection or DB_CONNECTION.");
+        "Database connection string is missing. Set ConnectionStrings__DefaultConnection, DB_CONNECTION, or DATABASE_URL.");
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
