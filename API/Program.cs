@@ -16,8 +16,15 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownProxies.Clear();
 });
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+                         ?? Environment.GetEnvironmentVariable("DB_CONNECTION");
+
+if (string.IsNullOrEmpty(connectionString))
+    throw new InvalidOperationException(
+        "Database connection string is missing. Set ConnectionStrings__DefaultConnection or DB_CONNECTION.");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(connectionString));
 
 builder.Services.AddPlatformAuthentication(builder.Configuration);
 builder.Services.AddPlatformEmail(builder.Configuration);
