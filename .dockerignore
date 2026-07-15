@@ -1,0 +1,10 @@
+**/bin
+**/obj
+**/.git
+**/.github
+**/.vscode
+**/.cursor
+**/node_modules
+**/.vs
+docker-compose.yml
+*.md

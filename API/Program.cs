@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -7,6 +8,13 @@ using Platform.Api.Extensions;
 using Platform.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -19,12 +27,18 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("Client", policy =>
     {
-        policy.WithOrigins(
-                "http://localhost:5154",
-                "https://localhost:7296",
-                "http://localhost:5173",
-                "https://localhost:7173",
-                "http://localhost:5174")
+        var configOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
+        var devOrigins = new[]
+        {
+            "http://localhost:5154",
+            "https://localhost:7296",
+            "http://localhost:5173",
+            "https://localhost:7173",
+            "http://localhost:5174"
+        };
+        var allOrigins = configOrigins.Concat(devOrigins).Distinct().ToArray();
+
+        policy.WithOrigins(allOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -68,6 +82,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 
 app.UseCors("Client");
