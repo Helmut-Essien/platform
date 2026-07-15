@@ -25,4 +25,6 @@ public interface ILicenseService
     Task<LicenseDto> ActivateAsync(string id, ActivateLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<LicenseDto> RenewAsync(string id, RenewLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    Task<LicenseDto> ResendKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 }

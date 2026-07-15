@@ -85,6 +85,16 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<ServiceProductDto>(response, ct);
     }
 
+    public async Task<(bool Success, string? ErrorMessage)> DeleteServiceProductAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.DeleteAsync($"api/serviceproducts/{id}", ct);
+        if (response.IsSuccessStatusCode)
+            return (true, null);
+
+        var errorMessage = await GetErrorMessageAsync(response, ct);
+        return (false, errorMessage ?? "Failed to delete service product.");
+    }
+
     public async Task<PagedResult<LicenseDto>> GetLicensesPagedAsync(
         string? customerId = null,
         int page = 1,
@@ -146,6 +156,12 @@ public class PlatformApiClient(HttpClient http)
     public async Task<ApiResult<LicenseDto>> RevokeLicenseAsync(string id, CancellationToken ct = default)
     {
         var response = await http.PostAsync($"api/licenses/{id}/revoke", null, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
+
+    public async Task<ApiResult<LicenseDto>> ResendLicenseKeyAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/licenses/{id}/resend-key", null, ct);
         return await ToApiResultAsync<LicenseDto>(response, ct);
     }
 

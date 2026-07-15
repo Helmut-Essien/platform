@@ -8,6 +8,7 @@ public enum AuditAction
     CustomerReactivated,
     ServiceProductCreated,
     ServiceProductUpdated,
+    ServiceProductDeleted,
     LicenseIssued,
     LicenseUpdated,
     LicenseActivated,

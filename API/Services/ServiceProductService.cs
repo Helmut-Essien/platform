@@ -93,6 +93,40 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         return MapProduct(product, licenseCount, hasKey);
     }
 
+    public async Task DeleteAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var product = await db.ServiceProducts
+            .Include(p => p.Licenses)
+            .FirstOrDefaultAsync(p => p.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("Service product not found.");
+
+        if (product.Licenses.Count > 0)
+            throw new InvalidOperationException("Cannot delete a service product that has active licenses.");
+
+        var hasInvoices = await db.Invoices.AnyAsync(i => i.ServiceProductId == id, cancellationToken);
+        if (hasInvoices)
+            throw new InvalidOperationException("Cannot delete a service product that has associated invoices.");
+
+        var hasActiveIntegrationKeys = await db.IntegrationKeys.AnyAsync(k => k.ServiceProductId == id && k.IsActive, cancellationToken);
+        if (hasActiveIntegrationKeys)
+            throw new InvalidOperationException("Cannot delete a service product that has active integration keys.");
+
+        var revokedKeys = await db.IntegrationKeys
+            .Where(k => k.ServiceProductId == id && !k.IsActive)
+            .ToListAsync(cancellationToken);
+        db.IntegrationKeys.RemoveRange(revokedKeys);
+
+        db.ServiceProducts.Remove(product);
+        await db.SaveChangesAsync(cancellationToken);
+
+        await auditLog.WriteAsync(AuditAction.ServiceProductDeleted, performedBy, null, null, null,
+            $$"""{"serviceProductId":"{{id}}","code":"{{product.Code}}"}""", ipAddress, cancellationToken);
+    }
+
     private static ServiceProductDto MapProduct(ServiceProduct product, int licenseCount, bool hasActiveKey) => new()
     {
         Id = product.Id,

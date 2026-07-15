@@ -1,7 +1,9 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Helpers;
+using Platform.Api.Services.Email;
 using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Enums;
@@ -10,7 +12,9 @@ namespace Platform.Api.Services;
 
 public class BillingService(
     AppDbContext db,
-    IAuditLogService auditLog) : IBillingService
+    IAuditLogService auditLog,
+    IEmailSender emailSender,
+    ILogger<BillingService> logger) : IBillingService
 {
     private const int MaxNumberGenerationAttempts = 3;
 
@@ -48,7 +52,7 @@ public class BillingService(
             InvoiceNumber = string.Empty,
             Status = request.Status,
             IssueDate = now,
-            DueDate = request.DueDate,
+            DueDate = DateTimeNormalizer.ToUtc(request.DueDate),
             Currency = request.Currency.ToUpperInvariant(),
             Subtotal = request.Subtotal,
             TaxAmount = request.TaxAmount,
@@ -70,6 +74,11 @@ public class BillingService(
         {
             await auditLog.WriteAsync(AuditAction.InvoiceLinkedToLicense, performedBy, request.CustomerId,
                 request.LicenseId, invoice.Id, null, ipAddress, cancellationToken);
+        }
+
+        if (invoice.Status == InvoiceStatus.Sent)
+        {
+            await SendInvoiceEmailAsync(customer, invoice, cancellationToken);
         }
 
         return await MapInvoiceAsync(invoice.Id, cancellationToken)
@@ -202,7 +211,7 @@ public class BillingService(
             InvoiceId = invoiceId,
             ReceiptNumber = string.Empty,
             AmountPaid = request.AmountPaid,
-            PaidAt = request.PaidAt ?? now,
+            PaidAt = DateTimeNormalizer.ToUtc(request.PaidAt) ?? now,
             PaymentMethod = request.PaymentMethod,
             PaymentReference = request.PaymentReference,
             Notes = request.Notes,
@@ -301,6 +310,53 @@ public class BillingService(
         var count = await db.Receipts.CountAsync(r => r.ReceiptNumber.StartsWith(prefix), cancellationToken);
 
         return $"{prefix}{(count + 1):D5}";
+    }
+
+    private async Task SendInvoiceEmailAsync(Customer customer, Invoice invoice, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var subject = $"Invoice {invoice.InvoiceNumber} from Platform License Hub";
+            var htmlBody = BuildInvoiceEmailBody(customer.Name, invoice);
+            await emailSender.SendAsync(customer.ContactEmail, subject, htmlBody, cancellationToken);
+            logger.LogInformation("Invoice email sent for {InvoiceNumber} to {Recipient}", invoice.InvoiceNumber, customer.ContactEmail);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to send invoice email for {InvoiceNumber} to {Recipient}", invoice.InvoiceNumber, customer.ContactEmail);
+        }
+    }
+
+    private static string BuildInvoiceEmailBody(string customerName, Invoice invoice)
+    {
+        var currencySymbol = invoice.Currency switch
+        {
+            "USD" => "$",
+            "EUR" => "€",
+            "GBP" => "£",
+            "GHS" => "GH₵",
+            _ => invoice.Currency + " "
+        };
+
+        var dueDate = invoice.DueDate?.ToString("MMMM dd, yyyy") ?? "Upon receipt";
+
+        return $"""
+            <html><body style="font-family:sans-serif;color:#1a1a1a;">
+            <p>Hello {WebUtility.HtmlEncode(customerName)},</p>
+            <p>A new invoice has been issued for your account:</p>
+            <table style="border-collapse:collapse;width:100%;max-width:480px;">
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Invoice</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{WebUtility.HtmlEncode(invoice.InvoiceNumber)}</td></tr>
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Date</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{invoice.IssueDate:MMMM dd, yyyy}</td></tr>
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Due Date</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{dueDate}</td></tr>
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Plan</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{WebUtility.HtmlEncode(invoice.PlanName ?? "—")}</td></tr>
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Description</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{WebUtility.HtmlEncode(invoice.Description ?? "—")}</td></tr>
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Subtotal</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{currencySymbol}{invoice.Subtotal:N2}</td></tr>
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Tax</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{currencySymbol}{invoice.TaxAmount:N2}</td></tr>
+              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Total</strong></td><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold;">{currencySymbol}{invoice.TotalAmount:N2}</td></tr>
+            </table>
+            <p style="margin-top:16px;color:#666;">Thank you for your business.</p>
+            </body></html>
+            """;
     }
 
     private async Task<InvoiceDto?> MapInvoiceAsync(string id, CancellationToken cancellationToken)

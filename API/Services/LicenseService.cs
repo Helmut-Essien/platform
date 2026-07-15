@@ -36,7 +36,7 @@ public class LicenseService(
             CustomerId = request.CustomerId,
             ServiceProductId = request.ServiceProductId,
             Status = LicenseStatus.Pending,
-            ExpiresAt = request.ExpiresAt,
+            ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt),
             PlanName = request.PlanName,
             CreatedAt = now,
             UpdatedAt = now
@@ -169,7 +169,7 @@ public class LicenseService(
         var now = DateTime.UtcNow;
         license.Status = LicenseStatus.Active;
         if (request.ExpiresAt.HasValue)
-            license.ExpiresAt = request.ExpiresAt;
+            license.ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt);
         license.UpdatedAt = now;
 
         await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: true, cancellationToken);
@@ -204,7 +204,7 @@ public class LicenseService(
             throw new InvalidOperationException("Cannot update a revoked license.");
 
         license.PlanName = request.PlanName.Trim();
-        license.ExpiresAt = request.ExpiresAt;
+        license.ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt);
         license.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);
@@ -265,6 +265,34 @@ public class LicenseService(
 
         await auditLog.WriteAsync(AuditAction.LicenseRevoked, performedBy, license.CustomerId, license.Id,
             null, null, ipAddress, cancellationToken);
+
+        return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
+            ?? throw new InvalidOperationException("Failed to load license.");
+    }
+
+    public async Task<LicenseDto> ResendKeyAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var license = await db.Licenses
+            .Include(l => l.Customer)
+            .Include(l => l.ServiceProduct)
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("License not found.");
+
+        if (license.Customer.IsSuspended)
+            throw new InvalidOperationException("Customer is suspended.");
+
+        if (license.Status is LicenseStatus.Revoked)
+            throw new InvalidOperationException("Cannot resend key for a revoked license.");
+
+        await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: false, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+
+        await auditLog.WriteAsync(AuditAction.LicenseKeyRotated, performedBy, license.CustomerId, license.Id,
+            null, """{"source":"resend"}""", ipAddress, cancellationToken);
 
         return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load license.");

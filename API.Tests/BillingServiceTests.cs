@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Services;
+using Platform.Api.Services.Email;
 using Platform.Shared.Dtos.Audit;
 using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Enums;
@@ -17,7 +19,8 @@ public class BillingServiceTests
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
         var auditLog = new FakeAuditLogService();
-        var service = new BillingService(db, auditLog);
+        var emailSender = new CapturingEmailSender();
+        var service = CreateBillingService(db, auditLog, emailSender);
 
         var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
         {
@@ -43,14 +46,65 @@ public class BillingServiceTests
     }
 
     [Fact]
-    public async Task CreateInvoiceAsync_DoesNotSendEmailInCurrentBillingFlow()
+    public async Task CreateInvoiceAsync_SendsEmailWhenStatusIsSent()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var emailSender = new CapturingEmailSender();
+        var service = CreateBillingService(db, emailSender: emailSender);
+
+        await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = 100m,
+            TaxAmount = 20m,
+            PlanName = "Pro",
+            Description = "June 2026 license"
+        }, performedBy: "admin@example.com");
+
+        Assert.Single(emailSender.Messages);
+        var message = emailSender.Messages[0];
+        Assert.Equal("billing@acme.test", message.ToEmail);
+        Assert.Contains("Invoice", message.Subject);
+        Assert.Contains("$100.00", message.HtmlBody);
+        Assert.Contains("$20.00", message.HtmlBody);
+        Assert.Contains("$120.00", message.HtmlBody);
+        Assert.Contains("Pro", message.HtmlBody);
+        Assert.Contains("June 2026 license", message.HtmlBody);
+    }
+
+    [Fact]
+    public async Task CreateInvoiceAsync_DoesNotSendEmailForDraftInvoice()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var emailSender = new CapturingEmailSender();
+        var service = CreateBillingService(db, emailSender: emailSender);
+
+        await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Draft,
+            Currency = "USD",
+            Subtotal = 50m,
+            TaxAmount = 0m
+        }, performedBy: "admin@example.com");
+
+        Assert.Empty(emailSender.Messages);
+    }
+
+    [Fact]
+    public async Task CreateInvoiceAsync_EmailFailureDoesNotThrow()
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
         var auditLog = new FakeAuditLogService();
-        var service = new BillingService(db, auditLog);
+        var emailSender = new ThrowingEmailSender();
+        var service = CreateBillingService(db, auditLog, emailSender);
 
-        await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
         {
             CustomerId = customer.Id,
             Status = InvoiceStatus.Sent,
@@ -59,7 +113,7 @@ public class BillingServiceTests
             TaxAmount = 0m
         }, performedBy: "admin@example.com");
 
-        Assert.DoesNotContain(auditLog.Entries, e => e.Action == AuditAction.ReceiptRecorded);
+        Assert.NotNull(invoice);
         Assert.Single(auditLog.Entries);
         Assert.Equal(AuditAction.InvoiceSent, auditLog.Entries[0].Action);
     }
@@ -69,7 +123,7 @@ public class BillingServiceTests
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db, isSuspended: true);
-        var service = new BillingService(db, new FakeAuditLogService());
+        var service = CreateBillingService(db);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateInvoiceAsync(new CreateInvoiceRequest
@@ -90,7 +144,7 @@ public class BillingServiceTests
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
         var auditLog = new FakeAuditLogService();
-        var service = new BillingService(db, auditLog);
+        var service = CreateBillingService(db, auditLog);
         var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
         {
             CustomerId = customer.Id,
@@ -124,7 +178,7 @@ public class BillingServiceTests
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
-        var service = new BillingService(db, new FakeAuditLogService());
+        var service = CreateBillingService(db);
         var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
         {
             CustomerId = customer.Id,
@@ -154,6 +208,18 @@ public class BillingServiceTests
             .Options;
 
         return new AppDbContext(options);
+    }
+
+    private static BillingService CreateBillingService(
+        AppDbContext db,
+        IAuditLogService? auditLog = null,
+        IEmailSender? emailSender = null)
+    {
+        return new BillingService(
+            db,
+            auditLog ?? new FakeAuditLogService(),
+            emailSender ?? new CapturingEmailSender(),
+            NullLogger<BillingService>.Instance);
     }
 
     private static async Task<Customer> SeedCustomerAsync(AppDbContext db, bool isSuspended = false)
@@ -207,4 +273,33 @@ public class BillingServiceTests
         string? InvoiceId,
         string? DetailsJson,
         string? IpAddress);
+
+    private sealed class CapturingEmailSender : IEmailSender
+    {
+        public List<CapturedEmail> Messages { get; } = [];
+
+        public Task SendAsync(
+            string toEmail,
+            string subject,
+            string htmlBody,
+            CancellationToken cancellationToken = default)
+        {
+            Messages.Add(new CapturedEmail(toEmail, subject, htmlBody));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed record CapturedEmail(string ToEmail, string Subject, string HtmlBody);
+
+    private sealed class ThrowingEmailSender : IEmailSender
+    {
+        public Task SendAsync(
+            string toEmail,
+            string subject,
+            string htmlBody,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("SMTP server unavailable.");
+        }
+    }
 }

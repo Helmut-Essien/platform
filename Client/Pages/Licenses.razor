@@ -151,6 +151,13 @@
                         }
                         <div class="cell-right" @onclick:stopPropagation="true">
                             <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                @if (KeyWasSent(context.Item))
+                                {
+                                    <MudMenuItem OnClick="@(() => ResendKeyAsync(context.Item))">
+                                        <MudIcon Icon="@Icons.Material.Filled.Mail" Size="Size.Small" Class="mr-2" />
+                                        Resend Key
+                                    </MudMenuItem>
+                                }
                                 @if (license.Status is LicenseStatus.Pending or LicenseStatus.Suspended or LicenseStatus.Expired)
                                 {
                                     <MudMenuItem OnClick="@(() => ActivateAsync(license))">Activate</MudMenuItem>
@@ -445,10 +452,43 @@
         await ReloadGrid();
     }
 
-    private Task BulkResendKeysAsync()
+    private async Task ResendKeyAsync(LicenseDto license)
     {
-        Snackbar.Add("Resend keys is not available yet. Activate or renew licenses to email keys.", Severity.Info);
-        return Task.CompletedTask;
+        var confirmed = await DialogService.ShowMessageBox(
+            "Resend License Key",
+            $"A new key will be generated for {license.CustomerName} — {license.PlanName} and emailed to the customer. Continue?",
+            yesText: "Resend",
+            cancelText: "Cancel");
+
+        if (confirmed is not true)
+            return;
+
+        var result = await Api.ResendLicenseKeyAsync(license.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.ErrorMessage ?? "Failed to resend key.", Severity.Error);
+            return;
+        }
+
+        await ShowResultDialog(result.Data!, "Key Resent");
+        await ReloadGrid();
+    }
+
+    private async Task BulkResendKeysAsync()
+    {
+        var resendable = _selected.Where(KeyWasSent).ToList();
+        if (resendable.Count == 0)
+        {
+            Snackbar.Add("No licenses with previously sent keys selected.", Severity.Warning);
+            return;
+        }
+
+        var results = await Task.WhenAll(resendable.Select(l => Api.ResendLicenseKeyAsync(l.Id)));
+        var success = results.Count(r => r.IsSuccess);
+
+        Snackbar.Add($"Key resent for {success} of {resendable.Count} license(s).", success == resendable.Count ? Severity.Success : Severity.Warning);
+        _selected.Clear();
+        await ReloadGrid();
     }
 
     private async Task BulkRenewAsync()

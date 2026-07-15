@@ -11,4 +11,6 @@ public interface IServiceProductService
     Task<ServiceProductDto> CreateAsync(CreateServiceProductRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<ServiceProductDto> UpdateAsync(string id, UpdateServiceProductRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    Task DeleteAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 }

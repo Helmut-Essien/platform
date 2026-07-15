@@ -162,4 +162,23 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    [HttpPost("{id}/resend-key")]
+    public async Task<ActionResult<LicenseDto>> ResendKey(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var license = await licenses.ResendKeyAsync(
+                id,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+
+            return Ok(license);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }

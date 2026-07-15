@@ -131,6 +131,11 @@
                                                Size="Size.Small"
                                                aria-label="Edit service"
                                                OnClick="@(() => EditAsync(product))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Size="Size.Small"
+                                               Color="Color.Error"
+                                               aria-label="Delete service"
+                                               OnClick="@(() => DeleteAsync(product))" />
                                 <MudIconButton Icon="@Icons.Material.Filled.Key"
                                                Size="Size.Small"
                                                aria-label="View integration keys"
@@ -279,6 +284,29 @@
         }
 
         Snackbar.Add("Service updated.", Severity.Success);
+        await ReloadAsync();
+    }
+
+    private async Task DeleteAsync(ServiceProductDto product)
+    {
+        var confirmed = await DialogService.ShowMessageBox(
+            "Delete Service",
+            $"Are you sure you want to delete \"{product.Name}\" ({product.Code})? This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed is not true)
+            return;
+
+        var (success, errorMessage) = await Api.DeleteServiceProductAsync(product.Id);
+
+        if (!success)
+        {
+            Snackbar.Add(errorMessage ?? "Failed to delete service.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add($"\"{product.Name}\" deleted.", Severity.Success);
         await ReloadAsync();
     }
 

@@ -69,4 +69,23 @@ public class ServiceProductsController(IServiceProductService serviceProducts) :
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    [HttpDelete("{id}")]
+    public async Task<ActionResult> Delete(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await serviceProducts.DeleteAsync(
+                id,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+
+            return NoContent();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }
