@@ -45,6 +45,66 @@ The audit log provides a historical view of actions taken across the system. It 
 
 The validation flow gives administrators a quick way to test and confirm whether a license is behaving as expected. This helps reduce friction when debugging or verifying product activation scenarios.
 
+## Important API endpoints
+
+The backend exposes a set of administrative endpoints that power the UI and the core business workflows. Here are some of the most important ones:
+
+### Authentication
+
+- POST /api/auth/login: authenticates an admin user and returns a JWT token for accessing protected endpoints.
+- GET /api/auth/me: returns the current authenticated user details and role claims.
+
+### Dashboard
+
+- GET /api/dashboard/stats: returns high-level summary metrics used by the admin dashboard, such as counts and operational health indicators.
+
+### Customers
+
+- GET /api/customers: lists customers with pagination support.
+- GET /api/customers/{id}: retrieves a single customer by ID.
+- POST /api/customers: creates a new customer record.
+- PUT /api/customers/{id}: updates customer information.
+- POST /api/customers/{id}/suspend and POST /api/customers/{id}/reactivate: change a customer’s active state.
+
+### Services
+
+- GET /api/serviceproducts: returns the service catalog.
+- GET /api/serviceproducts/{id}: retrieves details for a specific service product.
+- POST /api/serviceproducts: creates a new service product.
+- PUT /api/serviceproducts/{id}: updates an existing service product.
+
+### Licenses
+
+- GET /api/licenses: lists licenses, optionally filtered by customer and pagination.
+- GET /api/licenses/{id}: fetches one license by ID.
+- POST /api/licenses: creates a new license.
+- POST /api/licenses/{id}/activate: activates a license for use.
+- POST /api/licenses/{id}/renew: renews the validity window.
+- POST /api/licenses/{id}/suspend: suspends an active license.
+- POST /api/licenses/{id}/revoke: revokes a license.
+- POST /api/licenses/validate: validates a license against a supplied request and an integration key header.
+
+### Invoices
+
+- GET /api/invoices: lists invoices for billing oversight.
+- GET /api/invoices/{id}: retrieves a specific invoice.
+- POST /api/invoices: creates a new invoice.
+- POST /api/invoices/{id}/void: voids an invoice when needed.
+
+### Integration keys
+
+- GET /api/integration-keys: lists integration keys, optionally filtered by service product.
+- POST /api/integration-keys: creates a new integration key for a service product.
+- POST /api/integration-keys/{id}/revoke: revokes a generated integration key.
+
+### Audit logs
+
+- GET /api/audit-logs: returns audit records for monitoring and investigation.
+
+## API design notes
+
+The API is organized around administrative workflows and uses authentication and authorization to protect critical actions. Most write operations are tied to the identity of the acting admin and store audit context for traceability.
+
 ## Technology stack
 
 - Frontend: Blazor WebAssembly + MudBlazor
