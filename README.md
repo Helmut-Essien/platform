@@ -6,14 +6,44 @@ Platform is a .NET 9 SaaS administration platform for managing customers, servic
 
 The platform is designed for internal admin workflows and supports:
 
-- Customer organization management
-- Service catalog administration
-- License issuance, renewal, suspension, and revocation
-- License validation workflows for integrated services
-- Invoice and billing-related operations
-- Integration key management
-- Audit log review and monitoring
-- A dark-themed admin experience for day-to-day operations
+- Customer organization management for onboarding and maintaining tenant or client accounts
+- Service catalog administration for defining and controlling the software products or services available to customers
+- License issuance, renewal, suspension, and revocation to manage entitlement and access over time
+- License validation workflows for integrated services so administrators can verify license state without leaving the admin hub
+- Invoice and billing-related operations to track revenue activity and payment status
+- Integration key management for connecting services to the platform securely
+- Audit log review and monitoring to keep a historical record of important administrative actions
+- A dark-themed admin experience tailored for operational dashboards and day-to-day platform oversight
+
+## Core modules
+
+### Customers
+
+The customers area is where administrators manage the organizations or accounts that are using the platform. This module provides a central place to view customer details, understand their subscription or service footprint, and keep their account state organized.
+
+### Services
+
+The services module governs the catalog of products or offerings available in the platform. It allows administrators to define service entries, manage their availability, and relate them to customer access and licensing workflows.
+
+### Licenses
+
+Licenses are the core entitlement layer of the application. This module enables admins to create and manage licenses for customers, track their current status, and take actions such as renewal or revocation when business rules require it.
+
+### Invoices
+
+The invoices section supports billing oversight, including review of invoice records and payment-related activity. It helps the admin team keep track of financial operations in a structured and auditable way.
+
+### Integration keys
+
+Integration keys are used to connect services and external integrations securely. This module makes it easier to generate, inspect, and manage the credentials that allow services to interact with the platform.
+
+### Audit log
+
+The audit log provides a historical view of actions taken across the system. It is useful for troubleshooting, compliance, and monitoring who performed what operation and when.
+
+### Validate license
+
+The validation flow gives administrators a quick way to test and confirm whether a license is behaving as expected. This helps reduce friction when debugging or verifying product activation scenarios.
 
 ## Technology stack
 
