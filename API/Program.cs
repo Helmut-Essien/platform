@@ -22,7 +22,7 @@ var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConn
 
 var connectionString = rawConnectionString?.Trim();
 
-Console.Error.WriteLine($"[Startup] Resolved (len={connectionString?.Length ?? -1}) = '{connectionString?[..Math.Min(60, connectionString.Length)]}...'");
+cConsole.Error.WriteLine($"[Startup] Resolved (len={connectionString?.Length ?? -1}) = '{connectionString?[..Math.Min(60, connectionString.Length)]}...'");
 
 if (string.IsNullOrEmpty(connectionString))
     throw new InvalidOperationException(

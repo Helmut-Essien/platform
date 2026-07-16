@@ -43,7 +43,18 @@ public class LicenseKeyDeliveryService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to send license key email to customer {CustomerId}", license.CustomerId);
+            var wasCanceled = ex is OperationCanceledException;
+            logger.LogError(
+                ex,
+                "Failed to send license key email for license {LicenseId} to customer {CustomerId} ({Recipient}). " +
+                "IsRenewal={IsRenewal}. Canceled={WasCanceled}. CancellationRequested={CancellationRequested}. ExceptionType={ExceptionType}",
+                license.Id,
+                license.CustomerId,
+                customer.ContactEmail,
+                isRenewal,
+                wasCanceled,
+                cancellationToken.IsCancellationRequested,
+                ex.GetType().FullName);
             throw new InvalidOperationException("License was updated but the license key email could not be sent.", ex);
         }
     }
