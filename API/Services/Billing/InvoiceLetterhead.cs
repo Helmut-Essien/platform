@@ -6,4 +6,6 @@ public sealed record InvoiceLetterhead(
     string? AddressLine2,
     string? Phone,
     string? Website,
-    byte[]? LogoBytes);
+    byte[]? LogoBytes,
+    string? PaymentMethods = null,
+    string? PaymentDetails = null);

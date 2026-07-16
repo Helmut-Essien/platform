@@ -334,7 +334,9 @@ public class BillingService(
                 profile.AddressLine2,
                 profile.Phone,
                 profile.Website,
-                profile.LogoBytes);
+                profile.LogoBytes,
+                profile.PaymentMethods,
+                profile.PaymentDetails);
             var pdfBytes = invoicePdfGenerator.Generate(invoice, customer, letterhead);
             var attachments = new List<EmailAttachment>
             {

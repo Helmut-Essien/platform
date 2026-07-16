@@ -20,6 +20,12 @@ public class UpdateInvoiceBrandRequest
     [MaxLength(300, ErrorMessage = "Website must be 300 characters or less")]
     public string? Website { get; set; }
 
+    [MaxLength(500, ErrorMessage = "Payment methods must be 500 characters or less")]
+    public string? PaymentMethods { get; set; }
+
+    [MaxLength(2000, ErrorMessage = "Payment details must be 2000 characters or less")]
+    public string? PaymentDetails { get; set; }
+
     /// <summary>Optional new logo as base64 (no data: URL prefix). Max ~2MB decoded.</summary>
     public string? LogoBase64 { get; set; }
 

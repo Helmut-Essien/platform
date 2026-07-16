@@ -66,6 +66,27 @@
                               MaxLength="300" />
             </div>
 
+            <div class="settings-payment-block">
+                <h3 class="settings-logo-title">Payment information</h3>
+                <p class="settings-section-copy">Optional. Shown on invoice PDFs so customers know how to pay.</p>
+                <div class="settings-form-grid">
+                    <MudTextField @bind-Value="_paymentMethods"
+                                  Label="Payment methods"
+                                  Variant="Variant.Outlined"
+                                  HelperText="e.g. Bank transfer, MTN MoMo, Cash"
+                                  MaxLength="500"
+                                  Class="settings-field-full" />
+
+                    <MudTextField @bind-Value="_paymentDetails"
+                                  Label="Payment details"
+                                  Variant="Variant.Outlined"
+                                  Lines="4"
+                                  HelperText="Account numbers, mobile money numbers, payment reference notes…"
+                                  MaxLength="2000"
+                                  Class="settings-field-full" />
+                </div>
+            </div>
+
             <div class="settings-logo-block">
                 <h3 class="settings-logo-title">Logo</h3>
                 <p class="settings-section-copy">PNG, JPEG, or WebP up to 2 MB. If empty, the default HelmutCode logo is used on PDFs.</p>
@@ -116,6 +137,8 @@
     private string? _addressLine2;
     private string? _phone;
     private string? _website;
+    private string? _paymentMethods;
+    private string? _paymentDetails;
     private bool _hasCustomLogo;
     private bool _clearLogo;
     private string? _pendingLogoBase64;
@@ -140,6 +163,8 @@
             _addressLine2 = brand.AddressLine2;
             _phone = brand.Phone;
             _website = brand.Website;
+            _paymentMethods = brand.PaymentMethods;
+            _paymentDetails = brand.PaymentDetails;
             _hasCustomLogo = brand.HasCustomLogo;
             if (_hasCustomLogo)
                 _savedLogoDataUrl = await Api.GetInvoiceBrandLogoDataUrlAsync();
@@ -215,6 +240,8 @@
                 AddressLine2 = _addressLine2,
                 Phone = _phone,
                 Website = _website,
+                PaymentMethods = _paymentMethods,
+                PaymentDetails = _paymentDetails,
                 ClearLogo = _clearLogo,
                 LogoBase64 = _clearLogo ? null : _pendingLogoBase64,
                 LogoContentType = _clearLogo ? null : _pendingLogoContentType

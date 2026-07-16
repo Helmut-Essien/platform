@@ -44,7 +44,9 @@ public class InvoicePdfGeneratorTests
             null,
             "+233 00 000 0000",
             "https://helmutcode.com",
-            LogoBytes: null);
+            LogoBytes: null,
+            PaymentMethods: "Bank transfer, MTN MoMo",
+            PaymentDetails: "Account: 1234567890\nReference: invoice number");
 
         var pdf = generator.Generate(invoice, customer, letterhead);
 

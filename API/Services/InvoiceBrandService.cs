@@ -46,6 +46,8 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         profile.AddressLine2 = NormalizeOptional(request.AddressLine2);
         profile.Phone = NormalizeOptional(request.Phone);
         profile.Website = NormalizeOptional(request.Website);
+        profile.PaymentMethods = NormalizeOptional(request.PaymentMethods);
+        profile.PaymentDetails = NormalizeOptional(request.PaymentDetails);
         profile.UpdatedAt = DateTime.UtcNow;
 
         if (request.ClearLogo)
@@ -135,6 +137,8 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         AddressLine2 = profile.AddressLine2,
         Phone = profile.Phone,
         Website = profile.Website,
+        PaymentMethods = profile.PaymentMethods,
+        PaymentDetails = profile.PaymentDetails,
         HasCustomLogo = profile.LogoBytes is { Length: > 0 },
         LogoContentType = profile.LogoContentType,
         UpdatedAt = profile.UpdatedAt

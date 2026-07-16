@@ -32,6 +32,12 @@ public class InvoiceBrandProfileConfiguration : IEntityTypeConfiguration<Invoice
         builder.Property(p => p.Website)
             .HasMaxLength(300);
 
+        builder.Property(p => p.PaymentMethods)
+            .HasMaxLength(500);
+
+        builder.Property(p => p.PaymentDetails)
+            .HasMaxLength(2000);
+
         builder.Property(p => p.LogoContentType)
             .HasMaxLength(100);
 

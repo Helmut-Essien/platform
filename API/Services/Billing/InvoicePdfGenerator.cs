@@ -140,8 +140,33 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
                 });
             }
 
+            if (HasPaymentInfo(letterhead))
+            {
+                col.Item().PaddingTop(20).Element(e => ComposePaymentInfo(e, letterhead));
+            }
+
             col.Item().PaddingTop(24).Text("Thank you for your business.")
                 .Italic().FontColor(TextMuted);
+        });
+    }
+
+    private static void ComposePaymentInfo(IContainer container, InvoiceLetterhead letterhead)
+    {
+        container.Background(Surface).Border(1).BorderColor(Border).Padding(12).Column(col =>
+        {
+            col.Item().Text("PAYMENT").SemiBold().FontSize(9).FontColor(Accent);
+
+            if (!string.IsNullOrWhiteSpace(letterhead.PaymentMethods))
+            {
+                col.Item().PaddingTop(6).Text("Methods").FontSize(8).FontColor(TextMuted);
+                col.Item().Text(letterhead.PaymentMethods!).SemiBold();
+            }
+
+            if (!string.IsNullOrWhiteSpace(letterhead.PaymentDetails))
+            {
+                col.Item().PaddingTop(8).Text("Details").FontSize(8).FontColor(TextMuted);
+                col.Item().Text(letterhead.PaymentDetails!);
+            }
         });
     }
 
@@ -231,6 +256,10 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
         !string.IsNullOrWhiteSpace(letterhead.AddressLine1)
         || !string.IsNullOrWhiteSpace(letterhead.AddressLine2)
         || !string.IsNullOrWhiteSpace(letterhead.Phone);
+
+    private static bool HasPaymentInfo(InvoiceLetterhead letterhead) =>
+        !string.IsNullOrWhiteSpace(letterhead.PaymentMethods)
+        || !string.IsNullOrWhiteSpace(letterhead.PaymentDetails);
 
     private static byte[]? TryLoadBundledLogo()
     {
