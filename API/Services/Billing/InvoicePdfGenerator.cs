@@ -156,15 +156,18 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
         {
             col.Item().Text("PAYMENT").SemiBold().FontSize(9).FontColor(Accent);
 
-            var first = true;
-            foreach (var option in letterhead.PaymentOptions)
+            col.Item().PaddingTop(6).Row(row =>
             {
-                col.Item().PaddingTop(first ? 6 : 10).Text(option.Method).SemiBold();
-                first = false;
-
-                if (!string.IsNullOrWhiteSpace(option.Details))
-                    col.Item().PaddingTop(2).Text(option.Details!);
-            }
+                foreach (var option in letterhead.PaymentOptions)
+                {
+                    row.RelativeItem().PaddingRight(8).Column(methodCol =>
+                    {
+                        methodCol.Item().Text(option.Method).SemiBold();
+                        if (!string.IsNullOrWhiteSpace(option.Details))
+                            methodCol.Item().PaddingTop(2).Text(option.Details!);
+                    });
+                }
+            });
         });
     }
 
