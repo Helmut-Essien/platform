@@ -80,7 +80,16 @@ public class LicenseValidationService(
         if (await denyList.IsDeniedAsync(matchedLicense.Id, cancellationToken))
             return Invalid("License is not valid.");
 
-        var customerDenied = await cache.GetStringAsync($"customer:deny:{matchedLicense.CustomerId}", cancellationToken);
+        string? customerDenied = null;
+        try
+        {
+            customerDenied = await cache.GetStringAsync($"customer:deny:{matchedLicense.CustomerId}", cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to read customer deny cache for {CustomerId}", matchedLicense.CustomerId);
+        }
+
         if (customerDenied is not null)
             return Invalid("License is not valid.");
 

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Platform.Api.Configuration;
 using Platform.Api.Services;
+using StackExchange.Redis;
 
 namespace Platform.Api.Extensions;
 
@@ -10,13 +11,18 @@ public static class RedisServiceExtensions
     {
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
 
-        var redisConnection = configuration.GetSection(RedisSettings.SectionName)
-            .GetValue<string>("ConnectionString") ?? "localhost:6379";
+        var redisConnection = RedisConnectionStringNormalizer.Resolve(configuration);
+        var options = ConfigurationOptions.Parse(redisConnection);
+        options.AbortOnConnectFail = false;
 
-        services.AddStackExchangeRedisCache(options =>
+        Console.Error.WriteLine(
+            $"[Startup] Redis endpoint(s): {string.Join(", ", options.EndPoints)} " +
+            $"(ssl={options.Ssl}, abortOnConnectFail={options.AbortOnConnectFail})");
+
+        services.AddStackExchangeRedisCache(cacheOptions =>
         {
-            options.Configuration = redisConnection;
-            options.InstanceName = "platform:";
+            cacheOptions.ConfigurationOptions = options;
+            cacheOptions.InstanceName = "platform:";
         });
 
         services.AddSingleton<ILicenseDenyListService, RedisLicenseDenyListService>();
