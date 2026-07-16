@@ -21,6 +21,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 COPY --from=api-build /api-out .
 COPY --from=client-build /client-out/wwwroot wwwroot/
-ENV ASPNETCORE_URLS=http://+:80
+ENV ASPNETCORE_URLS=http://+:80 \
+    DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE=false \
+    DOTNET_USE_POLLING_FILE_WATCHER=1
 EXPOSE 80
 ENTRYPOINT ["dotnet", "API.dll"]
