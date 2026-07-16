@@ -22,14 +22,23 @@ var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConn
 
 var connectionString = rawConnectionString?.Trim();
 
-Console.Error.WriteLine($"[Startup] ConnectionStrings__DefaultConnection  = {builder.Configuration.GetConnectionString("DefaultConnection") ?? "(null)"}");
-Console.Error.WriteLine($"[Startup] DB_CONNECTION                       = {Environment.GetEnvironmentVariable("DB_CONNECTION") ?? "(null)"}");
-Console.Error.WriteLine($"[Startup] DATABASE_URL                        = {Environment.GetEnvironmentVariable("DATABASE_URL") ?? "(null)"}");
-Console.Error.WriteLine($"[Startup] Resolved (len={connectionString?.Length ?? -1})     = '{connectionString?[..Math.Min(60, connectionString.Length)]}...'");
+Console.Error.WriteLine($"[Startup] Resolved (len={connectionString?.Length ?? -1}) = '{connectionString?[..Math.Min(60, connectionString.Length)]}...'");
 
 if (string.IsNullOrEmpty(connectionString))
     throw new InvalidOperationException(
         "Database connection string is missing. Set ConnectionStrings__DefaultConnection, DB_CONNECTION, or DATABASE_URL.");
+
+if (connectionString.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
+{
+    var uri = new Uri(connectionString);
+    var userInfo = uri.UserInfo.Split(':');
+    var username = Uri.UnescapeDataString(userInfo[0]);
+    var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+    var database = uri.AbsolutePath.TrimStart('/');
+    var port = uri.Port > 0 ? uri.Port : 5432;
+    connectionString = $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password}";
+    Console.Error.WriteLine($"[Startup] Converted URI to key=value: {connectionString}");
+}
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
