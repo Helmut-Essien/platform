@@ -9,7 +9,12 @@ namespace Platform.Api.Services.Email;
 
 public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailSender> logger) : IEmailSender
 {
-    public async Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
+    public async Task SendAsync(
+        string toEmail,
+        string subject,
+        string htmlBody,
+        IReadOnlyList<EmailAttachment>? attachments = null,
+        CancellationToken cancellationToken = default)
     {
         var settings = options.Value;
 
@@ -18,8 +23,9 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
 
         var timeoutSeconds = settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : 30;
         var hasCredentials = !string.IsNullOrWhiteSpace(settings.Username);
+        var attachmentCount = attachments?.Count ?? 0;
         logger.LogInformation(
-            "Sending SMTP email to {Recipient} via {SmtpHost}:{SmtpPort} (Ssl={EnableSsl}, Auth={HasCredentials}, From={FromAddress}, TimeoutSeconds={TimeoutSeconds}). Subject: {Subject}",
+            "Sending SMTP email to {Recipient} via {SmtpHost}:{SmtpPort} (Ssl={EnableSsl}, Auth={HasCredentials}, From={FromAddress}, TimeoutSeconds={TimeoutSeconds}, Attachments={AttachmentCount}). Subject: {Subject}",
             toEmail,
             settings.Host,
             settings.Port,
@@ -27,6 +33,7 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
             hasCredentials,
             settings.FromAddress,
             timeoutSeconds,
+            attachmentCount,
             subject);
 
         using var message = new MailMessage
@@ -38,42 +45,61 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         };
         message.To.Add(toEmail);
 
-        using var client = new SmtpClient(settings.Host, settings.Port)
-        {
-            EnableSsl = settings.EnableSsl,
-            Timeout = timeoutSeconds * 1000
-        };
-
-        if (hasCredentials)
-            client.Credentials = new NetworkCredential(settings.Username, settings.Password);
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-
-        var stopwatch = Stopwatch.StartNew();
+        var streams = new List<MemoryStream>();
         try
         {
-            await client.SendMailAsync(message, timeoutCts.Token);
-            stopwatch.Stop();
-            logger.LogInformation(
-                "SMTP email sent to {Recipient} in {ElapsedMs}ms via {SmtpHost}:{SmtpPort}",
-                toEmail,
-                stopwatch.ElapsedMilliseconds,
-                settings.Host,
-                settings.Port);
+            if (attachments is { Count: > 0 })
+            {
+                foreach (var attachment in attachments)
+                {
+                    var stream = new MemoryStream(attachment.Content);
+                    streams.Add(stream);
+                    message.Attachments.Add(new Attachment(stream, attachment.FileName, attachment.ContentType));
+                }
+            }
+
+            using var client = new SmtpClient(settings.Host, settings.Port)
+            {
+                EnableSsl = settings.EnableSsl,
+                Timeout = timeoutSeconds * 1000
+            };
+
+            if (hasCredentials)
+                client.Credentials = new NetworkCredential(settings.Username, settings.Password);
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                await client.SendMailAsync(message, timeoutCts.Token);
+                stopwatch.Stop();
+                logger.LogInformation(
+                    "SMTP email sent to {Recipient} in {ElapsedMs}ms via {SmtpHost}:{SmtpPort}",
+                    toEmail,
+                    stopwatch.ElapsedMilliseconds,
+                    settings.Host,
+                    settings.Port);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                LogSendFailure(
+                    ex,
+                    toEmail,
+                    settings,
+                    stopwatch.ElapsedMilliseconds,
+                    timeoutSeconds,
+                    requestCanceled: cancellationToken.IsCancellationRequested,
+                    smtpTimedOut: !cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested);
+                throw;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            stopwatch.Stop();
-            LogSendFailure(
-                ex,
-                toEmail,
-                settings,
-                stopwatch.ElapsedMilliseconds,
-                timeoutSeconds,
-                requestCanceled: cancellationToken.IsCancellationRequested,
-                smtpTimedOut: !cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested);
-            throw;
+            foreach (var stream in streams)
+                stream.Dispose();
         }
     }
 

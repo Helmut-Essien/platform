@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Services;
+using Platform.Api.Services.Billing;
 using Platform.Api.Services.Email;
 using Platform.Shared.Dtos.Audit;
 using Platform.Shared.Dtos.Billing;
@@ -73,6 +74,12 @@ public class BillingServiceTests
         Assert.Contains("$120.00", message.HtmlBody);
         Assert.Contains("Pro", message.HtmlBody);
         Assert.Contains("June 2026 license", message.HtmlBody);
+        Assert.Contains("attached", message.HtmlBody);
+        Assert.Single(message.Attachments);
+        Assert.Equal("application/pdf", message.Attachments[0].ContentType);
+        Assert.StartsWith("INV-", message.Attachments[0].FileName);
+        Assert.EndsWith(".pdf", message.Attachments[0].FileName);
+        Assert.NotEmpty(message.Attachments[0].Content);
     }
 
     [Fact]
@@ -219,6 +226,8 @@ public class BillingServiceTests
             db,
             auditLog ?? new FakeAuditLogService(),
             emailSender ?? new CapturingEmailSender(),
+            new FakeInvoicePdfGenerator(),
+            new InvoiceBrandService(db),
             NullLogger<BillingService>.Instance);
     }
 
@@ -234,6 +243,12 @@ public class BillingServiceTests
         db.Customers.Add(customer);
         await db.SaveChangesAsync();
         return customer;
+    }
+
+    private sealed class FakeInvoicePdfGenerator : IInvoicePdfGenerator
+    {
+        public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead) =>
+            "%PDF-1.4 fake-invoice"u8.ToArray();
     }
 
     private sealed class FakeAuditLogService : IAuditLogService
@@ -282,14 +297,19 @@ public class BillingServiceTests
             string toEmail,
             string subject,
             string htmlBody,
+            IReadOnlyList<EmailAttachment>? attachments = null,
             CancellationToken cancellationToken = default)
         {
-            Messages.Add(new CapturedEmail(toEmail, subject, htmlBody));
+            Messages.Add(new CapturedEmail(toEmail, subject, htmlBody, attachments?.ToList() ?? []));
             return Task.CompletedTask;
         }
     }
 
-    private sealed record CapturedEmail(string ToEmail, string Subject, string HtmlBody);
+    private sealed record CapturedEmail(
+        string ToEmail,
+        string Subject,
+        string HtmlBody,
+        IReadOnlyList<EmailAttachment> Attachments);
 
     private sealed class ThrowingEmailSender : IEmailSender
     {
@@ -297,6 +317,7 @@ public class BillingServiceTests
             string toEmail,
             string subject,
             string htmlBody,
+            IReadOnlyList<EmailAttachment>? attachments = null,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("SMTP server unavailable.");

@@ -75,6 +75,7 @@ builder.Services.AddScoped<IServiceProductService, ServiceProductService>();
 builder.Services.AddScoped<ILicenseService, LicenseService>();
 builder.Services.AddScoped<IIntegrationKeyService, IntegrationKeyService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IInvoiceBrandService, InvoiceBrandService>();
 
 builder.Services.AddPlatformControllers();
 builder.Services.AddPlatformRateLimiting(builder.Configuration);

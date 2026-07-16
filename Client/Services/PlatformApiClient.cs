@@ -8,6 +8,7 @@ using Platform.Shared.Dtos.Dashboard;
 using Platform.Shared.Dtos.IntegrationKeys;
 using Platform.Shared.Dtos.Licenses;
 using Platform.Shared.Dtos.ServiceProducts;
+using Platform.Shared.Dtos.Settings;
 using Platform.Shared.Enums;
 
 namespace Platform.Client.Services;
@@ -258,6 +259,31 @@ public class PlatformApiClient(HttpClient http)
     {
         var response = await http.PostAsync($"api/integration-keys/{id}/revoke", null, ct);
         return await ToApiResultAsync<IntegrationKeyDto>(response, ct);
+    }
+
+    public async Task<InvoiceBrandDto?> GetInvoiceBrandAsync(CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<InvoiceBrandDto>("api/invoice-brand", ct);
+
+    public async Task<ApiResult<InvoiceBrandDto>> UpdateInvoiceBrandAsync(
+        UpdateInvoiceBrandRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PutAsJsonAsync("api/invoice-brand", request, ct);
+        return await ToApiResultAsync<InvoiceBrandDto>(response, ct);
+    }
+
+    public async Task<string?> GetInvoiceBrandLogoDataUrlAsync(CancellationToken ct = default)
+    {
+        using var response = await http.GetAsync("api/invoice-brand/logo", ct);
+        if (!response.IsSuccessStatusCode)
+            return null;
+
+        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+        if (bytes.Length == 0)
+            return null;
+
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/png";
+        return $"data:{contentType};base64,{Convert.ToBase64String(bytes)}";
     }
 
     private async Task<ApiResult<T>> ToApiResultAsync<T>(HttpResponseMessage response, CancellationToken ct)

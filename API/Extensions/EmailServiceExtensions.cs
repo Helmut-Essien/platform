@@ -1,5 +1,6 @@
 using Platform.Api.Configuration;
 using Platform.Api.Services;
+using Platform.Api.Services.Billing;
 using Platform.Api.Services.Email;
 
 namespace Platform.Api.Extensions;
@@ -43,6 +44,7 @@ public static class EmailServiceExtensions
             $"[Startup] Email provider config: Provider='{provider}' → {selected} " +
             $"(ResendApiKey set={hasResendKey}, Smtp Host set={hasSmtpHost})");
 
+        services.AddSingleton<IInvoicePdfGenerator, InvoicePdfGenerator>();
         services.AddScoped<ILicenseKeyDeliveryService, LicenseKeyDeliveryService>();
 
         return services;

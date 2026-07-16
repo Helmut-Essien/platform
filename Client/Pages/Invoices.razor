@@ -437,7 +437,7 @@
     }
 
     private void ShowBillingSettingsInfo() =>
-        Snackbar.Add("Automated billing rules configuration is coming soon.", Severity.Info);
+        Navigation.NavigateTo("/settings");
 
     private static string Escape(string? value) =>
         (value ?? "").Replace("\"", "\"\"");

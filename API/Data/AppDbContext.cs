@@ -22,6 +22,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<Receipt> Receipts => Set<Receipt>();
 
+    public DbSet<InvoiceBrandProfile> InvoiceBrandProfiles => Set<InvoiceBrandProfile>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

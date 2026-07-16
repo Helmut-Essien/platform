@@ -39,7 +39,7 @@ public class LicenseKeyDeliveryService(
 
         try
         {
-            await emailSender.SendAsync(customer.ContactEmail, subject, htmlBody, cancellationToken);
+            await emailSender.SendAsync(customer.ContactEmail, subject, htmlBody, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {

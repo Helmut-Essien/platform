@@ -1,0 +1,165 @@
+.settings-page {
+    max-width: 52rem;
+}
+
+.settings-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.75rem;
+}
+
+.settings-loading {
+    display: flex;
+    justify-content: center;
+    padding: 3rem 0;
+}
+
+.settings-panel {
+    background: var(--surface-container, #1e1e1e);
+    border: 1px solid rgba(146, 217, 89, 0.12);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+}
+
+.settings-section-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--primary, #92d959);
+}
+
+.settings-section-copy {
+    margin: 0.35rem 0 1.25rem;
+    color: var(--text-secondary, #9aa392);
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.settings-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.settings-field-full {
+    grid-column: 1 / -1;
+}
+
+.settings-logo-block {
+    margin-top: 1.75rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(146, 217, 89, 0.1);
+}
+
+.settings-logo-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.settings-logo-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    align-items: center;
+}
+
+.settings-logo-preview {
+    position: relative;
+    width: 7.5rem;
+    height: 5rem;
+    border-radius: 0.5rem;
+    background: #f4f7f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.settings-logo-preview img {
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+}
+
+.settings-logo-badge {
+    position: absolute;
+    right: 0.35rem;
+    bottom: 0.35rem;
+    font-size: 0.65rem;
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: rgba(16, 21, 12, 0.75);
+    color: #92d959;
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.25rem;
+}
+
+.settings-logo-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.65rem;
+}
+
+.settings-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+}
+
+.btn-save-settings,
+.btn-upload-logo,
+.btn-clear-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: none;
+    border-radius: 0.4rem;
+    cursor: pointer;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.65rem 1rem;
+}
+
+.btn-save-settings {
+    background: var(--primary, #92d959);
+    color: #10150c;
+}
+
+.btn-save-settings:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.btn-upload-logo {
+    background: rgba(146, 217, 89, 0.15);
+    color: var(--primary, #92d959);
+    border: 1px solid rgba(146, 217, 89, 0.35);
+}
+
+.btn-clear-logo {
+    background: transparent;
+    color: var(--text-secondary, #9aa392);
+    border: 1px solid rgba(154, 163, 146, 0.35);
+    padding: 0.45rem 0.85rem;
+}
+
+.settings-logo-filename {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #9aa392);
+}
+
+@media (max-width: 640px) {
+    .settings-form-grid {
+        grid-template-columns: 1fr;
+    }
+}

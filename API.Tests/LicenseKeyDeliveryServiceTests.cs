@@ -116,6 +116,7 @@ public class LicenseKeyDeliveryServiceTests
             string toEmail,
             string subject,
             string htmlBody,
+            IReadOnlyList<EmailAttachment>? attachments = null,
             CancellationToken cancellationToken = default)
         {
             Messages.Add(new EmailMessage(toEmail, subject, htmlBody));

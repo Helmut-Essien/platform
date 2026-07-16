@@ -14,7 +14,12 @@ public class ResendEmailSender(
 {
     public const string HttpClientName = "Resend";
 
-    public async Task SendAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
+    public async Task SendAsync(
+        string toEmail,
+        string subject,
+        string htmlBody,
+        IReadOnlyList<EmailAttachment>? attachments = null,
+        CancellationToken cancellationToken = default)
     {
         var settings = options.Value;
 
@@ -28,22 +33,34 @@ public class ResendEmailSender(
             ? settings.FromAddress
             : $"{settings.FromName} <{settings.FromAddress}>";
 
+        var attachmentCount = attachments?.Count ?? 0;
         logger.LogInformation(
-            "Sending Resend email to {Recipient} from {FromAddress}. Subject: {Subject}",
+            "Sending Resend email to {Recipient} from {FromAddress} with {AttachmentCount} attachment(s). Subject: {Subject}",
             toEmail,
             settings.FromAddress,
+            attachmentCount,
             subject);
 
-        var client = httpClientFactory.CreateClient(HttpClientName);
-        using var request = new HttpRequestMessage(HttpMethod.Post, "emails");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ResendApiKey);
-        request.Content = JsonContent.Create(new ResendSendRequest
+        var payload = new ResendSendRequest
         {
             From = from,
             To = [toEmail],
             Subject = subject,
-            Html = htmlBody
-        });
+            Html = htmlBody,
+            Attachments = attachments is { Count: > 0 }
+                ? attachments.Select(a => new ResendAttachment
+                {
+                    Filename = a.FileName,
+                    Content = Convert.ToBase64String(a.Content),
+                    ContentType = a.ContentType
+                }).ToArray()
+                : null
+        };
+
+        var client = httpClientFactory.CreateClient(HttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "emails");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ResendApiKey);
+        request.Content = JsonContent.Create(payload);
 
         var stopwatch = Stopwatch.StartNew();
         try
@@ -117,5 +134,21 @@ public class ResendEmailSender(
 
         [JsonPropertyName("html")]
         public required string Html { get; init; }
+
+        [JsonPropertyName("attachments")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public ResendAttachment[]? Attachments { get; init; }
+    }
+
+    private sealed class ResendAttachment
+    {
+        [JsonPropertyName("filename")]
+        public required string Filename { get; init; }
+
+        [JsonPropertyName("content")]
+        public required string Content { get; init; }
+
+        [JsonPropertyName("content_type")]
+        public required string ContentType { get; init; }
     }
 }

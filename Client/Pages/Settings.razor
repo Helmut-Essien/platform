@@ -1,0 +1,246 @@
+@page "/settings"
+@attribute [Authorize]
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+@using Microsoft.AspNetCore.Components.Forms
+@using Platform.Shared.Dtos.Settings
+
+<div class="settings-page page-content">
+    <header class="settings-header">
+        <div>
+            <h1 class="page-title">Settings</h1>
+            <p class="page-subtitle">Configure invoice letterhead used on emailed PDF invoices.</p>
+        </div>
+        <button type="button" class="btn-save-settings" disabled="@(_saving || _loading)" @onclick="SaveAsync">
+            @if (_saving)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+            }
+            else
+            {
+                <MudIcon Icon="@Icons.Material.Filled.Save" Size="Size.Small" />
+            }
+            Save letterhead
+        </button>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="settings-loading">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        </div>
+    }
+    else
+    {
+        <section class="settings-panel" aria-label="Invoice letterhead">
+            <h2 class="settings-section-title">Invoice letterhead</h2>
+            <p class="settings-section-copy">These details appear on PDF invoices attached to customer emails.</p>
+
+            <div class="settings-form-grid">
+                <MudTextField @bind-Value="_companyName"
+                              Label="Company name"
+                              Variant="Variant.Outlined"
+                              Required="true"
+                              RequiredError="Company name is required"
+                              MaxLength="200"
+                              Class="settings-field-full" />
+
+                <MudTextField @bind-Value="_addressLine1"
+                              Label="Address line 1"
+                              Variant="Variant.Outlined"
+                              MaxLength="300" />
+
+                <MudTextField @bind-Value="_addressLine2"
+                              Label="Address line 2"
+                              Variant="Variant.Outlined"
+                              MaxLength="300" />
+
+                <MudTextField @bind-Value="_phone"
+                              Label="Phone"
+                              Variant="Variant.Outlined"
+                              MaxLength="50" />
+
+                <MudTextField @bind-Value="_website"
+                              Label="Website"
+                              Variant="Variant.Outlined"
+                              MaxLength="300" />
+            </div>
+
+            <div class="settings-logo-block">
+                <h3 class="settings-logo-title">Logo</h3>
+                <p class="settings-section-copy">PNG, JPEG, or WebP up to 2 MB. If empty, the default HelmutCode logo is used on PDFs.</p>
+
+                <div class="settings-logo-row">
+                    <div class="settings-logo-preview" aria-hidden="true">
+                        @if (!string.IsNullOrEmpty(_previewDataUrl))
+                        {
+                            <img src="@_previewDataUrl" alt="" />
+                        }
+                        else if (!string.IsNullOrEmpty(_savedLogoDataUrl))
+                        {
+                            <img src="@_savedLogoDataUrl" alt="Current invoice logo" />
+                        }
+                        else
+                        {
+                            <img src="images/helmutcode-logo.png" alt="Default logo" />
+                            <span class="settings-logo-badge">Default</span>
+                        }
+                    </div>
+
+                    <div class="settings-logo-actions">
+                        <InputFile OnChange="OnLogoSelected" accept="image/png,image/jpeg,image/webp" class="settings-file-input" id="logo-upload" />
+                        <label for="logo-upload" class="btn-upload-logo">
+                            <MudIcon Icon="@Icons.Material.Filled.Upload" Size="Size.Small" />
+                            Upload logo
+                        </label>
+                        @if (_hasCustomLogo || !string.IsNullOrEmpty(_pendingLogoBase64))
+                        {
+                            <button type="button" class="btn-clear-logo" @onclick="ClearLogo">Clear logo</button>
+                        }
+                        @if (!string.IsNullOrEmpty(_logoFileName))
+                        {
+                            <span class="settings-logo-filename">@_logoFileName</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _saving;
+    private string _companyName = "";
+    private string? _addressLine1;
+    private string? _addressLine2;
+    private string? _phone;
+    private string? _website;
+    private bool _hasCustomLogo;
+    private bool _clearLogo;
+    private string? _pendingLogoBase64;
+    private string? _pendingLogoContentType;
+    private string? _previewDataUrl;
+    private string? _savedLogoDataUrl;
+    private string? _logoFileName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var brand = await Api.GetInvoiceBrandAsync();
+            if (brand is null)
+            {
+                Snackbar.Add("Could not load letterhead settings.", Severity.Error);
+                return;
+            }
+
+            _companyName = brand.CompanyName;
+            _addressLine1 = brand.AddressLine1;
+            _addressLine2 = brand.AddressLine2;
+            _phone = brand.Phone;
+            _website = brand.Website;
+            _hasCustomLogo = brand.HasCustomLogo;
+            if (_hasCustomLogo)
+                _savedLogoDataUrl = await Api.GetInvoiceBrandLogoDataUrlAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load settings: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnLogoSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null)
+            return;
+
+        const long maxBytes = 2 * 1024 * 1024;
+        if (file.Size > maxBytes)
+        {
+            Snackbar.Add("Logo must be 2 MB or smaller.", Severity.Warning);
+            return;
+        }
+
+        var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/png" : file.ContentType;
+        if (contentType is not ("image/png" or "image/jpeg" or "image/jpg" or "image/webp"))
+        {
+            Snackbar.Add("Logo must be PNG, JPEG, or WebP.", Severity.Warning);
+            return;
+        }
+
+        await using var stream = file.OpenReadStream(maxBytes);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+
+        _pendingLogoBase64 = Convert.ToBase64String(bytes);
+        _pendingLogoContentType = contentType == "image/jpg" ? "image/jpeg" : contentType;
+        _previewDataUrl = $"data:{_pendingLogoContentType};base64,{_pendingLogoBase64}";
+        _logoFileName = file.Name;
+        _clearLogo = false;
+    }
+
+    private void ClearLogo()
+    {
+        _clearLogo = true;
+        _pendingLogoBase64 = null;
+        _pendingLogoContentType = null;
+        _previewDataUrl = null;
+        _savedLogoDataUrl = null;
+        _logoFileName = null;
+        _hasCustomLogo = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_companyName))
+        {
+            Snackbar.Add("Company name is required.", Severity.Warning);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var request = new UpdateInvoiceBrandRequest
+            {
+                CompanyName = _companyName.Trim(),
+                AddressLine1 = _addressLine1,
+                AddressLine2 = _addressLine2,
+                Phone = _phone,
+                Website = _website,
+                ClearLogo = _clearLogo,
+                LogoBase64 = _clearLogo ? null : _pendingLogoBase64,
+                LogoContentType = _clearLogo ? null : _pendingLogoContentType
+            };
+
+            var result = await Api.UpdateInvoiceBrandAsync(request);
+            if (!result.IsSuccess || result.Data is null)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Failed to save letterhead.", Severity.Error);
+                return;
+            }
+
+            _hasCustomLogo = result.Data.HasCustomLogo;
+            _clearLogo = false;
+            _pendingLogoBase64 = null;
+            _pendingLogoContentType = null;
+            _previewDataUrl = null;
+            _logoFileName = null;
+            _savedLogoDataUrl = _hasCustomLogo
+                ? await Api.GetInvoiceBrandLogoDataUrlAsync()
+                : null;
+            Snackbar.Add("Letterhead saved.", Severity.Success);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

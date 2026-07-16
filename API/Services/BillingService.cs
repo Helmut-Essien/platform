@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Helpers;
+using Platform.Api.Services.Billing;
 using Platform.Api.Services.Email;
 using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
@@ -14,6 +15,8 @@ public class BillingService(
     AppDbContext db,
     IAuditLogService auditLog,
     IEmailSender emailSender,
+    IInvoicePdfGenerator invoicePdfGenerator,
+    IInvoiceBrandService invoiceBrand,
     ILogger<BillingService> logger) : IBillingService
 {
     private const int MaxNumberGenerationAttempts = 3;
@@ -316,10 +319,39 @@ public class BillingService(
     {
         try
         {
+            if (invoice.ServiceProduct is null && invoice.ServiceProductId is not null)
+            {
+                invoice.ServiceProduct = await db.ServiceProducts.AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.Id == invoice.ServiceProductId, cancellationToken);
+            }
+
             var subject = $"Invoice {invoice.InvoiceNumber} from Platform License Hub";
             var htmlBody = BuildInvoiceEmailBody(customer.Name, invoice);
-            await emailSender.SendAsync(customer.ContactEmail, subject, htmlBody, cancellationToken);
-            logger.LogInformation("Invoice email sent for {InvoiceNumber} to {Recipient}", invoice.InvoiceNumber, customer.ContactEmail);
+            var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
+            var letterhead = new InvoiceLetterhead(
+                profile.CompanyName,
+                profile.AddressLine1,
+                profile.AddressLine2,
+                profile.Phone,
+                profile.Website,
+                profile.LogoBytes);
+            var pdfBytes = invoicePdfGenerator.Generate(invoice, customer, letterhead);
+            var attachments = new List<EmailAttachment>
+            {
+                new($"{invoice.InvoiceNumber}.pdf", "application/pdf", pdfBytes)
+            };
+
+            await emailSender.SendAsync(
+                customer.ContactEmail,
+                subject,
+                htmlBody,
+                attachments,
+                cancellationToken);
+            logger.LogInformation(
+                "Invoice email sent for {InvoiceNumber} to {Recipient} with PDF attachment ({PdfBytes} bytes)",
+                invoice.InvoiceNumber,
+                customer.ContactEmail,
+                pdfBytes.Length);
         }
         catch (Exception ex)
         {
@@ -343,7 +375,7 @@ public class BillingService(
         return $"""
             <html><body style="font-family:sans-serif;color:#1a1a1a;">
             <p>Hello {WebUtility.HtmlEncode(customerName)},</p>
-            <p>A new invoice has been issued for your account:</p>
+            <p>A new invoice has been issued for your account. Please find your invoice PDF attached.</p>
             <table style="border-collapse:collapse;width:100%;max-width:480px;">
               <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Invoice</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{WebUtility.HtmlEncode(invoice.InvoiceNumber)}</td></tr>
               <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Date</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{invoice.IssueDate:MMMM dd, yyyy}</td></tr>
@@ -354,7 +386,7 @@ public class BillingService(
               <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Tax</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{currencySymbol}{invoice.TaxAmount:N2}</td></tr>
               <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Total</strong></td><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold;">{currencySymbol}{invoice.TotalAmount:N2}</td></tr>
             </table>
-            <p style="margin-top:16px;color:#666;">Thank you for your business.</p>
+            <p style="margin-top:16px;color:#666;">Download the attached PDF for your records. Thank you for your business.</p>
             </body></html>
             """;
     }
