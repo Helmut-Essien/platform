@@ -339,19 +339,15 @@
 
     private async Task ActivateAsync(LicenseDto license)
     {
-        var dialog = await DialogService.ShowAsync<ActivateLicenseDialog>("Activate License");
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not ActivateLicenseRequest request)
-            return;
-
-        var apiResult = await Api.ActivateLicenseAsync(license.Id, request);
-        if (!apiResult.IsSuccess)
+        var dialog = await DialogService.ShowAsync<ActivateLicenseDialog>("Activate License", new DialogParameters
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Activation failed.", Severity.Error);
+            [nameof(ActivateLicenseDialog.LicenseId)] = license.Id
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not LicenseDto activated)
             return;
-        }
 
-        await ShowResultDialog(apiResult.Data!, "License Activated");
+        await ShowResultDialog(activated, "License Activated");
         await ReloadGrid();
     }
 
@@ -359,20 +355,14 @@
     {
         var dialog = await DialogService.ShowAsync<RenewLicenseDialog>("Renew License", new DialogParameters
         {
+            [nameof(RenewLicenseDialog.LicenseId)] = license.Id,
             [nameof(RenewLicenseDialog.CurrentExpiresAt)] = license.ExpiresAt
         });
         var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not RenewLicenseRequest request)
+        if (result?.Canceled is not false || result.Data is not LicenseDto renewed)
             return;
 
-        var apiResult = await Api.RenewLicenseAsync(license.Id, request);
-        if (!apiResult.IsSuccess)
-        {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Renewal failed.", Severity.Error);
-            return;
-        }
-
-        await ShowResultDialog(apiResult.Data!, "License Renewed");
+        await ShowResultDialog(renewed, "License Renewed");
         await ReloadGrid();
     }
 
@@ -454,23 +444,16 @@
 
     private async Task ResendKeyAsync(LicenseDto license)
     {
-        var confirmed = await DialogService.ShowMessageBox(
-            "Resend License Key",
-            $"A new key will be generated for {license.CustomerName} — {license.PlanName} and emailed to the customer. Continue?",
-            yesText: "Resend",
-            cancelText: "Cancel");
-
-        if (confirmed is not true)
-            return;
-
-        var result = await Api.ResendLicenseKeyAsync(license.Id);
-        if (!result.IsSuccess)
+        var dialog = await DialogService.ShowAsync<ResendLicenseKeyDialog>("Resend License Key", new DialogParameters
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to resend key.", Severity.Error);
+            [nameof(ResendLicenseKeyDialog.LicenseId)] = license.Id,
+            [nameof(ResendLicenseKeyDialog.CustomerLabel)] = $"{license.CustomerName} — {license.PlanName}"
+        }, PlatformDialogOptions.Confirm);
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not LicenseDto updated)
             return;
-        }
 
-        await ShowResultDialog(result.Data!, "Key Resent");
+        await ShowResultDialog(updated, "Key Resent");
         await ReloadGrid();
     }
 
@@ -483,10 +466,21 @@
             return;
         }
 
+        Snackbar.Add($"Emailing new keys for {resendable.Count} license(s)…", Severity.Info);
         var results = await Task.WhenAll(resendable.Select(l => Api.ResendLicenseKeyAsync(l.Id)));
         var success = results.Count(r => r.IsSuccess);
+        var failures = results.Where(r => !r.IsSuccess).Select(r => r.ErrorMessage).Where(m => !string.IsNullOrWhiteSpace(m)).Distinct().ToList();
 
-        Snackbar.Add($"Key resent for {success} of {resendable.Count} license(s).", success == resendable.Count ? Severity.Success : Severity.Warning);
+        if (success == resendable.Count)
+        {
+            Snackbar.Add($"Key resent for {success} license(s).", Severity.Success);
+        }
+        else
+        {
+            var detail = failures.Count > 0 ? $" {failures[0]}" : "";
+            Snackbar.Add($"Key resent for {success} of {resendable.Count} license(s).{detail}", Severity.Warning);
+        }
+
         _selected.Clear();
         await ReloadGrid();
     }

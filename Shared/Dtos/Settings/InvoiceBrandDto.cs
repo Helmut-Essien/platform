@@ -14,9 +14,7 @@ public class InvoiceBrandDto
 
     public string? Website { get; set; }
 
-    public string? PaymentMethods { get; set; }
-
-    public string? PaymentDetails { get; set; }
+    public List<InvoicePaymentOptionDto> PaymentOptions { get; set; } = [];
 
     public bool HasCustomLogo { get; set; }
 

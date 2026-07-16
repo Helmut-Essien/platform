@@ -1,0 +1,91 @@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Resend License Key</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_busy)
+        {
+            <div class="license-action-busy">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
+                <MudText Typo="Typo.body2" Class="mt-3">Generating a new key and emailing the customer…</MudText>
+                <MudText Typo="Typo.caption" Class="mt-1">This can take a few seconds. Please keep this dialog open.</MudText>
+            </div>
+        }
+        else
+        {
+            <MudText Class="mb-2">
+                A new key will be generated for <strong>@CustomerLabel</strong> and emailed to the customer.
+                The plain key is not shown here.
+            </MudText>
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2" Variant="Variant.Outlined">@_error</MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ConfirmAsync" Disabled="_busy">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                <span>Sending…</span>
+            }
+            else
+            {
+                <span>Resend</span>
+            }
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public required string LicenseId { get; set; }
+
+    [Parameter] public string CustomerLabel { get; set; } = "this license";
+
+    [Inject] private PlatformApiClient Api { get; set; } = default!;
+
+    private bool _busy;
+    private string? _error;
+
+    private void Cancel()
+    {
+        if (_busy)
+            return;
+
+        MudDialog.Cancel();
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_busy)
+            return;
+
+        _busy = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await Api.ResendLicenseKeyAsync(LicenseId);
+            if (!result.IsSuccess || result.Data is null)
+            {
+                _error = result.ErrorMessage ?? "Failed to resend key. The license key email was not sent.";
+                return;
+            }
+
+            MudDialog.Close(DialogResult.Ok(result.Data));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to resend key: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

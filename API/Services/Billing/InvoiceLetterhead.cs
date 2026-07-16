@@ -1,5 +1,7 @@
 namespace Platform.Api.Services.Billing;
 
+public sealed record InvoicePaymentOption(string Method, string? Details);
+
 public sealed record InvoiceLetterhead(
     string CompanyName,
     string? AddressLine1,
@@ -7,5 +9,4 @@ public sealed record InvoiceLetterhead(
     string? Phone,
     string? Website,
     byte[]? LogoBytes,
-    string? PaymentMethods = null,
-    string? PaymentDetails = null);
+    IReadOnlyList<InvoicePaymentOption> PaymentOptions);

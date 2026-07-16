@@ -3,46 +3,74 @@
         <MudText Typo="Typo.h6">Renew License</MudText>
     </TitleContent>
     <DialogContent>
-        <MudText Typo="Typo.caption" Class="mb-4">A new license key will be generated, the expiry extended, and a new invoice created.</MudText>
-        <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
-            <MudDatePicker @bind-Date="_model.ExpiresAt"
-                           For="@(() => _model.ExpiresAt)"
-                           Label="New expiry date"
-                           Variant="Variant.Outlined"
-                           Class="mb-2" />
-            <MudNumericField @bind-Value="_model.Subtotal"
-                             For="@(() => _model.Subtotal)"
-                             Label="Subtotal"
-                             Variant="Variant.Outlined"
-                             Min="0m"
-                             Class="mb-2" />
-            <MudNumericField @bind-Value="_model.TaxAmount"
-                             For="@(() => _model.TaxAmount)"
-                             Label="Tax"
-                             Variant="Variant.Outlined"
-                             Min="0m"
-                             Class="mb-2" />
-            <MudTextField @bind-Value="_model.Currency"
-                          For="@(() => _model.Currency)"
-                          Label="Currency"
-                          Variant="Variant.Outlined"
-                          Class="mb-2" />
-            <MudDatePicker @bind-Date="_model.DueDate"
-                           For="@(() => _model.DueDate)"
-                           Label="Invoice due date"
-                           Variant="Variant.Outlined"
-                           Class="mb-2" />
-            <MudTextField @bind-Value="_model.Description"
-                          For="@(() => _model.Description)"
-                          Label="Description (optional)"
-                          Variant="Variant.Outlined"
-                          Lines="2" />
-        </MudForm>
+        @if (_busy)
+        {
+            <div class="license-action-busy">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
+                <MudText Typo="Typo.body2" Class="mt-3">Renewing license and emailing the new key…</MudText>
+                <MudText Typo="Typo.caption" Class="mt-1">This can take a few seconds. Please keep this dialog open.</MudText>
+            </div>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="mb-4">
+                A new license key will be generated, the expiry extended, and a new invoice created. The plain key is emailed to the customer — not shown here.
+            </MudText>
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3" Variant="Variant.Outlined">@_error</MudAlert>
+            }
+            <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
+                <MudDatePicker @bind-Date="_model.ExpiresAt"
+                               For="@(() => _model.ExpiresAt)"
+                               Label="New expiry date"
+                               Variant="Variant.Outlined"
+                               Class="mb-2" />
+                <MudNumericField @bind-Value="_model.Subtotal"
+                                 For="@(() => _model.Subtotal)"
+                                 Label="Subtotal"
+                                 Variant="Variant.Outlined"
+                                 Min="0m"
+                                 Class="mb-2" />
+                <MudNumericField @bind-Value="_model.TaxAmount"
+                                 For="@(() => _model.TaxAmount)"
+                                 Label="Tax"
+                                 Variant="Variant.Outlined"
+                                 Min="0m"
+                                 Class="mb-2" />
+                <MudTextField @bind-Value="_model.Currency"
+                              For="@(() => _model.Currency)"
+                              Label="Currency"
+                              Variant="Variant.Outlined"
+                              Class="mb-2" />
+                <MudDatePicker @bind-Date="_model.DueDate"
+                               For="@(() => _model.DueDate)"
+                               Label="Invoice due date"
+                               Variant="Variant.Outlined"
+                               Class="mb-2" />
+                <MudTextField @bind-Value="_model.Description"
+                              For="@(() => _model.Description)"
+                              Label="Description (optional)"
+                              Variant="Variant.Outlined"
+                              Lines="2" />
+            </MudForm>
+        }
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
-            Renew
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   OnClick="SaveAsync"
+                   Disabled="@(_busy || !_formValid)">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                <span>Sending…</span>
+            }
+            else
+            {
+                <span>Renew</span>
+            }
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -50,10 +78,16 @@
 @code {
     [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
 
+    [Parameter] public required string LicenseId { get; set; }
+
     [Parameter] public DateTime? CurrentExpiresAt { get; set; }
+
+    [Inject] private PlatformApiClient Api { get; set; } = default!;
 
     private MudForm? _form;
     private bool _formValid;
+    private bool _busy;
+    private string? _error;
     private RenewLicenseRequest _model = new()
     {
         Subtotal = 99m,
@@ -66,17 +100,45 @@
         _model.ExpiresAt = CurrentExpiresAt?.AddYears(1) ?? DateTime.UtcNow.AddYears(1);
     }
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel()
+    {
+        if (_busy)
+            return;
+
+        MudDialog.Cancel();
+    }
 
     private async Task SaveAsync()
     {
-        if (_form is null)
+        if (_busy || _form is null)
             return;
 
         await _form.Validate();
         if (!_formValid)
             return;
 
-        MudDialog.Close(DialogResult.Ok(_model));
+        _busy = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var apiResult = await Api.RenewLicenseAsync(LicenseId, _model);
+            if (!apiResult.IsSuccess || apiResult.Data is null)
+            {
+                _error = apiResult.ErrorMessage ?? "Renewal failed. The license key email was not sent.";
+                return;
+            }
+
+            MudDialog.Close(DialogResult.Ok(apiResult.Data));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Renewal failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 }

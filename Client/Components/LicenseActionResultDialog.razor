@@ -3,16 +3,33 @@
         <MudText Typo="Typo.h6">@Title</MudText>
     </TitleContent>
     <DialogContent>
-        <MudText Class="mb-2">License is now <strong>@License.Status</strong>.</MudText>
+        <MudAlert Severity="Severity.Success" Dense="true" Variant="Variant.Outlined" Class="mb-3">
+            License is now <strong>@License.Status</strong>
+            @if (!string.IsNullOrWhiteSpace(License.CustomerName))
+            {
+                <span> for <strong>@License.CustomerName</strong></span>
+            }
+            .
+        </MudAlert>
+
         @if (License.LicenseKeySentAt is not null)
         {
-            <MudText Class="mb-2">License key was generated at @License.LicenseKeySentAt.Value.ToString("g") UTC.</MudText>
-            <MudText Class="mb-2"><strong>Copy this key now — it cannot be retrieved again after closing this dialog.</strong></MudText>
+            <MudText Class="mb-2">
+                The license key was emailed to the customer at
+                <strong>@License.LicenseKeySentAt.Value.ToString("g") UTC</strong>.
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mb-2">
+                For security, the plain key is not shown in this admin console. Ask the customer to check their inbox
+                (and spam folder) if they do not see it.
+            </MudText>
         }
         else
         {
-            <MudText Class="mb-2">License key delivery pending.</MudText>
+            <MudAlert Severity="Severity.Warning" Dense="true" Variant="Variant.Outlined" Class="mb-2">
+                License key email delivery is pending or was not confirmed. Use Resend Key if the customer did not receive it.
+            </MudAlert>
         }
+
         @if (!string.IsNullOrEmpty(License.LatestInvoiceId))
         {
             <MudButton Variant="Variant.Text"
@@ -23,7 +40,7 @@
         }
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">I've Saved It</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
     </DialogActions>
 </MudDialog>
 

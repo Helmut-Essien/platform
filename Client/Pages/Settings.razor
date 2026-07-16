@@ -67,24 +67,56 @@
             </div>
 
             <div class="settings-payment-block">
-                <h3 class="settings-logo-title">Payment information</h3>
-                <p class="settings-section-copy">Optional. Shown on invoice PDFs so customers know how to pay.</p>
-                <div class="settings-form-grid">
-                    <MudTextField @bind-Value="_paymentMethods"
-                                  Label="Payment methods"
-                                  Variant="Variant.Outlined"
-                                  HelperText="e.g. Bank transfer, MTN MoMo, Cash"
-                                  MaxLength="500"
-                                  Class="settings-field-full" />
-
-                    <MudTextField @bind-Value="_paymentDetails"
-                                  Label="Payment details"
-                                  Variant="Variant.Outlined"
-                                  Lines="4"
-                                  HelperText="Account numbers, mobile money numbers, payment reference notes…"
-                                  MaxLength="2000"
-                                  Class="settings-field-full" />
+                <div class="settings-payment-header">
+                    <div>
+                        <h3 class="settings-logo-title">Payment methods</h3>
+                        <p class="settings-section-copy settings-section-copy-tight">
+                            Optional. Skip this section if you do not want payment info on invoices.
+                        </p>
+                    </div>
+                    <button type="button"
+                            class="btn-add-payment"
+                            disabled="@(_paymentOptions.Count >= MaxPaymentOptions)"
+                            @onclick="AddPaymentOption">
+                        <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                        Add method
+                    </button>
                 </div>
+
+                @if (_paymentOptions.Count == 0)
+                {
+                    <p class="settings-payment-empty">No payment methods configured. Invoice PDFs will omit the payment section.</p>
+                }
+                else
+                {
+                    <div class="settings-payment-list">
+                        @for (var i = 0; i < _paymentOptions.Count; i++)
+                        {
+                            var index = i;
+                            <div class="settings-payment-item" @key="_paymentOptions[index].Id">
+                                <div class="settings-payment-item-fields">
+                                    <MudTextField @bind-Value="_paymentOptions[index].Method"
+                                                  Label="Method"
+                                                  Variant="Variant.Outlined"
+                                                  Placeholder="e.g. Bank transfer"
+                                                  MaxLength="100" />
+                                    <MudTextField @bind-Value="_paymentOptions[index].Details"
+                                                  Label="Details"
+                                                  Variant="Variant.Outlined"
+                                                  Lines="2"
+                                                  Placeholder="Account number, MoMo number, reference notes…"
+                                                  MaxLength="1000" />
+                                </div>
+                                <button type="button"
+                                        class="btn-remove-payment"
+                                        title="Remove payment method"
+                                        @onclick="@(() => RemovePaymentOption(index))">
+                                    <MudIcon Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" />
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
             </div>
 
             <div class="settings-logo-block">
@@ -130,6 +162,8 @@
 </div>
 
 @code {
+    private const int MaxPaymentOptions = 10;
+
     private bool _loading = true;
     private bool _saving;
     private string _companyName = "";
@@ -137,8 +171,7 @@
     private string? _addressLine2;
     private string? _phone;
     private string? _website;
-    private string? _paymentMethods;
-    private string? _paymentDetails;
+    private readonly List<PaymentOptionEditModel> _paymentOptions = [];
     private bool _hasCustomLogo;
     private bool _clearLogo;
     private string? _pendingLogoBase64;
@@ -163,8 +196,16 @@
             _addressLine2 = brand.AddressLine2;
             _phone = brand.Phone;
             _website = brand.Website;
-            _paymentMethods = brand.PaymentMethods;
-            _paymentDetails = brand.PaymentDetails;
+            _paymentOptions.Clear();
+            foreach (var option in brand.PaymentOptions)
+            {
+                _paymentOptions.Add(new PaymentOptionEditModel
+                {
+                    Method = option.Method,
+                    Details = option.Details
+                });
+            }
+
             _hasCustomLogo = brand.HasCustomLogo;
             if (_hasCustomLogo)
                 _savedLogoDataUrl = await Api.GetInvoiceBrandLogoDataUrlAsync();
@@ -177,6 +218,22 @@
         {
             _loading = false;
         }
+    }
+
+    private void AddPaymentOption()
+    {
+        if (_paymentOptions.Count >= MaxPaymentOptions)
+            return;
+
+        _paymentOptions.Add(new PaymentOptionEditModel());
+    }
+
+    private void RemovePaymentOption(int index)
+    {
+        if (index < 0 || index >= _paymentOptions.Count)
+            return;
+
+        _paymentOptions.RemoveAt(index);
     }
 
     private async Task OnLogoSelected(InputFileChangeEventArgs e)
@@ -240,8 +297,15 @@
                 AddressLine2 = _addressLine2,
                 Phone = _phone,
                 Website = _website,
-                PaymentMethods = _paymentMethods,
-                PaymentDetails = _paymentDetails,
+                // Blank / incomplete rows are ignored — payment methods are optional.
+                PaymentOptions = _paymentOptions
+                    .Where(o => !string.IsNullOrWhiteSpace(o.Method))
+                    .Select(o => new InvoicePaymentOptionDto
+                    {
+                        Method = o.Method.Trim(),
+                        Details = string.IsNullOrWhiteSpace(o.Details) ? null : o.Details.Trim()
+                    })
+                    .ToList(),
                 ClearLogo = _clearLogo,
                 LogoBase64 = _clearLogo ? null : _pendingLogoBase64,
                 LogoContentType = _clearLogo ? null : _pendingLogoContentType
@@ -260,6 +324,16 @@
             _pendingLogoContentType = null;
             _previewDataUrl = null;
             _logoFileName = null;
+            _paymentOptions.Clear();
+            foreach (var option in result.Data.PaymentOptions)
+            {
+                _paymentOptions.Add(new PaymentOptionEditModel
+                {
+                    Method = option.Method,
+                    Details = option.Details
+                });
+            }
+
             _savedLogoDataUrl = _hasCustomLogo
                 ? await Api.GetInvoiceBrandLogoDataUrlAsync()
                 : null;
@@ -269,5 +343,12 @@
         {
             _saving = false;
         }
+    }
+
+    private sealed class PaymentOptionEditModel
+    {
+        public string Id { get; } = Guid.NewGuid().ToString("N");
+        public string Method { get; set; } = "";
+        public string? Details { get; set; }
     }
 }

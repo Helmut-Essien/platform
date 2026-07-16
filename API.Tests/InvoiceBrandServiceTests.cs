@@ -45,7 +45,7 @@ public class InvoiceBrandServiceTests
     }
 
     [Fact]
-    public async Task UpdateAsync_UpdatesPaymentFields()
+    public async Task UpdateAsync_UpdatesPaymentOptions()
     {
         await using var db = CreateDbContext();
         var service = new InvoiceBrandService(db);
@@ -53,12 +53,26 @@ public class InvoiceBrandServiceTests
         var updated = await service.UpdateAsync(new UpdateInvoiceBrandRequest
         {
             CompanyName = "HelmutCode",
-            PaymentMethods = "Bank transfer, MTN MoMo",
-            PaymentDetails = "GTB 1234567890\nUse invoice number as reference"
+            PaymentOptions =
+            [
+                new InvoicePaymentOptionDto
+                {
+                    Method = "Bank transfer",
+                    Details = "GTB 1234567890\nUse invoice number as reference"
+                },
+                new InvoicePaymentOptionDto
+                {
+                    Method = "MTN MoMo",
+                    Details = "024 000 0000"
+                }
+            ]
         });
 
-        Assert.Equal("Bank transfer, MTN MoMo", updated.PaymentMethods);
-        Assert.Equal("GTB 1234567890\nUse invoice number as reference", updated.PaymentDetails);
+        Assert.Equal(2, updated.PaymentOptions.Count);
+        Assert.Equal("Bank transfer", updated.PaymentOptions[0].Method);
+        Assert.Equal("GTB 1234567890\nUse invoice number as reference", updated.PaymentOptions[0].Details);
+        Assert.Equal("MTN MoMo", updated.PaymentOptions[1].Method);
+        Assert.Equal("024 000 0000", updated.PaymentOptions[1].Details);
     }
 
     [Fact]

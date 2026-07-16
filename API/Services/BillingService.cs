@@ -328,6 +328,9 @@ public class BillingService(
             var subject = $"Invoice {invoice.InvoiceNumber} from Platform License Hub";
             var htmlBody = BuildInvoiceEmailBody(customer.Name, invoice);
             var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
+            var paymentOptions = InvoiceBrandService.DeserializePaymentOptions(profile.PaymentOptionsJson)
+                .Select(o => new InvoicePaymentOption(o.Method, o.Details))
+                .ToList();
             var letterhead = new InvoiceLetterhead(
                 profile.CompanyName,
                 profile.AddressLine1,
@@ -335,8 +338,7 @@ public class BillingService(
                 profile.Phone,
                 profile.Website,
                 profile.LogoBytes,
-                profile.PaymentMethods,
-                profile.PaymentDetails);
+                paymentOptions);
             var pdfBytes = invoicePdfGenerator.Generate(invoice, customer, letterhead);
             var attachments = new List<EmailAttachment>
             {

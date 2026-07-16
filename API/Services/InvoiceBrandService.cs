@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
@@ -8,6 +9,14 @@ namespace Platform.Api.Services;
 public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
 {
     public const int MaxLogoBytes = 2 * 1024 * 1024;
+    public const int MaxPaymentOptions = 10;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     private static readonly HashSet<string> AllowedLogoContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/png",
@@ -46,8 +55,7 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         profile.AddressLine2 = NormalizeOptional(request.AddressLine2);
         profile.Phone = NormalizeOptional(request.Phone);
         profile.Website = NormalizeOptional(request.Website);
-        profile.PaymentMethods = NormalizeOptional(request.PaymentMethods);
-        profile.PaymentDetails = NormalizeOptional(request.PaymentDetails);
+        profile.PaymentOptionsJson = SerializePaymentOptions(request.PaymentOptions);
         profile.UpdatedAt = DateTime.UtcNow;
 
         if (request.ClearLogo)
@@ -129,6 +137,51 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         return value.Trim();
     }
 
+    internal static string? SerializePaymentOptions(IEnumerable<InvoicePaymentOptionDto>? options)
+    {
+        var normalized = NormalizePaymentOptions(options);
+        if (normalized.Count == 0)
+            return null;
+
+        return JsonSerializer.Serialize(normalized, JsonOptions);
+    }
+
+    internal static List<InvoicePaymentOptionDto> DeserializePaymentOptions(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return [];
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<List<InvoicePaymentOptionDto>>(json, JsonOptions);
+            return NormalizePaymentOptions(parsed);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static List<InvoicePaymentOptionDto> NormalizePaymentOptions(IEnumerable<InvoicePaymentOptionDto>? options)
+    {
+        if (options is null)
+            return [];
+
+        var list = options
+            .Select(o => new InvoicePaymentOptionDto
+            {
+                Method = o.Method?.Trim() ?? "",
+                Details = NormalizeOptional(o.Details)
+            })
+            .Where(o => !string.IsNullOrWhiteSpace(o.Method))
+            .ToList();
+
+        if (list.Count > MaxPaymentOptions)
+            throw new InvalidOperationException($"At most {MaxPaymentOptions} payment methods are allowed.");
+
+        return list;
+    }
+
     private static InvoiceBrandDto Map(InvoiceBrandProfile profile) => new()
     {
         Id = profile.Id,
@@ -137,8 +190,7 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         AddressLine2 = profile.AddressLine2,
         Phone = profile.Phone,
         Website = profile.Website,
-        PaymentMethods = profile.PaymentMethods,
-        PaymentDetails = profile.PaymentDetails,
+        PaymentOptions = DeserializePaymentOptions(profile.PaymentOptionsJson),
         HasCustomLogo = profile.LogoBytes is { Length: > 0 },
         LogoContentType = profile.LogoContentType,
         UpdatedAt = profile.UpdatedAt

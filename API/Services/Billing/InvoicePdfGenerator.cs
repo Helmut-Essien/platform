@@ -156,16 +156,14 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
         {
             col.Item().Text("PAYMENT").SemiBold().FontSize(9).FontColor(Accent);
 
-            if (!string.IsNullOrWhiteSpace(letterhead.PaymentMethods))
+            var first = true;
+            foreach (var option in letterhead.PaymentOptions)
             {
-                col.Item().PaddingTop(6).Text("Methods").FontSize(8).FontColor(TextMuted);
-                col.Item().Text(letterhead.PaymentMethods!).SemiBold();
-            }
+                col.Item().PaddingTop(first ? 6 : 10).Text(option.Method).SemiBold();
+                first = false;
 
-            if (!string.IsNullOrWhiteSpace(letterhead.PaymentDetails))
-            {
-                col.Item().PaddingTop(8).Text("Details").FontSize(8).FontColor(TextMuted);
-                col.Item().Text(letterhead.PaymentDetails!);
+                if (!string.IsNullOrWhiteSpace(option.Details))
+                    col.Item().PaddingTop(2).Text(option.Details!);
             }
         });
     }
@@ -258,8 +256,7 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
         || !string.IsNullOrWhiteSpace(letterhead.Phone);
 
     private static bool HasPaymentInfo(InvoiceLetterhead letterhead) =>
-        !string.IsNullOrWhiteSpace(letterhead.PaymentMethods)
-        || !string.IsNullOrWhiteSpace(letterhead.PaymentDetails);
+        letterhead.PaymentOptions.Count > 0;
 
     private static byte[]? TryLoadBundledLogo()
     {

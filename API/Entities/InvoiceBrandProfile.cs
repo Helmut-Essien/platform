@@ -14,11 +14,8 @@ public class InvoiceBrandProfile
 
     public string? Website { get; set; }
 
-    /// <summary>Optional short list of accepted payment methods (e.g. Bank transfer, MoMo).</summary>
-    public string? PaymentMethods { get; set; }
-
-    /// <summary>Optional payment instructions (account numbers, reference notes, etc.).</summary>
-    public string? PaymentDetails { get; set; }
+    /// <summary>JSON array of payment options: [{ "method": "...", "details": "..." }].</summary>
+    public string? PaymentOptionsJson { get; set; }
 
     public byte[]? LogoBytes { get; set; }
 

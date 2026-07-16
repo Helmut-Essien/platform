@@ -45,8 +45,11 @@ public class InvoicePdfGeneratorTests
             "+233 00 000 0000",
             "https://helmutcode.com",
             LogoBytes: null,
-            PaymentMethods: "Bank transfer, MTN MoMo",
-            PaymentDetails: "Account: 1234567890\nReference: invoice number");
+            PaymentOptions:
+            [
+                new InvoicePaymentOption("Bank transfer", "Account: 1234567890\nReference: invoice number"),
+                new InvoicePaymentOption("MTN MoMo", "024 000 0000")
+            ]);
 
         var pdf = generator.Generate(invoice, customer, letterhead);
 
@@ -73,7 +76,7 @@ public class InvoicePdfGeneratorTests
 
         var tinyPng = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
-        var letterhead = new InvoiceLetterhead("Brand Co", null, null, null, null, tinyPng);
+        var letterhead = new InvoiceLetterhead("Brand Co", null, null, null, null, tinyPng, []);
 
         var pdf = generator.Generate(invoice, customer, letterhead);
 
