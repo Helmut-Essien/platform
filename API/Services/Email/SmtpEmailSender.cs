@@ -16,15 +16,17 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         if (string.IsNullOrWhiteSpace(settings.Host))
             throw new InvalidOperationException("Email:Host is required for SMTP provider.");
 
+        var timeoutSeconds = settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : 30;
         var hasCredentials = !string.IsNullOrWhiteSpace(settings.Username);
         logger.LogInformation(
-            "Sending SMTP email to {Recipient} via {SmtpHost}:{SmtpPort} (Ssl={EnableSsl}, Auth={HasCredentials}, From={FromAddress}). Subject: {Subject}",
+            "Sending SMTP email to {Recipient} via {SmtpHost}:{SmtpPort} (Ssl={EnableSsl}, Auth={HasCredentials}, From={FromAddress}, TimeoutSeconds={TimeoutSeconds}). Subject: {Subject}",
             toEmail,
             settings.Host,
             settings.Port,
             settings.EnableSsl,
             hasCredentials,
             settings.FromAddress,
+            timeoutSeconds,
             subject);
 
         using var message = new MailMessage
@@ -38,16 +40,20 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
 
         using var client = new SmtpClient(settings.Host, settings.Port)
         {
-            EnableSsl = settings.EnableSsl
+            EnableSsl = settings.EnableSsl,
+            Timeout = timeoutSeconds * 1000
         };
 
         if (hasCredentials)
             client.Credentials = new NetworkCredential(settings.Username, settings.Password);
 
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            await client.SendMailAsync(message, cancellationToken);
+            await client.SendMailAsync(message, timeoutCts.Token);
             stopwatch.Stop();
             logger.LogInformation(
                 "SMTP email sent to {Recipient} in {ElapsedMs}ms via {SmtpHost}:{SmtpPort}",
@@ -59,7 +65,14 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         catch (Exception ex)
         {
             stopwatch.Stop();
-            LogSendFailure(ex, toEmail, settings, stopwatch.ElapsedMilliseconds, cancellationToken);
+            LogSendFailure(
+                ex,
+                toEmail,
+                settings,
+                stopwatch.ElapsedMilliseconds,
+                timeoutSeconds,
+                requestCanceled: cancellationToken.IsCancellationRequested,
+                smtpTimedOut: !cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested);
             throw;
         }
     }
@@ -69,9 +82,11 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         string toEmail,
         EmailSettings settings,
         long elapsedMs,
-        CancellationToken cancellationToken)
+        int timeoutSeconds,
+        bool requestCanceled,
+        bool smtpTimedOut)
     {
-        var reason = ClassifyFailure(ex, cancellationToken);
+        var reason = ClassifyFailure(ex, requestCanceled, smtpTimedOut, settings, timeoutSeconds);
         var smtpStatus = (ex as SmtpException)?.StatusCode.ToString()
             ?? FindInner<SmtpException>(ex)?.StatusCode.ToString()
             ?? "n/a";
@@ -80,7 +95,7 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         logger.LogError(
             ex,
             "SMTP email failed after {ElapsedMs}ms to {Recipient} via {SmtpHost}:{SmtpPort} (Ssl={EnableSsl}, Auth={HasCredentials}, From={FromAddress}). " +
-            "Reason: {FailureReason}. CancellationRequested={CancellationRequested}. SmtpStatus={SmtpStatus}. SocketError={SocketError}. ExceptionType={ExceptionType}",
+            "Reason: {FailureReason}. RequestCanceled={RequestCanceled}. SmtpTimedOut={SmtpTimedOut}. SmtpStatus={SmtpStatus}. SocketError={SocketError}. ExceptionType={ExceptionType}",
             elapsedMs,
             toEmail,
             settings.Host,
@@ -89,26 +104,37 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
             !string.IsNullOrWhiteSpace(settings.Username),
             settings.FromAddress,
             reason,
-            cancellationToken.IsCancellationRequested,
+            requestCanceled,
+            smtpTimedOut,
             smtpStatus,
             socketError,
             ex.GetType().FullName);
     }
 
-    private static string ClassifyFailure(Exception ex, CancellationToken cancellationToken)
+    private static string ClassifyFailure(
+        Exception ex,
+        bool requestCanceled,
+        bool smtpTimedOut,
+        EmailSettings settings,
+        int timeoutSeconds)
     {
-        if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
-            return "Request was canceled while waiting for SMTP (client disconnect, proxy timeout, or host shutdown). SMTP may be unreachable or too slow.";
+        if (smtpTimedOut)
+            return $"SMTP timed out after {timeoutSeconds}s connecting/sending via {settings.Host}:{settings.Port}. " +
+                   $"Outbound SMTP is often blocked or blackholed on cloud hosts; try an HTTP email API (SendGrid/Resend), " +
+                   $"or verify from the container: nc -zv {settings.Host} {settings.Port}.";
+
+        if (ex is OperationCanceledException && requestCanceled)
+            return "HTTP request was canceled while waiting for SMTP (client disconnect, proxy timeout, or host shutdown).";
 
         if (ex is OperationCanceledException)
-            return "SMTP send was canceled (token not request-linked). Check SMTP host reachability and timeouts.";
+            return "SMTP send was canceled. Check Email:Host reachability and Email:TimeoutSeconds.";
 
         if (ex is SmtpException smtp)
-            return $"SMTP server rejected or failed the send (status {smtp.StatusCode}).";
+            return $"SMTP server rejected or failed the send (status {smtp.StatusCode}). For Gmail, use an App Password and allow SMTP.";
 
         var smtpInner = FindInner<SmtpException>(ex);
         if (smtpInner is not null)
-            return $"SMTP server rejected or failed the send (status {smtpInner.StatusCode}).";
+            return $"SMTP server rejected or failed the send (status {smtpInner.StatusCode}). For Gmail, use an App Password and allow SMTP.";
 
         var socket = FindInner<SocketException>(ex);
         if (socket is not null)

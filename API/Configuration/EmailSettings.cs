@@ -20,5 +20,10 @@ public class EmailSettings
 
     public string? Password { get; set; }
 
+    /// <summary>Max seconds to wait for SMTP/HTTP email send before failing. Default 30.</summary>
+    public int TimeoutSeconds { get; set; } = 30;
+
+    public string? ResendApiKey { get; set; }
+
     public string? SendGridApiKey { get; set; }
 }
