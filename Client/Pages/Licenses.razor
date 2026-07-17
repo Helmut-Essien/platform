@@ -11,7 +11,7 @@
             <h1 class="page-title">Licenses</h1>
             <p class="page-subtitle">Manage software entitlements and API access keys.</p>
         </div>
-        <button type="button" class="btn-issue-license" @onclick="OpenIssueDialogAsync">
+        <button type="button" class="btn-primary-cta" @onclick="OpenIssueDialogAsync">
             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
             Issue License
         </button>
@@ -78,7 +78,7 @@
                      T="LicenseDto"
                      Class="licenses-grid"
                      ServerData="LoadServerData"
-                     Hover="false"
+                     Hover="true"
                      Dense="false"
                      MultiSelection="true"
                      @bind-SelectedItems="_selected"
@@ -153,9 +153,9 @@
                             <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
                                 @if (KeyWasSent(context.Item))
                                 {
-                                    <MudMenuItem OnClick="@(() => ResendKeyAsync(context.Item))">
+                                    <MudMenuItem OnClick="@(() => RotateKeyAsync(context.Item))">
                                         <MudIcon Icon="@Icons.Material.Filled.Mail" Size="Size.Small" Class="mr-2" />
-                                        Resend Key
+                                        Rotate &amp; Email Key
                                     </MudMenuItem>
                                 }
                                 @if (license.Status is LicenseStatus.Pending or LicenseStatus.Suspended or LicenseStatus.Expired)
@@ -186,7 +186,7 @@
                 <div class="licenses-empty">
                     <h2>No licenses found</h2>
                     <p>Issue a license for a customer and service product.</p>
-                    <button type="button" class="btn-issue-license" @onclick="OpenIssueDialogAsync">
+                    <button type="button" class="btn-primary-cta" @onclick="OpenIssueDialogAsync">
                         <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
                         Issue License
                     </button>
@@ -206,9 +206,9 @@
     </div>
     <div class="licenses-bulk-divider"></div>
     <div class="licenses-bulk-actions">
-        <button type="button" class="licenses-bulk-btn" @onclick="BulkResendKeysAsync">
+        <button type="button" class="licenses-bulk-btn" @onclick="BulkRotateKeysAsync">
             <MudIcon Icon="@Icons.Material.Filled.Mail" Size="Size.Small" />
-            Resend Keys
+            Rotate &amp; Email Keys
         </button>
         <button type="button" class="licenses-bulk-btn" @onclick="BulkRenewAsync">
             <MudIcon Icon="@Icons.Material.Filled.Update" Size="Size.Small" />
@@ -234,9 +234,11 @@
     private string? _filterServiceId;
     private LicenseStatus? _filterStatus;
     private string _search = "";
+    private bool _filterExpiring;
 
     [SupplyParameterFromQuery] public string? Add { get; set; }
     [SupplyParameterFromQuery] public string? CustomerId { get; set; }
+    [SupplyParameterFromQuery] public string? Filter { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -250,6 +252,13 @@
         if (!string.IsNullOrEmpty(CustomerId))
             _filterCustomerId = CustomerId;
 
+        if (string.Equals(Filter, "expiring", StringComparison.OrdinalIgnoreCase))
+        {
+            _filterExpiring = true;
+            _filterStatus = LicenseStatus.Active;
+            _showMoreFilters = true;
+        }
+
         if (!string.IsNullOrEmpty(Add))
             await OpenIssueDialogAsync();
     }
@@ -259,14 +268,15 @@
         var result = await Api.GetLicensesPagedAsync(
             _filterCustomerId,
             page: state.Page + 1,
-            pageSize: state.PageSize);
+            pageSize: state.PageSize,
+            expiringWithinDays: _filterExpiring ? 30 : null);
 
         var items = result.Items.AsEnumerable();
 
-        if (!string.IsNullOrEmpty(_filterServiceId))
+        if (!_filterExpiring && !string.IsNullOrEmpty(_filterServiceId))
             items = items.Where(l => l.ServiceProductId == _filterServiceId);
 
-        if (_filterStatus is not null)
+        if (!_filterExpiring && _filterStatus is not null)
             items = items.Where(l => l.Status == _filterStatus);
 
         if (!string.IsNullOrWhiteSpace(_search))
@@ -277,12 +287,20 @@
                 l.PlanName.Contains(_search, StringComparison.OrdinalIgnoreCase));
         }
 
-        var unfiltered = _filterServiceId is null && _filterStatus is null && string.IsNullOrWhiteSpace(_search);
+        // When expiring filter is server-side, service/status client filters still apply on the page.
+        if (_filterExpiring && !string.IsNullOrEmpty(_filterServiceId))
+            items = items.Where(l => l.ServiceProductId == _filterServiceId);
+
+        var list = items.ToList();
+        var unfiltered = !_filterExpiring
+            && _filterServiceId is null
+            && _filterStatus is null
+            && string.IsNullOrWhiteSpace(_search);
 
         return new GridData<LicenseDto>
         {
-            Items = items.ToList(),
-            TotalItems = unfiltered ? result.TotalCount : items.Count()
+            Items = list,
+            TotalItems = unfiltered ? result.TotalCount : (_filterExpiring && _filterServiceId is null && string.IsNullOrWhiteSpace(_search) ? result.TotalCount : list.Count)
         };
     }
 
@@ -309,6 +327,8 @@
     private async Task OnStatusFilterChanged(LicenseStatus? value)
     {
         _filterStatus = value;
+        if (value != LicenseStatus.Active)
+            _filterExpiring = false;
         await ReloadGrid();
     }
 
@@ -402,7 +422,8 @@
         {
             ["Title"] = "Suspend License",
             ["Message"] = "This license will be denied immediately. Continue?",
-            ["ConfirmText"] = "Suspend"
+            ["ConfirmText"] = "Suspend",
+            ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
@@ -425,7 +446,8 @@
         {
             ["Title"] = "Revoke License",
             ["Message"] = "This will permanently revoke this license. This cannot be undone. Continue?",
-            ["ConfirmText"] = "Revoke"
+            ["ConfirmText"] = "Revoke",
+            ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)
@@ -442,12 +464,12 @@
         await ReloadGrid();
     }
 
-    private async Task ResendKeyAsync(LicenseDto license)
+    private async Task RotateKeyAsync(LicenseDto license)
     {
-        var dialog = await DialogService.ShowAsync<ResendLicenseKeyDialog>("Resend License Key", new DialogParameters
+        var dialog = await DialogService.ShowAsync<RotateLicenseKeyDialog>("Rotate & Email License Key", new DialogParameters
         {
-            [nameof(ResendLicenseKeyDialog.LicenseId)] = license.Id,
-            [nameof(ResendLicenseKeyDialog.CustomerLabel)] = $"{license.CustomerName} — {license.PlanName}"
+            [nameof(RotateLicenseKeyDialog.LicenseId)] = license.Id,
+            [nameof(RotateLicenseKeyDialog.CustomerLabel)] = $"{license.CustomerName} — {license.PlanName}"
         }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto updated)
@@ -457,7 +479,7 @@
         await ReloadGrid();
     }
 
-    private async Task BulkResendKeysAsync()
+    private async Task BulkRotateKeysAsync()
     {
         var resendable = _selected.Where(KeyWasSent).ToList();
         if (resendable.Count == 0)
@@ -466,19 +488,29 @@
             return;
         }
 
-        Snackbar.Add($"Emailing new keys for {resendable.Count} license(s)…", Severity.Info);
-        var results = await Task.WhenAll(resendable.Select(l => Api.ResendLicenseKeyAsync(l.Id)));
+        var confirm = await DialogService.ShowAsync<ConfirmDialog>("Rotate License Keys", new DialogParameters
+        {
+            ["Title"] = "Rotate License Keys",
+            ["Message"] = $"Rotate {resendable.Count} key(s)? Every current key will stop working immediately.",
+            ["ConfirmText"] = "Rotate",
+            ["IsDestructive"] = true
+        }, PlatformDialogOptions.Confirm);
+        if ((await confirm.Result)?.Canceled is not false)
+            return;
+
+        Snackbar.Add($"Queuing new keys for {resendable.Count} license(s)…", Severity.Info);
+        var results = await Task.WhenAll(resendable.Select(l => Api.RotateLicenseKeyAsync(l.Id)));
         var success = results.Count(r => r.IsSuccess);
         var failures = results.Where(r => !r.IsSuccess).Select(r => r.ErrorMessage).Where(m => !string.IsNullOrWhiteSpace(m)).Distinct().ToList();
 
         if (success == resendable.Count)
         {
-            Snackbar.Add($"Key resent for {success} license(s).", Severity.Success);
+            Snackbar.Add($"Key rotation queued for {success} license(s).", Severity.Success);
         }
         else
         {
             var detail = failures.Count > 0 ? $" {failures[0]}" : "";
-            Snackbar.Add($"Key resent for {success} of {resendable.Count} license(s).{detail}", Severity.Warning);
+            Snackbar.Add($"Key rotation queued for {success} of {resendable.Count} license(s).{detail}", Severity.Warning);
         }
 
         _selected.Clear();
@@ -517,7 +549,8 @@
         {
             ["Title"] = "Revoke Licenses",
             ["Message"] = $"Permanently revoke {revokable.Count} license(s)? This cannot be undone.",
-            ["ConfirmText"] = "Revoke"
+            ["ConfirmText"] = "Revoke",
+            ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)

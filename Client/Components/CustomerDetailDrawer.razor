@@ -52,6 +52,14 @@
                             <span>@Customer.ContactEmail</span>
                         </div>
                         <div class="customer-drawer-info-card">
+                            <label>Technical email</label>
+                            <span>@(Customer.TechnicalEmail ?? $"{Customer.ContactEmail} (fallback)")</span>
+                        </div>
+                        <div class="customer-drawer-info-card">
+                            <label>Billing email</label>
+                            <span>@(Customer.BillingEmail ?? $"{Customer.ContactEmail} (fallback)")</span>
+                        </div>
+                        <div class="customer-drawer-info-card">
                             <label>Contact phone</label>
                             <span>@(Customer.ContactPhone ?? "—")</span>
                         </div>
@@ -151,6 +159,10 @@
                     </MudTable>
                 }
             }
+            else if (_activeTab == "communications")
+            {
+                <DeliveryTimeline CustomerId="@Customer.Id" />
+            }
         </div>
 
         <footer class="customer-drawer-footer">
@@ -173,6 +185,7 @@
         ("profile", "Profile"),
         ("licenses", "Licenses"),
         ("invoices", "Invoices"),
+        ("communications", "Communications"),
         ("audit", "Audit")
     ];
 
@@ -274,7 +287,8 @@
         {
             ["Title"] = "Suspend Customer",
             ["Message"] = $"Suspend {Customer.Name}? All licenses will be denied immediately.",
-            ["ConfirmText"] = "Suspend"
+            ["ConfirmText"] = "Suspend",
+            ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false)

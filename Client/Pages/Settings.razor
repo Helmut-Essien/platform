@@ -11,7 +11,7 @@
             <h1 class="page-title">Settings</h1>
             <p class="page-subtitle">Configure invoice letterhead used on emailed PDF invoices.</p>
         </div>
-        <button type="button" class="btn-save-settings" disabled="@(_saving || _loading)" @onclick="SaveAsync">
+        <button type="button" class="btn-primary-cta" disabled="@(_saving || _loading)" @onclick="SaveAsync">
             @if (_saving)
             {
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
@@ -26,8 +26,16 @@
 
     @if (_loading)
     {
-        <div class="settings-loading">
-            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        <div class="settings-loading" aria-busy="true" aria-label="Loading settings">
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="2rem" Width="45%" Class="mb-3" />
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="1rem" Width="70%" Class="mb-6" />
+            <div class="settings-skeleton-grid">
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="3.5rem" />
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="3.5rem" />
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="3.5rem" />
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="3.5rem" />
+            </div>
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="8rem" Class="mt-6" />
         </div>
     }
     else

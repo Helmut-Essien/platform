@@ -17,6 +17,20 @@
                           Variant="Variant.Outlined"
                           InputType="InputType.Email"
                           Class="mb-2" />
+            <MudTextField @bind-Value="_model.TechnicalEmail"
+                          For="@(() => _model.TechnicalEmail)"
+                          Label="Technical email (optional)"
+                          HelperText="Receives license keys and lifecycle notices."
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Email"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_model.BillingEmail"
+                          For="@(() => _model.BillingEmail)"
+                          Label="Billing email (optional)"
+                          HelperText="Receives invoices and receipts."
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Email"
+                          Class="mb-2" />
             <MudTextField @bind-Value="_model.ContactPhone"
                           For="@(() => _model.ContactPhone)"
                           Label="Phone (optional)"
@@ -56,6 +70,8 @@
         {
             Name = Customer.Name,
             ContactEmail = Customer.ContactEmail,
+            TechnicalEmail = Customer.TechnicalEmail,
+            BillingEmail = Customer.BillingEmail,
             ContactPhone = Customer.ContactPhone,
             InternalNotes = Customer.InternalNotes
         };

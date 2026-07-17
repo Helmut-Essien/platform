@@ -17,9 +17,23 @@ public class CustomersController(ICustomerService customers) : ControllerBase
     public async Task<ActionResult<PagedResult<CustomerDto>>> List(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? created = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await customers.ListAsync(page, pageSize, cancellationToken);
+        bool? isSuspended = status?.Trim().ToLowerInvariant() switch
+        {
+            "active" => false,
+            "suspended" => true,
+            _ => null
+        };
+
+        DateTime? createdAfter = created?.Trim().ToLowerInvariant() == "30d"
+            ? DateTime.UtcNow.AddDays(-30)
+            : null;
+
+        var result = await customers.ListAsync(page, pageSize, search, isSuspended, createdAfter, cancellationToken);
         return Ok(result);
     }
 

@@ -17,6 +17,20 @@
                           Variant="Variant.Outlined"
                           InputType="InputType.Email"
                           Class="mb-2" />
+            <MudTextField @bind-Value="_model.TechnicalEmail"
+                          For="@(() => _model.TechnicalEmail)"
+                          Label="Technical email (optional)"
+                          HelperText="Receives license keys and lifecycle notices; falls back to contact email."
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Email"
+                          Class="mb-2" />
+            <MudTextField @bind-Value="_model.BillingEmail"
+                          For="@(() => _model.BillingEmail)"
+                          Label="Billing email (optional)"
+                          HelperText="Receives invoices and receipts; falls back to contact email."
+                          Variant="Variant.Outlined"
+                          InputType="InputType.Email"
+                          Class="mb-2" />
             <MudTextField @bind-Value="_model.ContactPhone"
                           For="@(() => _model.ContactPhone)"
                           Label="Contact phone (optional)"
@@ -31,6 +45,10 @@
                           Lines="3"
                           MaxLength="4000"
                           Counter="4000" />
+            <MudCheckBox @bind-Value="_model.SendWelcomeEmail"
+                         Label="Send welcome email"
+                         Color="Color.Primary"
+                         Class="mt-2" />
         </MudForm>
     </DialogContent>
     <DialogActions>

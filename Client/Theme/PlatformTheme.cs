@@ -13,7 +13,7 @@ public static class PlatformTheme
             Tertiary = "#5c9f24",
             Info = "#5c9f24",
             Success = "#92d959",
-            Warning = "#ffb4ab",
+            Warning = "#e6b84d",
             Error = "#ffb4ab",
             Dark = "#5c9f24",
             Black = "#10150c",

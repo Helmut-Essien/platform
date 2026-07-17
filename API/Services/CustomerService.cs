@@ -5,23 +5,49 @@ using Platform.Api.Helpers;
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
 using Platform.Shared.Enums;
+using Platform.Api.Services.Email;
 
 namespace Platform.Api.Services;
 
-public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicenseDenyListService denyList) : ICustomerService
+public class CustomerService(
+    AppDbContext db,
+    IAuditLogService auditLog,
+    ILicenseDenyListService denyList,
+    IEmailOutboxService outbox,
+    EmailTemplateService templates) : ICustomerService
 {
     public async Task<PagedResult<CustomerDto>> ListAsync(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        string? search = null,
+        bool? isSuspended = null,
+        DateTime? createdAfter = null,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
 
-        var query = db.Customers.AsNoTracking().OrderByDescending(c => c.CreatedAt);
+        var query = db.Customers.AsNoTracking().AsQueryable();
 
-        var totalCount = await query.CountAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = $"%{search.Trim()}%";
+            query = query.Where(c =>
+                EF.Functions.ILike(c.Name, term) ||
+                EF.Functions.ILike(c.ContactEmail, term) ||
+                EF.Functions.ILike(c.Id, term));
+        }
 
-        var customers = await query
+        if (isSuspended is not null)
+            query = query.Where(c => c.IsSuspended == isSuspended.Value);
+
+        if (createdAfter is not null)
+            query = query.Where(c => c.CreatedAt >= createdAfter.Value);
+
+        var ordered = query.OrderByDescending(c => c.CreatedAt);
+
+        var totalCount = await ordered.CountAsync(cancellationToken);
+
+        var customers = await ordered
             .Skip(skip)
             .Take(normalizedPageSize)
             .ToListAsync(cancellationToken);
@@ -72,6 +98,8 @@ public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicens
         {
             Name = request.Name.Trim(),
             ContactEmail = normalizedEmail,
+            BillingEmail = NormalizeEmail(request.BillingEmail),
+            TechnicalEmail = NormalizeEmail(request.TechnicalEmail),
             ContactPhone = request.ContactPhone?.Trim(),
             InternalNotes = request.InternalNotes?.Trim(),
             IsSuspended = false,
@@ -79,6 +107,11 @@ public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicens
         };
 
         db.Customers.Add(customer);
+        if (request.SendWelcomeEmail)
+        {
+            var template = templates.Welcome(customer);
+            outbox.Enqueue(EmailDeliveryKind.Welcome, customer.ContactEmail, template.Subject, template.Html, customer.Id);
+        }
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.CustomerCreated, performedBy, customer.Id, null, null,
@@ -104,6 +137,8 @@ public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicens
 
         customer.Name = request.Name.Trim();
         customer.ContactEmail = normalizedEmail;
+        customer.BillingEmail = NormalizeEmail(request.BillingEmail);
+        customer.TechnicalEmail = NormalizeEmail(request.TechnicalEmail);
         customer.ContactPhone = request.ContactPhone?.Trim();
         customer.InternalNotes = request.InternalNotes?.Trim();
 
@@ -129,6 +164,9 @@ public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicens
             throw new InvalidOperationException("Customer is already suspended.");
 
         customer.IsSuspended = true;
+        var notice = templates.StatusNotice(customer, null, EmailDeliveryKind.Suspended);
+        foreach (var recipient in CustomerContactResolver.Operational(customer))
+            outbox.Enqueue(EmailDeliveryKind.Suspended, recipient, notice.Subject, notice.Html, customer.Id);
         await db.SaveChangesAsync(cancellationToken);
 
         await denyList.DenyCustomerLicensesAsync(customer.Id, cancellationToken);
@@ -177,10 +215,15 @@ public class CustomerService(AppDbContext db, IAuditLogService auditLog, ILicens
         Id = customer.Id,
         Name = customer.Name,
         ContactEmail = customer.ContactEmail,
+        BillingEmail = customer.BillingEmail,
+        TechnicalEmail = customer.TechnicalEmail,
         ContactPhone = customer.ContactPhone,
         InternalNotes = customer.InternalNotes,
         IsSuspended = customer.IsSuspended,
         CreatedAt = customer.CreatedAt,
         LicenseCount = licenseCount
     };
+
+    private static string? NormalizeEmail(string? email) =>
+        string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
 }

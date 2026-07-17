@@ -8,6 +8,10 @@ public class CustomerDto
 
     public required string ContactEmail { get; set; }
 
+    public string? BillingEmail { get; set; }
+
+    public string? TechnicalEmail { get; set; }
+
     public string? ContactPhone { get; set; }
 
     public string? InternalNotes { get; set; }

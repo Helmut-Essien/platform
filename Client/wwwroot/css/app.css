@@ -591,3 +591,86 @@ body.nav-overlay .platform-sidebar-overlay.mud-drawer--open {
 .result-card.result-invalid {
     border-left-color: var(--text-secondary);
 }
+
+/* Snackbar — brand success (not MudBlazor default green) */
+.mud-snackbar.mud-alert-filled-success,
+.mud-snackbar .mud-alert-filled-success {
+    background-color: var(--accent, #5c9f24) !important;
+    color: var(--bg-base, #10150c) !important;
+}
+
+.mud-snackbar.mud-alert-filled-success .mud-snackbar-content-message,
+.mud-snackbar.mud-alert-filled-success .mud-icon-root,
+.mud-snackbar.mud-alert-filled-success .mud-button-root {
+    color: var(--bg-base, #10150c) !important;
+}
+
+.mud-snackbar.mud-alert-filled-warning {
+    background-color: var(--bg-elevated, #2a2a2a) !important;
+    color: #e6b84d !important;
+    border: 1px solid rgba(230, 184, 77, 0.35);
+}
+
+.mud-snackbar.mud-alert-filled-error {
+    background-color: var(--bg-elevated, #2a2a2a) !important;
+    color: var(--text-error, #ffb4ab) !important;
+    border: 1px solid rgba(255, 180, 171, 0.35);
+}
+
+/* Destructive confirm dialog */
+.confirm-dialog-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.confirm-dialog-warning-icon {
+    color: var(--text-error, #ffb4ab) !important;
+}
+
+.confirm-dialog-cancel {
+    color: var(--text-secondary) !important;
+    text-transform: none;
+}
+
+.confirm-dialog-confirm-destructive {
+    background-color: var(--accent, #5c9f24) !important;
+    color: var(--bg-base, #10150c) !important;
+    text-transform: none;
+    font-weight: 600;
+}
+
+.confirm-dialog-confirm-destructive:hover {
+    background-color: var(--accent-hover, #7ccf2e) !important;
+}
+
+/* Shared primary page CTAs (Customers, Licenses, Settings, …) */
+.btn-primary-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.5rem;
+    background: var(--primary, #92d959);
+    color: var(--on-primary, #193800);
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 700;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.15s ease;
+    width: fit-content;
+}
+
+.btn-primary-cta:hover:not(:disabled) {
+    background: var(--accent-hover, #7ccf2e);
+}
+
+.btn-primary-cta:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+.btn-primary-cta:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}

@@ -242,7 +242,7 @@
 }
 
 .invoices-table-panel ::deep .invoices-grid .mud-table-row:hover {
-    background: #252525 !important;
+    background: var(--bg-elevated, #2a2a2a) !important;
 }
 
 .invoices-table-panel ::deep .invoices-grid .mud-table-row.invoice-row-overdue {

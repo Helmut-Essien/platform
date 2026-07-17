@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Helpers;
@@ -14,10 +15,8 @@ namespace Platform.Api.Services;
 public class BillingService(
     AppDbContext db,
     IAuditLogService auditLog,
-    IEmailSender emailSender,
-    IInvoicePdfGenerator invoicePdfGenerator,
-    IInvoiceBrandService invoiceBrand,
-    ILogger<BillingService> logger) : IBillingService
+    IEmailOutboxService outbox,
+    EmailTemplateService templates) : IBillingService
 {
     private const int MaxNumberGenerationAttempts = 3;
 
@@ -27,6 +26,11 @@ public class BillingService(
         string? ipAddress = null,
         CancellationToken cancellationToken = default)
     {
+        IDbContextTransaction? transaction = null;
+        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
+            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var ownedTransaction = transaction;
+
         var customer = await db.Customers.FindAsync([request.CustomerId], cancellationToken)
             ?? throw new InvalidOperationException("Customer not found.");
 
@@ -53,7 +57,7 @@ public class BillingService(
             LicenseId = request.LicenseId,
             ServiceProductId = request.ServiceProductId,
             InvoiceNumber = string.Empty,
-            Status = request.Status,
+            Status = request.SendImmediately ? InvoiceStatus.Sent : request.Status,
             IssueDate = now,
             DueDate = DateTimeNormalizer.ToUtc(request.DueDate),
             Currency = request.Currency.ToUpperInvariant(),
@@ -80,12 +84,14 @@ public class BillingService(
         }
 
         if (invoice.Status == InvoiceStatus.Sent)
-        {
-            await SendInvoiceEmailAsync(customer, invoice, cancellationToken);
-        }
+            QueueInvoiceEmail(customer, invoice);
 
-        return await MapInvoiceAsync(invoice.Id, cancellationToken)
+        await db.SaveChangesAsync(cancellationToken);
+        var result = await MapInvoiceAsync(invoice.Id, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load created invoice.");
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
+        return result;
     }
 
     public async Task<InvoiceDto> CreateInvoiceForLicenseAsync(
@@ -106,6 +112,7 @@ public class BillingService(
             LicenseId = license.Id,
             ServiceProductId = license.ServiceProductId,
             Status = status,
+            SendImmediately = status == InvoiceStatus.Sent,
             DueDate = dueDate,
             Currency = currency,
             Subtotal = subtotal,
@@ -120,10 +127,38 @@ public class BillingService(
         return await MapInvoiceAsync(id, cancellationToken);
     }
 
+    public async Task<InvoiceDto> SendInvoiceAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var invoice = await db.Invoices
+            .IgnoreQueryFilters()
+            .Include(x => x.Customer)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("Invoice not found.");
+
+        if (invoice.Status is InvoiceStatus.Void or InvoiceStatus.Paid)
+            throw new InvalidOperationException($"Cannot send an invoice in status {invoice.Status}.");
+
+        if (invoice.Status == InvoiceStatus.Draft)
+            invoice.Status = InvoiceStatus.Sent;
+        invoice.UpdatedAt = DateTime.UtcNow;
+        QueueInvoiceEmail(invoice.Customer, invoice);
+        await db.SaveChangesAsync(cancellationToken);
+
+        await auditLog.WriteAsync(AuditAction.InvoiceSent, performedBy, invoice.CustomerId, invoice.LicenseId,
+            invoice.Id, $$"""{"invoiceNumber":"{{invoice.InvoiceNumber}}"}""", ipAddress, cancellationToken);
+        return await MapInvoiceAsync(id, cancellationToken)
+            ?? throw new InvalidOperationException("Failed to load invoice.");
+    }
+
     public async Task<PagedResult<InvoiceDto>> ListInvoicesAsync(
         string? customerId = null,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
+        bool unpaidOnly = false,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -137,6 +172,14 @@ public class BillingService(
 
         if (customerId is not null)
             query = query.Where(i => i.CustomerId == customerId);
+
+        if (unpaidOnly)
+        {
+            query = query.Where(i =>
+                i.Status == InvoiceStatus.Sent
+                || i.Status == InvoiceStatus.PartiallyPaid
+                || i.Status == InvoiceStatus.Overdue);
+        }
 
         var ordered = query.OrderByDescending(i => i.IssueDate);
 
@@ -165,6 +208,7 @@ public class BillingService(
     {
         var invoice = await db.Invoices
             .Include(i => i.Receipts)
+            .Include(i => i.Customer)
             .FirstOrDefaultAsync(i => i.Id == id, cancellationToken)
             ?? throw new InvalidOperationException("Invoice not found.");
 
@@ -222,6 +266,18 @@ public class BillingService(
         };
 
         await SaveNewReceiptAsync(invoice, receipt, cancellationToken);
+
+        var receiptTemplate = templates.PaymentReceipt(invoice.Customer, invoice, receipt);
+        outbox.Enqueue(
+            EmailDeliveryKind.PaymentReceipt,
+            CustomerContactResolver.Billing(invoice.Customer),
+            receiptTemplate.Subject,
+            receiptTemplate.Html,
+            invoice.CustomerId,
+            invoice.LicenseId,
+            invoice.Id,
+            receipt.Id);
+        await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.ReceiptRecorded, performedBy, invoice.CustomerId, invoice.LicenseId,
             invoice.Id,
@@ -315,52 +371,16 @@ public class BillingService(
         return $"{prefix}{(count + 1):D5}";
     }
 
-    private async Task SendInvoiceEmailAsync(Customer customer, Invoice invoice, CancellationToken cancellationToken)
+    private void QueueInvoiceEmail(Customer customer, Invoice invoice)
     {
-        try
-        {
-            if (invoice.ServiceProduct is null && invoice.ServiceProductId is not null)
-            {
-                invoice.ServiceProduct = await db.ServiceProducts.AsNoTracking()
-                    .FirstOrDefaultAsync(s => s.Id == invoice.ServiceProductId, cancellationToken);
-            }
-
-            var subject = $"Invoice {invoice.InvoiceNumber} from Platform License Hub";
-            var htmlBody = BuildInvoiceEmailBody(customer.Name, invoice);
-            var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
-            var paymentOptions = InvoiceBrandService.DeserializePaymentOptions(profile.PaymentOptionsJson)
-                .Select(o => new InvoicePaymentOption(o.Method, o.Details))
-                .ToList();
-            var letterhead = new InvoiceLetterhead(
-                profile.CompanyName,
-                profile.AddressLine1,
-                profile.AddressLine2,
-                profile.Phone,
-                profile.Website,
-                profile.LogoBytes,
-                paymentOptions);
-            var pdfBytes = invoicePdfGenerator.Generate(invoice, customer, letterhead);
-            var attachments = new List<EmailAttachment>
-            {
-                new($"{invoice.InvoiceNumber}.pdf", "application/pdf", pdfBytes)
-            };
-
-            await emailSender.SendAsync(
-                customer.ContactEmail,
-                subject,
-                htmlBody,
-                attachments,
-                cancellationToken);
-            logger.LogInformation(
-                "Invoice email sent for {InvoiceNumber} to {Recipient} with PDF attachment ({PdfBytes} bytes)",
-                invoice.InvoiceNumber,
-                customer.ContactEmail,
-                pdfBytes.Length);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to send invoice email for {InvoiceNumber} to {Recipient}", invoice.InvoiceNumber, customer.ContactEmail);
-        }
+        outbox.Enqueue(
+            EmailDeliveryKind.Invoice,
+            CustomerContactResolver.Billing(customer),
+            $"Invoice {invoice.InvoiceNumber} from Platform License Hub",
+            BuildInvoiceEmailBody(customer.Name, invoice),
+            customer.Id,
+            invoice.LicenseId,
+            invoice.Id);
     }
 
     private static string BuildInvoiceEmailBody(string customerName, Invoice invoice)

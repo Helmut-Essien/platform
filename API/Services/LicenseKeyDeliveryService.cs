@@ -5,13 +5,15 @@ using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Security;
 using Platform.Api.Services.Email;
+using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
 
 public class LicenseKeyDeliveryService(
     AppDbContext db,
-    IEmailSender emailSender,
-    ILogger<LicenseKeyDeliveryService> logger) : ILicenseKeyDeliveryService
+    IEmailOutboxService outbox,
+    EmailPayloadProtector protector,
+    EmailTemplateService templates) : ILicenseKeyDeliveryService
 {
     public async Task DeliverNewKeyAsync(License license, bool isRenewal, CancellationToken cancellationToken = default)
     {
@@ -31,32 +33,18 @@ public class LicenseKeyDeliveryService(
         license.LicenseKeySentAt = DateTime.UtcNow;
         license.UpdatedAt = DateTime.UtcNow;
 
-        var subject = isRenewal
-            ? $"Your {serviceProduct.Name} license has been renewed"
-            : $"Your {serviceProduct.Name} license is active";
+        var template = templates.LicenseKey(customer, serviceProduct, license, "{{LICENSE_KEY}}", isRenewal);
+        outbox.Enqueue(
+            isRenewal ? EmailDeliveryKind.LicenseKeyRotated : EmailDeliveryKind.LicenseKey,
+            CustomerContactResolver.Technical(customer),
+            template.Subject,
+            template.Html,
+            customer.Id,
+            license.Id,
+            encryptedPayload: protector.Protect(plainKey));
 
-        var htmlBody = BuildEmailBody(customer.Name, serviceProduct.Name, license.PlanName, plainKey, isRenewal);
-
-        try
-        {
-            await emailSender.SendAsync(customer.ContactEmail, subject, htmlBody, cancellationToken: cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            var wasCanceled = ex is OperationCanceledException;
-            logger.LogError(
-                ex,
-                "Failed to send license key email for license {LicenseId} to customer {CustomerId} ({Recipient}). " +
-                "IsRenewal={IsRenewal}. Canceled={WasCanceled}. CancellationRequested={CancellationRequested}. ExceptionType={ExceptionType}",
-                license.Id,
-                license.CustomerId,
-                customer.ContactEmail,
-                isRenewal,
-                wasCanceled,
-                cancellationToken.IsCancellationRequested,
-                ex.GetType().FullName);
-            throw new InvalidOperationException("License was updated but the license key email could not be sent.", ex);
-        }
+        // Keep the request asynchronous without performing network I/O.
+        await Task.CompletedTask;
     }
 
     internal static string GenerateLicenseKey(string serviceCode)
@@ -78,22 +66,4 @@ public class LicenseKeyDeliveryService(
         return sb.ToString();
     }
 
-    private static string BuildEmailBody(
-        string customerName,
-        string productName,
-        string planName,
-        string licenseKey,
-        bool isRenewal)
-    {
-        var action = isRenewal ? "renewed" : "activated";
-        return $"""
-            <html><body style="font-family:sans-serif;">
-            <p>Hello {System.Net.WebUtility.HtmlEncode(customerName)},</p>
-            <p>Your <strong>{System.Net.WebUtility.HtmlEncode(productName)}</strong> license ({System.Net.WebUtility.HtmlEncode(planName)}) has been {action}.</p>
-            <p>Your license key:</p>
-            <p style="font-family:monospace;font-size:1.1em;"><strong>{System.Net.WebUtility.HtmlEncode(licenseKey)}</strong></p>
-            <p>Store this key securely. It will not be sent again.</p>
-            </body></html>
-            """;
-    }
 }

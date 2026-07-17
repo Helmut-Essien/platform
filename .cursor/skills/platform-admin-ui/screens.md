@@ -309,7 +309,7 @@ Row click opens detail drawer. Pagination via `MudDataGridPager`.
 
 ### Create customer
 
-`CustomerCreateDialog` (MudDialog) — Name, ContactEmail, ContactPhone, InternalNotes. `POST /api/customers` → 201.  
+`CustomerCreateDialog` (MudDialog) — Name, ContactEmail, optional TechnicalEmail/BillingEmail, ContactPhone, InternalNotes, and optional “Send welcome email”. `POST /api/customers` → 201.
 Also opened via `/customers?add=true`.
 
 ### Detail drawer (`CustomerDetailDrawer`, 480px right / full-width xs)
@@ -317,8 +317,9 @@ Also opened via `/customers?add=true`.
 | Section | Spec |
 |---------|------|
 | Header | Avatar, name, status badge, close button |
-| Tabs | Custom mono tabs: Profile · Licenses · Invoices · Audit |
-| Profile | Info cards grid (email, phone, ID, created, license count) + notes blockquote |
+| Tabs | Custom mono tabs: Profile · Licenses · Invoices · Communications · Audit |
+| Profile | Info cards grid (primary/technical/billing email, phone, ID, created, license count) + notes blockquote |
+| Communications | `DeliveryTimeline`: kind, recipient, delivery status, attempts, retry |
 | Licenses / Invoices / Audit | Compact tables or empty state with icon |
 | Footer | “Edit Record” (outlined) + “Suspend” (error) or “Reactivate” (primary) |
 
@@ -488,15 +489,15 @@ Search (More Filters): debounced — customer, service code, plan.
 
 ### Bulk actions bar
 
-Fixed bottom glass panel when rows selected (see [design-system bulk actions bar](design-system.md#component-tokens)): **Resend Keys** (info — API TBD), **Renew** (single selection), **Revoke** (bulk confirm per [destructive dialog](design-system.md#destructive-confirmation-dialog)), close to clear.
+Fixed bottom glass panel when rows selected: **Rotate & Email Keys** (destructive confirm), **Renew**, **Revoke** (bulk confirm), close to clear.
 
 ### Issue License dialog
 
-`LicenseIssueDialog` — Customer, Service, Plan, Expires. `POST /api/licenses` → Pending.
+`LicenseIssueDialog` — Customer, Service, Plan, Expires, optional Create Invoice / Send Invoice. `POST /api/licenses` → Pending.
 
-### Activate License flow (two-step)
+### Activate License flow (hybrid)
 
-**Step 1 — Billing modal.** Follows [Form patterns](#form-patterns). Only available on Pending / Suspended / Expired licenses.
+Only available on Pending / Suspended / Expired licenses. Independent toggles default to: Email Key on, Create Invoice on, Send Invoice on.
 
 | Field | Component | Notes |
 |-------|-----------|-------|
@@ -506,24 +507,13 @@ Fixed bottom glass panel when rows selected (see [design-system bulk actions bar
 | Due Date | `MudDatePicker` | Optional |
 | Description | `MudTextField` | Optional |
 
-Info text: "An invoice will be created and the license key emailed to the customer."
-
-`POST /api/licenses/{id}/activate` — API generates license key, creates invoice (status Sent), emails customer, audit logs `LicenseActivated` + `InvoiceSent` + `InvoiceLinkedToLicense`.
-
-**Step 2 — One-time key reveal.** Immediately after activation succeeds:
-
-- Dialog title: "License Activated" with success icon
-- `<code class="license-key">` displays plain key (JetBrains Mono, `--accent` text, `--bg-elevated` background, 0.25rem+ padding, border-radius 4px, `1px solid --border-subtle`)
-- `MudIconButton` copy → Snackbar "Copied"
-- "This key has been emailed to {customer email}"
-- Warning: "Copy this key now. It cannot be retrieved again after you close this dialog."
-- `[I've Saved It]` button dismisses. No dismiss-by-click-outside. No close X.
+`POST /api/licenses/{id}/activate` persists activation and selected invoice/outbox records transactionally. The result dialog says delivery was **queued**, not delivered. Final state is shown in Communications.
 
 ### Renew License flow
 
-Follows [Form patterns](#form-patterns). Same two-step modal as Activate, plus optional new `ExpiresAt` picker.
+Follows [Form patterns](#form-patterns). New expiry is required. Rotate Key defaults **off**; renewal notice and invoice toggles are independent. `POST /api/licenses/{id}/renew` preserves the current key unless rotation is selected.
 
-`POST /api/licenses/{id}/renew` — generates new key, extends expiry, creates new invoice, audit logs `LicenseRenewed` + `LicenseKeyRotated`.
+Manual replacement is labeled **Rotate & Email Key**, not Resend. It warns that the current key stops working and calls `POST /api/licenses/{id}/rotate-key`.
 
 ### Suspend / Revoke / Update
 
@@ -619,7 +609,7 @@ Overdue rows: subtle error-container background tint.
 
 ### Create Invoice
 
-`CreateInvoiceDialog` via CREATE INVOICE. `POST /api/invoices` → navigate to detail.
+`CreateInvoiceDialog` via CREATE INVOICE offers **Save Draft** and **Create & Send**. Sending queues an outbox delivery; invoice detail shows the delivery timeline and supports Send/Send Again via `POST /api/invoices/{id}/send`.
 
 ### Export CSV
 

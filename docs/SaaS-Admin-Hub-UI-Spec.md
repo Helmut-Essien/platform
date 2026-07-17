@@ -173,7 +173,7 @@ Reference mock (May 2026): success banner, 4 stat cards, styled service table wi
 
 ### Licenses
 
-Reference mock (May 2026): 4-column filter grid, multi-select license table with status pills and Key Sent chips, fixed glass bulk actions bar (Resend Keys, Renew, Revoke).
+Reference mock (May 2026): 4-column filter grid, multi-select license table with status pills and Key Sent chips, fixed glass bulk actions bar (Rotate & Email Keys, Renew, Revoke).
 
 ### Invoices
 

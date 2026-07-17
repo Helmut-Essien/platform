@@ -24,6 +24,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<InvoiceBrandProfile> InvoiceBrandProfiles => Set<InvoiceBrandProfile>();
 
+    public DbSet<EmailOutboxMessage> EmailOutboxMessages => Set<EmailOutboxMessage>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

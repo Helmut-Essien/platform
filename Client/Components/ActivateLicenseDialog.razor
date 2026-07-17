@@ -7,20 +7,33 @@
         {
             <div class="license-action-busy">
                 <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
-                <MudText Typo="Typo.body2" Class="mt-3">Creating invoice and emailing the license key…</MudText>
-                <MudText Typo="Typo.caption" Class="mt-1">This can take a few seconds. Please keep this dialog open.</MudText>
+                <MudText Typo="Typo.body2" Class="mt-3">Activating license and queuing selected deliveries…</MudText>
             </div>
         }
         else
         {
             <MudText Typo="Typo.caption" Class="mb-4">
-                An invoice will be created and the license key emailed to the customer. The plain key is not shown here.
+                Choose key delivery and billing independently. Email is queued and retried automatically.
             </MudText>
             @if (!string.IsNullOrEmpty(_error))
             {
                 <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3" Variant="Variant.Outlined">@_error</MudAlert>
             }
             <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
+                <MudCheckBox @bind-Value="_model.EmailLicenseKey"
+                             Label="Email license key to technical contact"
+                             Color="Color.Primary"
+                             Class="mb-2" />
+                <MudCheckBox @bind-Value="_model.CreateInvoice"
+                             Label="Create invoice"
+                             Color="Color.Primary"
+                             Class="mb-2" />
+                @if (_model.CreateInvoice)
+                {
+                    <MudCheckBox @bind-Value="_model.SendInvoice"
+                                 Label="Send invoice immediately"
+                                 Color="Color.Primary"
+                                 Class="mb-3" />
                 <MudNumericField @bind-Value="_model.Subtotal"
                                  For="@(() => _model.Subtotal)"
                                  Label="Subtotal"
@@ -48,6 +61,7 @@
                               Label="Description (optional)"
                               Variant="Variant.Outlined"
                               Lines="2" />
+                }
             </MudForm>
         }
     </DialogContent>

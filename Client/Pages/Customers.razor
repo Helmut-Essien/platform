@@ -11,7 +11,7 @@
             <h1 class="page-title">Customers</h1>
             <p class="page-subtitle">Manage platform accounts, licensing, and billing entities.</p>
         </div>
-        <button type="button" class="btn-new-customer" @onclick="OpenCreateDialogAsync">
+        <button type="button" class="btn-primary-cta" @onclick="OpenCreateDialogAsync">
             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
             New Customer
         </button>
@@ -46,7 +46,7 @@
                      T="CustomerDto"
                      Class="customers-grid"
                      ServerData="LoadServerData"
-                     Hover="false"
+                     Hover="true"
                      Dense="false"
                      RowClick="OnRowClick"
                      RowsPerPage="25">
@@ -117,7 +117,7 @@
                     <div class="customers-empty">
                         <h2>No customers yet</h2>
                         <p>Add your first customer to start issuing licenses.</p>
-                        <button type="button" class="btn-new-customer" @onclick="OpenCreateDialogAsync">
+                        <button type="button" class="btn-primary-cta" @onclick="OpenCreateDialogAsync">
                             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
                             New Customer
                         </button>
@@ -152,34 +152,17 @@
 
     private async Task<GridData<CustomerDto>> LoadServerData(GridState<CustomerDto> state)
     {
-        var result = await Api.GetCustomersPagedAsync(state.Page + 1, state.PageSize);
-        var items = result.Items.AsEnumerable();
-
-        if (!string.IsNullOrWhiteSpace(_search))
-        {
-            items = items.Where(c =>
-                c.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
-                c.ContactEmail.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
-                c.Id.Contains(_search, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (_statusFilter == "active")
-            items = items.Where(c => !c.IsSuspended);
-        else if (_statusFilter == "suspended")
-            items = items.Where(c => c.IsSuspended);
-
-        if (_dateFilter == "30d")
-        {
-            var cutoff = DateTime.UtcNow.AddDays(-30);
-            items = items.Where(c => c.CreatedAt >= cutoff);
-        }
-
-        var unfiltered = string.IsNullOrWhiteSpace(_search) && _statusFilter == "all" && _dateFilter == "all";
+        var result = await Api.GetCustomersPagedAsync(
+            state.Page + 1,
+            state.PageSize,
+            search: _search,
+            status: _statusFilter,
+            created: _dateFilter);
 
         return new GridData<CustomerDto>
         {
-            Items = items.ToList(),
-            TotalItems = unfiltered ? result.TotalCount : items.Count()
+            Items = result.Items,
+            TotalItems = result.TotalCount
         };
     }
 
@@ -263,7 +246,8 @@
         {
             ["Title"] = "Suspend Customer",
             ["Message"] = "All licenses for this customer will be denied immediately. Continue?",
-            ["ConfirmText"] = "Suspend"
+            ["ConfirmText"] = "Suspend",
+            ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)

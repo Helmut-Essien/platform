@@ -13,8 +13,20 @@
 
 .settings-loading {
     display: flex;
-    justify-content: center;
-    padding: 3rem 0;
+    flex-direction: column;
+    padding: 0.5rem 0 2rem;
+}
+
+.settings-skeleton-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 699px) {
+    .settings-skeleton-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .settings-panel {

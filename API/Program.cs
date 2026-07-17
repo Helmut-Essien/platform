@@ -6,6 +6,7 @@ using Platform.Api.Configuration;
 using Platform.Api.Data;
 using Platform.Api.Extensions;
 using Platform.Api.Services;
+using Platform.Api.Services.Email;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,6 +47,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddPlatformAuthentication(builder.Configuration);
 builder.Services.AddPlatformEmail(builder.Configuration);
 builder.Services.AddPlatformRedis(builder.Configuration);
+builder.Services.Configure<LifecycleSettings>(
+    builder.Configuration.GetSection(LifecycleSettings.SectionName));
+builder.Services.AddHostedService<LicenseExpiryReminderWorker>();
+builder.Services.AddHostedService<OverdueInvoiceLifecycleWorker>();
 
 builder.Services.AddCors(options =>
 {

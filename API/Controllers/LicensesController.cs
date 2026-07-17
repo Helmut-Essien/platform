@@ -19,9 +19,16 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromQuery] bool includeSuspendedCustomers = false,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] int? expiringWithinDays = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await licenses.ListAsync(customerId, includeSuspendedCustomers, page, pageSize, cancellationToken);
+        var result = await licenses.ListAsync(
+            customerId,
+            includeSuspendedCustomers,
+            page,
+            pageSize,
+            expiringWithinDays,
+            cancellationToken);
         return Ok(result);
     }
 
@@ -165,10 +172,14 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
 
     [HttpPost("{id}/resend-key")]
     public async Task<ActionResult<LicenseDto>> ResendKey(string id, CancellationToken cancellationToken)
+        => await RotateKey(id, cancellationToken);
+
+    [HttpPost("{id}/rotate-key")]
+    public async Task<ActionResult<LicenseDto>> RotateKey(string id, CancellationToken cancellationToken)
     {
         try
         {
-            var license = await licenses.ResendKeyAsync(
+            var license = await licenses.RotateKeyAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),

@@ -47,7 +47,7 @@ public class BillingServiceTests
     }
 
     [Fact]
-    public async Task CreateInvoiceAsync_SendsEmailWhenStatusIsSent()
+    public async Task CreateInvoiceAsync_QueuesEmailWhenStatusIsSent()
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
@@ -65,8 +65,7 @@ public class BillingServiceTests
             Description = "June 2026 license"
         }, performedBy: "admin@example.com");
 
-        Assert.Single(emailSender.Messages);
-        var message = emailSender.Messages[0];
+        var message = Assert.Single(db.EmailOutboxMessages);
         Assert.Equal("billing@acme.test", message.ToEmail);
         Assert.Contains("Invoice", message.Subject);
         Assert.Contains("$100.00", message.HtmlBody);
@@ -75,11 +74,8 @@ public class BillingServiceTests
         Assert.Contains("Pro", message.HtmlBody);
         Assert.Contains("June 2026 license", message.HtmlBody);
         Assert.Contains("attached", message.HtmlBody);
-        Assert.Single(message.Attachments);
-        Assert.Equal("application/pdf", message.Attachments[0].ContentType);
-        Assert.StartsWith("INV-", message.Attachments[0].FileName);
-        Assert.EndsWith(".pdf", message.Attachments[0].FileName);
-        Assert.NotEmpty(message.Attachments[0].Content);
+        Assert.Equal(EmailDeliveryKind.Invoice, message.Kind);
+        Assert.NotNull(message.InvoiceId);
     }
 
     [Fact]
@@ -99,11 +95,11 @@ public class BillingServiceTests
             TaxAmount = 0m
         }, performedBy: "admin@example.com");
 
-        Assert.Empty(emailSender.Messages);
+        Assert.Empty(db.EmailOutboxMessages);
     }
 
     [Fact]
-    public async Task CreateInvoiceAsync_EmailFailureDoesNotThrow()
+    public async Task CreateInvoiceAsync_DoesNotCallEmailProviderInRequest()
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
@@ -123,6 +119,7 @@ public class BillingServiceTests
         Assert.NotNull(invoice);
         Assert.Single(auditLog.Entries);
         Assert.Equal(AuditAction.InvoiceSent, auditLog.Entries[0].Action);
+        Assert.Single(db.EmailOutboxMessages);
     }
 
     [Fact]
@@ -225,10 +222,8 @@ public class BillingServiceTests
         return new BillingService(
             db,
             auditLog ?? new FakeAuditLogService(),
-            emailSender ?? new CapturingEmailSender(),
-            new FakeInvoicePdfGenerator(),
-            new InvoiceBrandService(db),
-            NullLogger<BillingService>.Instance);
+            new EmailOutboxService(db),
+            new EmailTemplateService());
     }
 
     private static async Task<Customer> SeedCustomerAsync(AppDbContext db, bool isSuspended = false)

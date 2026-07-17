@@ -12,7 +12,9 @@ public class CreateInvoiceRequest
 
     public string? ServiceProductId { get; set; }
 
-    public InvoiceStatus Status { get; set; } = InvoiceStatus.Sent;
+    public InvoiceStatus Status { get; set; } = InvoiceStatus.Draft;
+
+    public bool SendImmediately { get; set; }
 
     public DateTime? DueDate { get; set; }
 

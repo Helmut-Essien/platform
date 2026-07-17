@@ -111,6 +111,18 @@ Shared/
 
 ---
 
+## Phase 7 — Hybrid onboarding, durable email, lifecycle automation (DONE)
+
+- Independent activation/renewal billing and delivery flags
+- Customer billing/technical contacts with primary fallback
+- PostgreSQL transactional email outbox; AES-GCM encrypted license-key payloads
+- Background retries, delivery list/retry API, and admin Communications timeline
+- Draft vs Create & Send invoices; explicit Rotate & Email Key semantics
+- Expiry reminder worker, suspend/revoke notifications
+- Optional auto-suspend of only the license linked to an overdue invoice
+
+---
+
 ## Phase 3b — Invoices & receipts (DONE)
 
 **Goal:** Billing records linked to customers and licenses.

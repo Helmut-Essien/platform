@@ -5,7 +5,13 @@ namespace Platform.Api.Services;
 
 public interface ICustomerService
 {
-    Task<PagedResult<CustomerDto>> ListAsync(int page = 1, int pageSize = 25, CancellationToken cancellationToken = default);
+    Task<PagedResult<CustomerDto>> ListAsync(
+        int page = 1,
+        int pageSize = 25,
+        string? search = null,
+        bool? isSuspended = null,
+        DateTime? createdAfter = null,
+        CancellationToken cancellationToken = default);
 
     Task<CustomerDto?> GetAsync(string id, CancellationToken cancellationToken = default);
 

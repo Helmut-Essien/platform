@@ -45,6 +45,10 @@ public static class EmailServiceExtensions
             $"(ResendApiKey set={hasResendKey}, Smtp Host set={hasSmtpHost})");
 
         services.AddSingleton<IInvoicePdfGenerator, InvoicePdfGenerator>();
+        services.AddSingleton<EmailPayloadProtector>();
+        services.AddSingleton<EmailTemplateService>();
+        services.AddScoped<IEmailOutboxService, EmailOutboxService>();
+        services.AddHostedService<EmailOutboxWorker>();
         services.AddScoped<ILicenseKeyDeliveryService, LicenseKeyDeliveryService>();
 
         return services;

@@ -7,14 +7,13 @@
         {
             <div class="license-action-busy">
                 <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
-                <MudText Typo="Typo.body2" Class="mt-3">Renewing license and emailing the new key…</MudText>
-                <MudText Typo="Typo.caption" Class="mt-1">This can take a few seconds. Please keep this dialog open.</MudText>
+                <MudText Typo="Typo.body2" Class="mt-3">Renewing license and queuing selected deliveries…</MudText>
             </div>
         }
         else
         {
             <MudText Typo="Typo.caption" Class="mb-4">
-                A new license key will be generated, the expiry extended, and a new invoice created. The plain key is emailed to the customer — not shown here.
+                The current key remains valid unless you explicitly rotate it.
             </MudText>
             @if (!string.IsNullOrEmpty(_error))
             {
@@ -26,6 +25,24 @@
                                Label="New expiry date"
                                Variant="Variant.Outlined"
                                Class="mb-2" />
+                <MudCheckBox @bind-Value="_model.RotateLicenseKey"
+                             Label="Rotate key (invalidates the current key)"
+                             Color="Color.Primary"
+                             Class="mb-2" />
+                <MudCheckBox @bind-Value="_model.EmailLicenseKey"
+                             Label="@(_model.RotateLicenseKey ? "Email new key to technical contact" : "Email renewal confirmation")"
+                             Color="Color.Primary"
+                             Class="mb-2" />
+                <MudCheckBox @bind-Value="_model.CreateInvoice"
+                             Label="Create renewal invoice"
+                             Color="Color.Primary"
+                             Class="mb-2" />
+                @if (_model.CreateInvoice)
+                {
+                    <MudCheckBox @bind-Value="_model.SendInvoice"
+                                 Label="Send invoice immediately"
+                                 Color="Color.Primary"
+                                 Class="mb-3" />
                 <MudNumericField @bind-Value="_model.Subtotal"
                                  For="@(() => _model.Subtotal)"
                                  Label="Subtotal"
@@ -53,6 +70,7 @@
                               Label="Description (optional)"
                               Variant="Variant.Outlined"
                               Lines="2" />
+                }
             </MudForm>
         }
     </DialogContent>

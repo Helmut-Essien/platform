@@ -18,9 +18,10 @@ public class InvoicesController(IBillingService billing) : ControllerBase
         [FromQuery] string? customerId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] bool unpaidOnly = false,
         CancellationToken cancellationToken = default)
     {
-        var invoices = await billing.ListInvoicesAsync(customerId, page, pageSize, cancellationToken);
+        var invoices = await billing.ListInvoicesAsync(customerId, page, pageSize, unpaidOnly, cancellationToken);
         return Ok(invoices);
     }
 
@@ -29,6 +30,23 @@ public class InvoicesController(IBillingService billing) : ControllerBase
     {
         var invoice = await billing.GetInvoiceAsync(id, cancellationToken);
         return invoice is null ? NotFound() : Ok(invoice);
+    }
+
+    [HttpPost("{id}/send")]
+    public async Task<ActionResult<InvoiceDto>> Send(string id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await billing.SendInvoiceAsync(
+                id,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost]

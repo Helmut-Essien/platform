@@ -20,6 +20,12 @@ else
     <header class="invoice-detail-header">
         <h1 class="page-title">Invoice @_invoice.InvoiceNumber</h1>
         <div class="d-flex gap-2 flex-wrap">
+            @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendInvoiceAsync">
+                    @(_invoice.Status == InvoiceStatus.Draft ? "Send invoice" : "Send again")
+                </MudButton>
+            }
             @if (_invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
@@ -78,6 +84,10 @@ else
         </MudTable>
     }
 
+    <MudPaper Class="pa-4 mb-4" Elevation="0">
+        <DeliveryTimeline InvoiceId="@_invoice.Id" />
+    </MudPaper>
+
     <MudButton Variant="Variant.Text" Href="/invoices">Back to invoices</MudButton>
 }
 </div>
@@ -129,6 +139,18 @@ else
         await LoadAsync();
     }
 
+    private async Task SendInvoiceAsync()
+    {
+        if (_invoice is null)
+            return;
+        var result = await Api.SendInvoiceAsync(_invoice.Id);
+        Snackbar.Add(
+            result.IsSuccess ? "Invoice email queued." : result.ErrorMessage ?? "Failed to queue invoice.",
+            result.IsSuccess ? Severity.Success : Severity.Error);
+        if (result.IsSuccess)
+            await LoadAsync();
+    }
+
     private async Task VoidAsync()
     {
         if (_invoice is null)
@@ -138,7 +160,8 @@ else
         {
             ["Title"] = "Void Invoice",
             ["Message"] = "This will void the invoice. Continue?",
-            ["ConfirmText"] = "Void"
+            ["ConfirmText"] = "Void",
+            ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false)

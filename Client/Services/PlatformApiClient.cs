@@ -5,6 +5,7 @@ using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
 using Platform.Shared.Dtos.Dashboard;
+using Platform.Shared.Dtos.Email;
 using Platform.Shared.Dtos.IntegrationKeys;
 using Platform.Shared.Dtos.Licenses;
 using Platform.Shared.Dtos.ServiceProducts;
@@ -30,9 +31,22 @@ public class PlatformApiClient(HttpClient http)
     public async Task<PagedResult<CustomerDto>> GetCustomersPagedAsync(
         int page = 1,
         int pageSize = 25,
-        CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<PagedResult<CustomerDto>>($"api/customers?page={page}&pageSize={pageSize}", ct)
-        ?? new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
+        string? search = null,
+        string? status = null,
+        string? created = null,
+        CancellationToken ct = default)
+    {
+        var url = $"api/customers?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrWhiteSpace(search))
+            url += $"&search={Uri.EscapeDataString(search.Trim())}";
+        if (!string.IsNullOrWhiteSpace(status) && status != "all")
+            url += $"&status={Uri.EscapeDataString(status)}";
+        if (!string.IsNullOrWhiteSpace(created) && created != "all")
+            url += $"&created={Uri.EscapeDataString(created)}";
+
+        return await http.GetFromJsonAsync<PagedResult<CustomerDto>>(url, ct)
+            ?? new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
+    }
 
     public async Task<CustomerDto?> GetCustomerAsync(string id, CancellationToken ct = default) =>
         await http.GetFromJsonAsync<CustomerDto>($"api/customers/{id}", ct);
@@ -100,11 +114,14 @@ public class PlatformApiClient(HttpClient http)
         string? customerId = null,
         int page = 1,
         int pageSize = 25,
+        int? expiringWithinDays = null,
         CancellationToken ct = default)
     {
         var url = $"api/licenses?page={page}&pageSize={pageSize}";
         if (!string.IsNullOrEmpty(customerId))
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
+        if (expiringWithinDays is > 0)
+            url += $"&expiringWithinDays={expiringWithinDays.Value}";
 
         return await http.GetFromJsonAsync<PagedResult<LicenseDto>>(url, ct)
             ?? new PagedResult<LicenseDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
@@ -160,21 +177,27 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<LicenseDto>(response, ct);
     }
 
-    public async Task<ApiResult<LicenseDto>> ResendLicenseKeyAsync(string id, CancellationToken ct = default)
+    public async Task<ApiResult<LicenseDto>> RotateLicenseKeyAsync(string id, CancellationToken ct = default)
     {
-        var response = await http.PostAsync($"api/licenses/{id}/resend-key", null, ct);
+        var response = await http.PostAsync($"api/licenses/{id}/rotate-key", null, ct);
         return await ToApiResultAsync<LicenseDto>(response, ct);
     }
+
+    public Task<ApiResult<LicenseDto>> ResendLicenseKeyAsync(string id, CancellationToken ct = default) =>
+        RotateLicenseKeyAsync(id, ct);
 
     public async Task<PagedResult<InvoiceDto>> GetInvoicesPagedAsync(
         string? customerId = null,
         int page = 1,
         int pageSize = 25,
+        bool unpaidOnly = false,
         CancellationToken ct = default)
     {
         var url = $"api/invoices?page={page}&pageSize={pageSize}";
         if (!string.IsNullOrEmpty(customerId))
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
+        if (unpaidOnly)
+            url += "&unpaidOnly=true";
 
         return await http.GetFromJsonAsync<PagedResult<InvoiceDto>>(url, ct)
             ?? new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
@@ -195,6 +218,34 @@ public class PlatformApiClient(HttpClient http)
     {
         var response = await http.PostAsync($"api/invoices/{id}/void", null, ct);
         return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
+    public async Task<ApiResult<InvoiceDto>> SendInvoiceAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/invoices/{id}/send", null, ct);
+        return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
+    public async Task<List<EmailDeliveryDto>> GetEmailDeliveriesAsync(
+        string? customerId = null,
+        string? licenseId = null,
+        string? invoiceId = null,
+        CancellationToken ct = default)
+    {
+        var url = "api/email-deliveries?limit=100";
+        if (!string.IsNullOrEmpty(customerId))
+            url += $"&customerId={Uri.EscapeDataString(customerId)}";
+        if (!string.IsNullOrEmpty(licenseId))
+            url += $"&licenseId={Uri.EscapeDataString(licenseId)}";
+        if (!string.IsNullOrEmpty(invoiceId))
+            url += $"&invoiceId={Uri.EscapeDataString(invoiceId)}";
+        return await http.GetFromJsonAsync<List<EmailDeliveryDto>>(url, ct) ?? [];
+    }
+
+    public async Task<ApiResult<EmailDeliveryDto>> RetryEmailDeliveryAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/email-deliveries/{id}/retry", null, ct);
+        return await ToApiResultAsync<EmailDeliveryDto>(response, ct);
     }
 
     public async Task<ApiResult<ReceiptDto>> RecordReceiptAsync(

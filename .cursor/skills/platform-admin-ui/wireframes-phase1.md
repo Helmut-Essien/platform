@@ -525,7 +525,7 @@ Reference mock: Licenses page (May 2026).
 └──────────────────────────────────────────────────────────────────────────┘
 
 ┌── BULK BAR (fixed bottom, glass, when selected) ─────────────────────────┐
-│ (3) Items selected │ Resend Keys │ Renew │ Revoke │ ✕                    │
+│ (3) Items selected │ Rotate Keys │ Renew │ Revoke │ ✕                    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 

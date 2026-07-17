@@ -50,8 +50,13 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
-            Create
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                   OnClick="@(() => SaveAsync(false))" Disabled="@(!_formValid)">
+            Save Draft
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="@(() => SaveAsync(true))" Disabled="@(!_formValid)">
+            Create &amp; Send
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -77,7 +82,7 @@
 
     private void Cancel() => MudDialog.Cancel();
 
-    private async Task SaveAsync()
+    private async Task SaveAsync(bool sendImmediately)
     {
         if (_form is null)
             return;
@@ -86,7 +91,8 @@
         if (!_formValid)
             return;
 
-        _model.Status = InvoiceStatus.Sent;
+        _model.SendImmediately = sendImmediately;
+        _model.Status = sendImmediately ? InvoiceStatus.Sent : InvoiceStatus.Draft;
         MudDialog.Close(DialogResult.Ok(_model));
     }
 }

@@ -16,7 +16,7 @@ Production-ready **centralized admin hub** for the developer/owner to:
 1. Register and manage **customer organizations**
 2. Define **software services** in a catalog (Hostel, Laundry, School, Asset Management)
 3. **Issue, suspend, renew, and revoke** licenses per customer per service
-4. **Generate license keys** on activation (cryptographically random), email plain key to customer, store **BCrypt hash only**
+4. **Generate license keys** on activation (cryptographically random), queue encrypted one-time delivery to the technical contact, store **BCrypt hash only**
 5. View a complete **audit trail** of admin actions
 6. Expose a **validation API** for owned SaaS apps: `X-Integration-Key` (service identity) + license key in body (customer identity)
 
@@ -38,7 +38,7 @@ Production-ready **centralized admin hub** for the developer/owner to:
 | Admin auth | **ASP.NET Core Identity** + **JWT Bearer** | **Done** (Phase 2) |
 | Service auth | Hashed **integration keys** (`X-Integration-Key`) | Seed done; validation Phase 5 |
 | Cache / revocation | **Redis** (`StackExchangeRedis`) | Package referenced; Phase 5 |
-| Email | SMTP or **SendGrid** | Phase 4 |
+| Email | SMTP / Resend + PostgreSQL transactional outbox | Active |
 | API docs (dev) | OpenAPI | Active |
 | Client HTTP | `HttpClient` + JWT handler | Phase 6 |
 
@@ -63,7 +63,7 @@ Production-ready **centralized admin hub** for the developer/owner to:
 
 ## Core entities (exact fields — do not rename)
 
-- **Customer**: Id, Name, ContactEmail, ContactPhone, InternalNotes, IsSuspended, CreatedAt
+- **Customer**: Id, Name, ContactEmail, BillingEmail?, TechnicalEmail?, ContactPhone, InternalNotes, IsSuspended, CreatedAt
 - **ServiceProduct**: Id, Name, Code, Description, IsAvailableForSale
 - **License**: Id, CustomerId, ServiceProductId, Status, ExpiresAt, PlanName, LicenseKeyHash, LicenseKeySentAt, CreatedAt, UpdatedAt
 - **AuditLog**: Id, CustomerId?, LicenseId?, InvoiceId?, Action, PerformedBy, DetailsJson, IpAddress, Timestamp
@@ -136,7 +136,7 @@ sequenceDiagram
 
 **Redis:** key `license:{licenseId}` for revoked/suspended deny-list; cache valid validation results with TTL.
 
-**License key format:** e.g. `HOSTEL-XXXX-YYYY`; BCrypt hash in DB; email to `Customer.ContactEmail` when status → Active (new or renewed).
+**License key format:** e.g. `HOSTEL-XXXX-YYYY`; BCrypt hash in `License`; plaintext exists only in an AES-GCM-encrypted outbox payload until successful delivery. Technical recipient falls back to `ContactEmail`.
 
 **Audit (mandatory when implemented):** every license status change; integration key create/revoke; invoice/receipt events; include `PerformedBy`, `IpAddress`, `DetailsJson`.
 
@@ -171,7 +171,25 @@ Activate/renew license creates a **Sent** invoice automatically.
 | POST | `/api/licenses/validate` (header `X-Integration-Key`, no JWT) |
 | GET/POST | `/api/integration-keys`, `POST ?serviceProductId=`, `POST {id}/revoke` |
 
-Activate/renew generates BCrypt-hashed license key and emails customer (`Email:Provider` = `Logging` or `Smtp`).
+Activate uses independent flags for key delivery, invoice creation, and invoice sending. Renew preserves the current key by default; explicit rotation invalidates it. Email is always queued through `EmailOutboxMessage`, never sent synchronously from request handlers.
+
+### Hybrid onboarding and lifecycle (implemented)
+
+1. Create customer; optional welcome email. `BillingEmail` and `TechnicalEmail` fall back to `ContactEmail`.
+2. Issue Pending license; optionally create a Draft or Sent invoice.
+3. Activate with independent `EmailLicenseKey`, `CreateInvoice`, and `SendInvoice` flags.
+4. Create invoices as Draft or Create & Send; `POST /api/invoices/{id}/send` queues delivery.
+5. Renew without rotation by default. `POST /api/licenses/{id}/rotate-key` explicitly rotates and queues a replacement key.
+6. `EmailOutboxWorker` claims PostgreSQL rows with `FOR UPDATE SKIP LOCKED`, retries with backoff, and wipes encrypted key payloads after success.
+7. `LicenseExpiryReminderWorker` queues deduplicated reminders for active licenses approaching expiry.
+8. Suspend/revoke queues notification email. `OverdueInvoiceLifecycleWorker` can mark invoices Overdue and auto-suspend only their linked Active license.
+
+Configuration:
+
+- `Email:Outbox:{EncryptionKey,PollIntervalSeconds,BatchSize,MaxAttempts}`
+- `Lifecycle:{ExpiryReminderEnabled,ExpiryReminderDays,ExpiryReminderPollHours,AutoSuspendOnOverdue,OverduePollMinutes}`
+
+Keep `Lifecycle:AutoSuspendOnOverdue=false` for the first production deployment until historical overdue invoices are reviewed.
 
 ### Blazor admin (Phase 6)
 

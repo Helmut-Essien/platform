@@ -13,10 +13,13 @@ public interface IBillingService
 
     Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken cancellationToken = default);
 
+    Task<InvoiceDto> SendInvoiceAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
     Task<PagedResult<InvoiceDto>> ListInvoicesAsync(
         string? customerId = null,
         int page = 1,
         int pageSize = 25,
+        bool unpaidOnly = false,
         CancellationToken cancellationToken = default);
 
     Task<InvoiceDto> VoidInvoiceAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);

@@ -1,0 +1,98 @@
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+
+<section class="delivery-timeline" aria-label="Email delivery history">
+    <div class="d-flex align-center justify-space-between mb-3">
+        <MudText Typo="Typo.h6">Communications</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small"
+                       OnClick="LoadAsync" aria-label="Refresh email deliveries" />
+    </div>
+    @if (_loading)
+    {
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="5rem" />
+    }
+    else if (_deliveries.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary">No email deliveries yet.</MudText>
+    }
+    else
+    {
+        <MudList T="EmailDeliveryDto" Dense="true">
+            @foreach (var delivery in _deliveries)
+            {
+                <MudListItem T="EmailDeliveryDto">
+                    <div class="d-flex align-center justify-space-between gap-3 w-100">
+                        <div>
+                            <MudText Typo="Typo.body2">@FormatKind(delivery.Kind) — @delivery.ToEmail</MudText>
+                            <MudText Typo="Typo.caption">
+                                @delivery.CreatedAt.ToLocalTime().ToString("g")
+                                @if (delivery.AttemptCount > 0)
+                                {
+                                    <span> · @delivery.AttemptCount attempt(s)</span>
+                                }
+                            </MudText>
+                            @if (!string.IsNullOrWhiteSpace(delivery.LastError))
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Error">@delivery.LastError</MudText>
+                            }
+                        </div>
+                        <div class="d-flex align-center gap-2">
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@StatusColor(delivery.Status)"
+                                     Variant="Variant.Outlined">@delivery.Status</MudChip>
+                            @if (delivery.Status is EmailDeliveryStatus.Failed or EmailDeliveryStatus.DeadLetter)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => RetryAsync(delivery.Id))">Retry</MudButton>
+                            }
+                        </div>
+                    </div>
+                </MudListItem>
+            }
+        </MudList>
+    }
+</section>
+
+@code {
+    [Parameter] public string? CustomerId { get; set; }
+    [Parameter] public string? LicenseId { get; set; }
+    [Parameter] public string? InvoiceId { get; set; }
+
+    private bool _loading;
+    private List<EmailDeliveryDto> _deliveries = [];
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _deliveries = await Api.GetEmailDeliveriesAsync(CustomerId, LicenseId, InvoiceId);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RetryAsync(string id)
+    {
+        var result = await Api.RetryEmailDeliveryAsync(id);
+        Snackbar.Add(
+            result.IsSuccess ? "Email delivery queued for retry." : result.ErrorMessage ?? "Retry failed.",
+            result.IsSuccess ? Severity.Success : Severity.Error);
+        await LoadAsync();
+    }
+
+    private static string FormatKind(EmailDeliveryKind kind) =>
+        string.Concat(kind.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? $" {c}" : c.ToString()));
+
+    private static Color StatusColor(EmailDeliveryStatus status) => status switch
+    {
+        EmailDeliveryStatus.Sent => Color.Success,
+        EmailDeliveryStatus.Failed or EmailDeliveryStatus.DeadLetter => Color.Error,
+        EmailDeliveryStatus.Sending => Color.Info,
+        _ => Color.Warning
+    };
+}

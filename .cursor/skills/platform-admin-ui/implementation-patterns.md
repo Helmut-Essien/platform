@@ -133,6 +133,21 @@ Licenses/Invoices use **nullable enums** with `null` = all (also valid).
 | Customer grid / drawer | Custom `.status-badge` / `.status-badge-active` / `.status-badge-suspended` in `Customers.razor.css` |
 | Design intent | Active: lime tint + border; Suspended: elevated gray (see design-system customer row note) |
 
+### Business status vs delivery status
+
+Never infer email delivery from a business status:
+
+- Invoice `Sent` means sending was requested; show `EmailDeliveryStatus` separately.
+- `LicenseKeySentAt` is the time key delivery was queued, not provider confirmation.
+- Use `DeliveryTimeline.razor` for Pending, Sending, Sent, Failed, and DeadLetter states.
+- Failed/DeadLetter rows expose Retry. Key retries reuse the encrypted outbox payload; manual replacement is labeled **Rotate & Email Key**.
+
+Hybrid dialog defaults:
+
+- Activate: email key on; create invoice on; send invoice on.
+- Renew: rotate key off; renewal notice on; create/send invoice on.
+- Invoice creation: Draft unless the user selects Create & Send.
+
 ---
 
 ## Demo / mock metrics
@@ -199,4 +214,4 @@ Login logo: `border-radius: 1.25rem` (`.login-logo` / `.app-splash-logo`).
 | UI-4 | Audit + Integration keys + Invoices | Implemented |
 | UI-5 | Validate + Login | Implemented |
 
-Known gaps (documented, not blocking): audit `?highlight=` deep links; dashboard expiring-licenses filter; optional shell search.
+Known gaps (documented, not blocking): audit `?highlight=` deep links; optional shell search.

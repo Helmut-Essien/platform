@@ -66,7 +66,20 @@ erDiagram
     ServiceProduct ||--o{ IntegrationKey : authenticates
     Customer ||--o{ AuditLog : optional
     License ||--o{ AuditLog : optional
+    Customer ||--o{ EmailOutboxMessage : receives
+    License ||--o{ EmailOutboxMessage : delivery
+    Invoice ||--o{ EmailOutboxMessage : delivery
 ```
+
+## Hybrid workflow and delivery
+
+- Customer has primary `ContactEmail` plus optional `TechnicalEmail` and `BillingEmail`.
+- License activation, key delivery, invoice creation, and invoice sending are independently selectable.
+- Renewal preserves the existing key by default; explicit rotation queues an encrypted replacement.
+- `EmailOutboxMessage` stores delivery status and retries. License plaintext is AES-GCM encrypted and wiped after successful send.
+- Invoice PDFs are regenerated from `InvoiceId` at dispatch time.
+- Expiry reminders and suspend/revoke notices use the same outbox.
+- Optional overdue automation suspends only the Active license linked by `Invoice.LicenseId`.
 
 ## License status lifecycle
 

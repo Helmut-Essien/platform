@@ -168,7 +168,8 @@
             {
                 ["Title"] = "Rotate Integration Key",
                 ["Message"] = "Creating a new key will revoke the existing active key for this service. Any app using the old key will fail validation. Continue?",
-                ["ConfirmText"] = "Generate"
+                ["ConfirmText"] = "Generate",
+                ["IsDestructive"] = true
             }, PlatformDialogOptions.Confirm);
             var confirmResult = await confirm.Result;
             if (confirmResult?.Canceled is not false)
@@ -220,7 +221,8 @@
         {
             ["Title"] = "Revoke Integration Key",
             ["Message"] = $"Are you absolutely sure you want to revoke this key for {product?.Name ?? "this service"}? This action is irreversible and will immediately disconnect the associated service.",
-            ["ConfirmText"] = "Revoke"
+            ["ConfirmText"] = "Revoke",
+            ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
         var dialogResult = await dialog.Result;
         if (dialogResult?.Canceled is not false)

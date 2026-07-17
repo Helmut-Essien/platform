@@ -36,6 +36,36 @@
                            Label="Expires (optional)"
                            Variant="Variant.Outlined"
                            Class="mb-2" />
+            <MudCheckBox @bind-Value="_model.CreateInvoice"
+                         Label="Create invoice now"
+                         Color="Color.Primary"
+                         Class="mb-2" />
+            @if (_model.CreateInvoice)
+            {
+                <MudCheckBox @bind-Value="_model.SendInvoice"
+                             Label="Send invoice immediately"
+                             Color="Color.Primary"
+                             Class="mb-2" />
+                <MudNumericField @bind-Value="_model.InvoiceSubtotal"
+                                 Label="Invoice subtotal"
+                                 Variant="Variant.Outlined"
+                                 Min="0m"
+                                 Class="mb-2" />
+                <MudNumericField @bind-Value="_model.InvoiceTaxAmount"
+                                 Label="Invoice tax"
+                                 Variant="Variant.Outlined"
+                                 Min="0m"
+                                 Class="mb-2" />
+                <MudTextField @bind-Value="_model.InvoiceCurrency"
+                              Label="Currency"
+                              Variant="Variant.Outlined"
+                              MaxLength="3"
+                              Class="mb-2" />
+                <MudDatePicker @bind-Date="_model.InvoiceDueDate"
+                               Label="Invoice due date"
+                               Variant="Variant.Outlined"
+                               Class="mb-2" />
+            }
         </MudForm>
     </DialogContent>
     <DialogActions>

@@ -15,18 +15,17 @@
         @if (License.LicenseKeySentAt is not null)
         {
             <MudText Class="mb-2">
-                The license key was emailed to the customer at
+                The license key email was queued at
                 <strong>@License.LicenseKeySentAt.Value.ToString("g") UTC</strong>.
             </MudText>
             <MudText Typo="Typo.caption" Class="mb-2">
-                For security, the plain key is not shown in this admin console. Ask the customer to check their inbox
-                (and spam folder) if they do not see it.
+                Delivery is retried automatically. Check the customer Communications timeline for the final status.
             </MudText>
         }
         else
         {
             <MudAlert Severity="Severity.Warning" Dense="true" Variant="Variant.Outlined" Class="mb-2">
-                License key email delivery is pending or was not confirmed. Use Resend Key if the customer did not receive it.
+                No new key was queued. Use Rotate &amp; Email Key only if a replacement key is required.
             </MudAlert>
         }
 

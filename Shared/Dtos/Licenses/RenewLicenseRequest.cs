@@ -4,6 +4,14 @@ namespace Platform.Shared.Dtos.Licenses;
 
 public class RenewLicenseRequest
 {
+    public bool RotateLicenseKey { get; set; }
+
+    public bool EmailLicenseKey { get; set; } = true;
+
+    public bool CreateInvoice { get; set; } = true;
+
+    public bool SendInvoice { get; set; } = true;
+
     [Required(ErrorMessage = "Expiry date is required")]
     public DateTime? ExpiresAt { get; set; }
 

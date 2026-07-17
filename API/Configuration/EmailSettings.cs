@@ -26,4 +26,14 @@ public class EmailSettings
     public string? ResendApiKey { get; set; }
 
     public string? SendGridApiKey { get; set; }
+
+    public EmailOutboxSettings Outbox { get; set; } = new();
+}
+
+public class EmailOutboxSettings
+{
+    public int PollIntervalSeconds { get; set; } = 10;
+    public int BatchSize { get; set; } = 20;
+    public int MaxAttempts { get; set; } = 5;
+    public string? EncryptionKey { get; set; }
 }

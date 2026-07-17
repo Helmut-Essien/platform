@@ -1,15 +1,28 @@
 @inject IDialogService DialogService
 
-<MudDialog>
+<MudDialog DefaultFocus="DefaultFocus.FirstChild" Class="@(IsDestructive ? "confirm-dialog-destructive" : null)">
     <TitleContent>
-        <MudText Typo="Typo.h6">@Title</MudText>
+        <div class="confirm-dialog-title">
+            @if (IsDestructive)
+            {
+                <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Class="confirm-dialog-warning-icon" />
+            }
+            <MudText Typo="Typo.h6">@Title</MudText>
+        </div>
     </TitleContent>
     <DialogContent>
         <MudText>@Message</MudText>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Confirm">@ConfirmText</MudButton>
+        <MudButton Variant="Variant.Text" Class="confirm-dialog-cancel" OnClick="Cancel">Cancel</MudButton>
+        @if (IsDestructive)
+        {
+            <MudButton Variant="Variant.Filled" Class="confirm-dialog-confirm-destructive" OnClick="Confirm">@ConfirmText</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Confirm">@ConfirmText</MudButton>
+        }
     </DialogActions>
 </MudDialog>
 
@@ -19,6 +32,7 @@
     [Parameter] public string Title { get; set; } = "Confirm";
     [Parameter] public string Message { get; set; } = "Are you sure?";
     [Parameter] public string ConfirmText { get; set; } = "Confirm";
+    [Parameter] public bool IsDestructive { get; set; }
 
     private void Cancel() => MudDialog.Cancel();
     private void Confirm() => MudDialog.Close(DialogResult.Ok(true));

@@ -19,6 +19,7 @@
 }
 
 .btn-new-customer {
+    /* Prefer shared .btn-primary-cta; kept as alias for any leftover references */
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
@@ -98,7 +99,7 @@
 }
 
 .customers-table-panel ::deep .customers-grid .mud-table-row:hover {
-    background: var(--surface-container-high, #272b22) !important;
+    background: var(--bg-elevated, #2a2a2a) !important;
 }
 
 .customers-table-panel ::deep .customers-grid .mud-table-cell {

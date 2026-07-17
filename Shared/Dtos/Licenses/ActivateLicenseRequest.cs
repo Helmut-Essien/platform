@@ -4,6 +4,12 @@ namespace Platform.Shared.Dtos.Licenses;
 
 public class ActivateLicenseRequest
 {
+    public bool EmailLicenseKey { get; set; } = true;
+
+    public bool CreateInvoice { get; set; } = true;
+
+    public bool SendInvoice { get; set; } = true;
+
     [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Subtotal must be zero or greater")]
     public decimal Subtotal { get; set; }
 

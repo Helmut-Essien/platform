@@ -142,7 +142,7 @@
 }
 
 .licenses-table-panel ::deep .licenses-grid .mud-table-row:hover {
-    background: #252525 !important;
+    background: var(--bg-elevated, #2a2a2a) !important;
 }
 
 .licenses-table-panel ::deep .licenses-grid .mud-table-row.mud-selected {

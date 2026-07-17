@@ -64,6 +64,7 @@ Replace default Bootstrap layout in `Client/Layout/` with:
 | `/services` | Service Catalog | Icons.Material.Filled.Inventory2 |
 | `/licenses` | Licenses | Icons.Material.Filled.VpnKey |
 | `/invoices` | Invoices | Icons.Material.Filled.ReceiptLong |
+| `/settings` | Settings | Icons.Material.Filled.Settings |
 | `/integration-keys` | Integration Keys | Icons.Material.Filled.Key |
 | `/audit` | Audit Log | Icons.Material.Filled.History |
 | `/validate` | Validate License | Icons.Material.Filled.VerifiedUser |
@@ -101,6 +102,8 @@ See also [design-system.md](design-system.md) for feedback states, destructive d
 8. **Grids** — virtualize large datasets; dark header `--bg-surface`, row hover `--bg-elevated`
 9. **Snackbar success** — `--accent` bg, `--bg-base` text (not MudBlazor default green)
 10. **Motion** — honor `prefers-reduced-motion` globally (design-system)
+11. **Delivery state** — business state and email state are separate; use `DeliveryTimeline` and never treat Invoice `Sent` or `LicenseKeySentAt` as provider confirmation
+12. **Key replacement** — label the destructive operation “Rotate & Email Key”; never call it resend because the old key is invalidated
 
 ## UI implementation phases
 

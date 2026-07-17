@@ -12,6 +12,14 @@ public class UpdateCustomerRequest
     [EmailAddress(ErrorMessage = "Enter a valid email address")]
     public required string ContactEmail { get; set; }
 
+    [EmailAddress(ErrorMessage = "Enter a valid billing email address")]
+    [MaxLength(320)]
+    public string? BillingEmail { get; set; }
+
+    [EmailAddress(ErrorMessage = "Enter a valid technical email address")]
+    [MaxLength(320)]
+    public string? TechnicalEmail { get; set; }
+
     [MaxLength(50, ErrorMessage = "Phone must be 50 characters or less")]
     public string? ContactPhone { get; set; }
 

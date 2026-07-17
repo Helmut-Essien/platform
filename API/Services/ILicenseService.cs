@@ -12,13 +12,19 @@ public interface ILicenseService
         bool includeSuspendedCustomers = false,
         int page = 1,
         int pageSize = 25,
+        int? expiringWithinDays = null,
         CancellationToken cancellationToken = default);
 
     Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default);
 
     Task<LicenseDto> UpdateAsync(string id, UpdateLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
-    Task<LicenseDto> SuspendAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+    Task<LicenseDto> SuspendAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default,
+        string? notificationReason = null);
 
     Task<LicenseDto> RevokeAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
@@ -27,4 +33,6 @@ public interface ILicenseService
     Task<LicenseDto> RenewAsync(string id, RenewLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<LicenseDto> ResendKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    Task<LicenseDto> RotateKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 }

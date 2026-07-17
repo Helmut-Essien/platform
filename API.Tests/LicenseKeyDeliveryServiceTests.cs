@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
+using Platform.Api.Configuration;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Services;
@@ -12,7 +14,7 @@ namespace API.Tests;
 public class LicenseKeyDeliveryServiceTests
 {
     [Fact]
-    public async Task DeliverNewKeyAsync_SendsLicenseKeyEmailAndStoresHashes()
+    public async Task DeliverNewKeyAsync_QueuesEncryptedEmailAndStoresHashes()
     {
         await using var db = CreateDbContext();
         var customer = new Customer
@@ -38,20 +40,19 @@ public class LicenseKeyDeliveryServiceTests
         db.AddRange(customer, serviceProduct, license);
         await db.SaveChangesAsync();
 
-        var emailSender = new CapturingEmailSender();
+        var protector = CreateProtector();
         var service = new LicenseKeyDeliveryService(
-            db,
-            emailSender,
-            NullLogger<LicenseKeyDeliveryService>.Instance);
+            db, new EmailOutboxService(db), protector, new EmailTemplateService());
 
         await service.DeliverNewKeyAsync(license, isRenewal: false);
+        await db.SaveChangesAsync();
 
-        Assert.Single(emailSender.Messages);
-        var message = emailSender.Messages[0];
+        var message = Assert.Single(db.EmailOutboxMessages);
         Assert.Equal("owner@acme.test", message.ToEmail);
         Assert.Equal("Your Hostel Manager license is active", message.Subject);
-        Assert.Contains("HOSTEL-", message.HtmlBody);
+        Assert.DoesNotContain("HOSTEL-", message.HtmlBody);
         Assert.Contains("Growth", message.HtmlBody);
+        Assert.StartsWith("HOSTEL-", protector.Unprotect(message.EncryptedPayload!));
 
         Assert.NotNull(license.LicenseKeyHash);
         Assert.NotNull(license.LicenseKeyLookupHash);
@@ -87,16 +88,14 @@ public class LicenseKeyDeliveryServiceTests
         db.AddRange(customer, serviceProduct, license);
         await db.SaveChangesAsync();
 
-        var emailSender = new CapturingEmailSender();
         var service = new LicenseKeyDeliveryService(
-            db,
-            emailSender,
-            NullLogger<LicenseKeyDeliveryService>.Instance);
+            db, new EmailOutboxService(db), CreateProtector(), new EmailTemplateService());
 
         await service.DeliverNewKeyAsync(license, isRenewal: true);
+        await db.SaveChangesAsync();
 
-        Assert.Single(emailSender.Messages);
-        Assert.Equal("Your Laundry Manager license has been renewed", emailSender.Messages[0].Subject);
+        var message = Assert.Single(db.EmailOutboxMessages);
+        Assert.Equal("Your Laundry Manager license key has been rotated", message.Subject);
     }
 
     private static AppDbContext CreateDbContext()
@@ -108,21 +107,15 @@ public class LicenseKeyDeliveryServiceTests
         return new AppDbContext(options);
     }
 
-    private sealed class CapturingEmailSender : IEmailSender
+    private static EmailPayloadProtector CreateProtector()
     {
-        public List<EmailMessage> Messages { get; } = [];
-
-        public Task SendAsync(
-            string toEmail,
-            string subject,
-            string htmlBody,
-            IReadOnlyList<EmailAttachment>? attachments = null,
-            CancellationToken cancellationToken = default)
+        var settings = Options.Create(new EmailSettings
         {
-            Messages.Add(new EmailMessage(toEmail, subject, htmlBody));
-            return Task.CompletedTask;
-        }
+            Outbox = new EmailOutboxSettings
+            {
+                EncryptionKey = Convert.ToBase64String(new byte[32])
+            }
+        });
+        return new EmailPayloadProtector(settings, new ConfigurationBuilder().Build());
     }
-
-    private sealed record EmailMessage(string ToEmail, string Subject, string HtmlBody);
 }

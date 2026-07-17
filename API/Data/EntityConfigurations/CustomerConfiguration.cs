@@ -24,6 +24,12 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
             .HasMaxLength(320)
             .IsRequired();
 
+        builder.Property(c => c.BillingEmail)
+            .HasMaxLength(320);
+
+        builder.Property(c => c.TechnicalEmail)
+            .HasMaxLength(320);
+
         builder.Property(c => c.ContactPhone)
             .HasMaxLength(50);
 

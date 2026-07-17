@@ -15,4 +15,19 @@ public class CreateLicenseRequest
     public required string PlanName { get; set; }
 
     public DateTime? ExpiresAt { get; set; }
+
+    public bool CreateInvoice { get; set; }
+
+    public bool SendInvoice { get; set; }
+
+    [Range(typeof(decimal), "0", "79228162514264337593543950335")]
+    public decimal InvoiceSubtotal { get; set; }
+
+    [Range(typeof(decimal), "0", "79228162514264337593543950335")]
+    public decimal InvoiceTaxAmount { get; set; }
+
+    [MaxLength(3)]
+    public string InvoiceCurrency { get; set; } = "USD";
+
+    public DateTime? InvoiceDueDate { get; set; }
 }
