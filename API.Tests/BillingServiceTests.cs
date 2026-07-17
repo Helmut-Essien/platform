@@ -205,6 +205,39 @@ public class BillingServiceTests
         Assert.Equal(0m, updatedInvoice.AmountDue);
     }
 
+    [Fact]
+    public async Task RecordReceiptAsync_QueuesPaymentReceiptEmailWhenCustomerNotTracked()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var createService = CreateBillingService(db);
+        var invoice = await createService.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = 100m,
+            TaxAmount = 0m
+        }, performedBy: "admin@example.com");
+
+        // Simulate a fresh request scope: navigations are not already tracked.
+        db.ChangeTracker.Clear();
+        var recordService = CreateBillingService(db);
+
+        await recordService.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            AmountPaid = 100m,
+            PaymentMethod = PaymentMethod.BankTransfer,
+            PaymentReference = "REF-1"
+        }, performedBy: "admin@example.com");
+
+        var message = Assert.Single(db.EmailOutboxMessages.Where(m => m.Kind == EmailDeliveryKind.PaymentReceipt));
+        Assert.Equal("billing@acme.test", message.ToEmail);
+        Assert.Contains("Receipt", message.Subject);
+        Assert.Contains("$100.00", message.HtmlBody);
+        Assert.Equal(invoice.Id, message.InvoiceId);
+    }
+
     private static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

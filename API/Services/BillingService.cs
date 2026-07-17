@@ -240,7 +240,13 @@ public class BillingService(
         if (request.AmountPaid <= 0)
             throw new InvalidOperationException("Amount paid must be greater than zero.");
 
+        IDbContextTransaction? transaction = null;
+        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
+            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var ownedTransaction = transaction;
+
         var invoice = await db.Invoices
+            .Include(i => i.Customer)
             .Include(i => i.Receipts)
             .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken)
             ?? throw new InvalidOperationException("Invoice not found.");
@@ -282,6 +288,9 @@ public class BillingService(
             invoice.Id,
             $$"""{"receiptNumber":"{{receipt.ReceiptNumber}}","amount":{{request.AmountPaid}}}""",
             ipAddress, cancellationToken);
+
+        if (transaction is not null)
+            await transaction.CommitAsync(cancellationToken);
 
         return MapReceipt(receipt);
     }
