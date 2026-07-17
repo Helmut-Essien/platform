@@ -1,4 +1,3 @@
-using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Platform.Api.Data;
@@ -373,46 +372,15 @@ public class BillingService(
 
     private void QueueInvoiceEmail(Customer customer, Invoice invoice)
     {
+        var template = templates.Invoice(customer, invoice);
         outbox.Enqueue(
             EmailDeliveryKind.Invoice,
             CustomerContactResolver.Billing(customer),
-            $"Invoice {invoice.InvoiceNumber} from Platform License Hub",
-            BuildInvoiceEmailBody(customer.Name, invoice),
+            template.Subject,
+            template.Html,
             customer.Id,
             invoice.LicenseId,
             invoice.Id);
-    }
-
-    private static string BuildInvoiceEmailBody(string customerName, Invoice invoice)
-    {
-        var currencySymbol = invoice.Currency switch
-        {
-            "USD" => "$",
-            "EUR" => "€",
-            "GBP" => "£",
-            "GHS" => "GH₵",
-            _ => invoice.Currency + " "
-        };
-
-        var dueDate = invoice.DueDate?.ToString("MMMM dd, yyyy") ?? "Upon receipt";
-
-        return $"""
-            <html><body style="font-family:sans-serif;color:#1a1a1a;">
-            <p>Hello {WebUtility.HtmlEncode(customerName)},</p>
-            <p>A new invoice has been issued for your account. Please find your invoice PDF attached.</p>
-            <table style="border-collapse:collapse;width:100%;max-width:480px;">
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Invoice</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{WebUtility.HtmlEncode(invoice.InvoiceNumber)}</td></tr>
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Date</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{invoice.IssueDate:MMMM dd, yyyy}</td></tr>
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Due Date</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{dueDate}</td></tr>
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Plan</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{WebUtility.HtmlEncode(invoice.PlanName ?? "—")}</td></tr>
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Description</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{WebUtility.HtmlEncode(invoice.Description ?? "—")}</td></tr>
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Subtotal</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{currencySymbol}{invoice.Subtotal:N2}</td></tr>
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Tax</strong></td><td style="padding:6px 12px;border:1px solid #ddd;">{currencySymbol}{invoice.TaxAmount:N2}</td></tr>
-              <tr><td style="padding:6px 12px;border:1px solid #ddd;background:#f5f5f5;"><strong>Total</strong></td><td style="padding:6px 12px;border:1px solid #ddd;font-weight:bold;">{currencySymbol}{invoice.TotalAmount:N2}</td></tr>
-            </table>
-            <p style="margin-top:16px;color:#666;">Download the attached PDF for your records. Thank you for your business.</p>
-            </body></html>
-            """;
     }
 
     private async Task<InvoiceDto?> MapInvoiceAsync(string id, CancellationToken cancellationToken)
