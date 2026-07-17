@@ -7,7 +7,7 @@ namespace Platform.Api.Services.Email;
 public class EmailTemplateService
 {
     public (string Subject, string Html) Welcome(Customer customer) =>
-        ("Welcome to Platform License Hub",
+        ("Welcome to HelmutCode Solutions Platform License Hub",
             Wrap(customer.Name,
                 "Your Platform License Hub account is ready.",
                 "Your customer account has been created.",
@@ -154,7 +154,7 @@ public class EmailTemplateService
                       <p style="margin:0 0 16px;">Hello {WebUtility.HtmlEncode(customerName)},</p>
                       <p style="margin:0 0 20px;font-size:18px;line-height:1.5;font-weight:600;">{lead}</p>
                       {content}
-                      <p style="margin:24px 0 0;">Regards,<br><strong>Platform License Hub</strong></p>
+                      <p style="margin:24px 0 0;">Regards,<br><strong>HelmutCode Solutions</strong></p>
                     </td>
                   </tr>
                   <tr>
