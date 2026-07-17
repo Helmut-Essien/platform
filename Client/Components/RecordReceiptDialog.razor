@@ -1,14 +1,21 @@
+@using Platform.Shared.Enums
+@using Platform.Shared.Dtos.Billing
+
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Record Payment</MudText>
     </TitleContent>
     <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Balance due: <strong>@AmountDue.ToString("N2")</strong>
+        </MudText>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudNumericField @bind-Value="_model.AmountPaid"
                              For="@(() => _model.AmountPaid)"
                              Label="Amount paid"
                              Variant="Variant.Outlined"
                              Min="0.01m"
+                             Max="@AmountDue"
                              Class="mb-2" />
             <MudSelect T="PaymentMethod" @bind-Value="_model.PaymentMethod"
                        For="@(() => _model.PaymentMethod)"
@@ -22,8 +29,10 @@
             </MudSelect>
             <MudTextField @bind-Value="_model.PaymentReference"
                           For="@(() => _model.PaymentReference)"
-                          Label="Reference (optional)"
+                          Label="@(RequiresReference(_model.PaymentMethod) ? "Reference" : "Reference (optional)")"
                           Variant="Variant.Outlined"
+                          Required="@RequiresReference(_model.PaymentMethod)"
+                          RequiredError="Reference is required for this payment method"
                           Class="mb-2" />
             <MudTextField @bind-Value="_model.Notes"
                           For="@(() => _model.Notes)"
@@ -35,6 +44,10 @@
                            For="@(() => _model.PaidAt)"
                            Label="Paid at"
                            Variant="Variant.Outlined" />
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudText Color="Color.Error" Typo="Typo.caption" Class="mt-2">@_error</MudText>
+            }
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -52,16 +65,22 @@
 
     private MudForm? _form;
     private bool _formValid;
+    private string? _error;
+    private readonly string _idempotencyKey = Guid.NewGuid().ToString("N");
     private RecordReceiptRequest _model = new()
     {
+        IdempotencyKey = "",
         PaymentMethod = PaymentMethod.BankTransfer,
         PaidAt = DateTime.UtcNow
     };
 
     protected override void OnInitialized()
     {
-        _model.AmountPaid = AmountDue > 0 ? AmountDue : 0;
+        _model.IdempotencyKey = _idempotencyKey;
+        _model.AmountPaid = AmountDue > 0 ? AmountDue : 0.01m;
     }
+
+    private static bool RequiresReference(PaymentMethod method) => method != PaymentMethod.Cash;
 
     private void Cancel() => MudDialog.Cancel();
 
@@ -70,10 +89,24 @@
         if (_form is null)
             return;
 
+        _error = null;
         await _form.Validate();
         if (!_formValid)
             return;
 
+        if (_model.AmountPaid > AmountDue)
+        {
+            _error = $"Amount cannot exceed balance due of {AmountDue:N2}.";
+            return;
+        }
+
+        if (RequiresReference(_model.PaymentMethod) && string.IsNullOrWhiteSpace(_model.PaymentReference))
+        {
+            _error = "Reference is required for this payment method.";
+            return;
+        }
+
+        _model.IdempotencyKey = _idempotencyKey;
         _model.PaidAt ??= DateTime.UtcNow;
         MudDialog.Close(DialogResult.Ok(_model));
     }

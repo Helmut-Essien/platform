@@ -2,17 +2,15 @@ using Platform.Shared.Enums;
 
 namespace Platform.Shared.Dtos.Billing;
 
-public class ReceiptDto
+public class PaymentTransactionDto
 {
     public required string Id { get; set; }
 
     public required string InvoiceId { get; set; }
 
-    public required string ReceiptNumber { get; set; }
+    public PaymentTransactionKind Kind { get; set; }
 
-    public decimal AmountPaid { get; set; }
-
-    public DateTime PaidAt { get; set; }
+    public decimal Amount { get; set; }
 
     public PaymentMethod PaymentMethod { get; set; }
 
@@ -20,13 +18,13 @@ public class ReceiptDto
 
     public string? Notes { get; set; }
 
-    public ReceiptStatus Status { get; set; }
+    public string? ReceiptId { get; set; }
 
-    public string? PaymentTransactionId { get; set; }
+    public string? ReversesTransactionId { get; set; }
 
-    public DateTime? ReversedAt { get; set; }
+    public required string IdempotencyKey { get; set; }
 
-    public string? ReversalReason { get; set; }
+    public required string PerformedBy { get; set; }
 
     public DateTime CreatedAt { get; set; }
 }

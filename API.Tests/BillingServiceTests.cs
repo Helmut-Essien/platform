@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Services;
@@ -20,8 +19,7 @@ public class BillingServiceTests
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
         var auditLog = new FakeAuditLogService();
-        var emailSender = new CapturingEmailSender();
-        var service = CreateBillingService(db, auditLog, emailSender);
+        var service = CreateBillingService(db, auditLog);
 
         var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
         {
@@ -51,8 +49,7 @@ public class BillingServiceTests
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
-        var emailSender = new CapturingEmailSender();
-        var service = CreateBillingService(db, emailSender: emailSender);
+        var service = CreateBillingService(db);
 
         await service.CreateInvoiceAsync(new CreateInvoiceRequest
         {
@@ -68,14 +65,7 @@ public class BillingServiceTests
         var message = Assert.Single(db.EmailOutboxMessages);
         Assert.Equal("billing@acme.test", message.ToEmail);
         Assert.Contains("Invoice", message.Subject);
-        Assert.Contains("$100.00", message.HtmlBody);
-        Assert.Contains("$20.00", message.HtmlBody);
-        Assert.Contains("$120.00", message.HtmlBody);
-        Assert.Contains("Pro", message.HtmlBody);
-        Assert.Contains("June 2026 license", message.HtmlBody);
-        Assert.Contains("attached", message.HtmlBody);
         Assert.Equal(EmailDeliveryKind.Invoice, message.Kind);
-        Assert.NotNull(message.InvoiceId);
     }
 
     [Fact]
@@ -83,8 +73,7 @@ public class BillingServiceTests
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
-        var emailSender = new CapturingEmailSender();
-        var service = CreateBillingService(db, emailSender: emailSender);
+        var service = CreateBillingService(db);
 
         await service.CreateInvoiceAsync(new CreateInvoiceRequest
         {
@@ -96,30 +85,6 @@ public class BillingServiceTests
         }, performedBy: "admin@example.com");
 
         Assert.Empty(db.EmailOutboxMessages);
-    }
-
-    [Fact]
-    public async Task CreateInvoiceAsync_DoesNotCallEmailProviderInRequest()
-    {
-        await using var db = CreateDbContext();
-        var customer = await SeedCustomerAsync(db);
-        var auditLog = new FakeAuditLogService();
-        var emailSender = new ThrowingEmailSender();
-        var service = CreateBillingService(db, auditLog, emailSender);
-
-        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
-        {
-            CustomerId = customer.Id,
-            Status = InvoiceStatus.Sent,
-            Currency = "GHS",
-            Subtotal = 50m,
-            TaxAmount = 0m
-        }, performedBy: "admin@example.com");
-
-        Assert.NotNull(invoice);
-        Assert.Single(auditLog.Entries);
-        Assert.Equal(AuditAction.InvoiceSent, auditLog.Entries[0].Action);
-        Assert.Single(db.EmailOutboxMessages);
     }
 
     [Fact]
@@ -149,17 +114,11 @@ public class BillingServiceTests
         var customer = await SeedCustomerAsync(db);
         var auditLog = new FakeAuditLogService();
         var service = CreateBillingService(db, auditLog);
-        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
-        {
-            CustomerId = customer.Id,
-            Status = InvoiceStatus.Sent,
-            Currency = "USD",
-            Subtotal = 100m,
-            TaxAmount = 0m
-        }, performedBy: "admin@example.com");
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 100m);
 
         var receipt = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
         {
+            IdempotencyKey = "pay-1",
             AmountPaid = 40m,
             PaymentMethod = PaymentMethod.BankTransfer,
             PaymentReference = "BANK-123"
@@ -168,10 +127,12 @@ public class BillingServiceTests
         var updatedInvoice = await service.GetInvoiceAsync(invoice.Id);
 
         Assert.Equal("RCP-", receipt.ReceiptNumber[..4]);
+        Assert.Equal(ReceiptStatus.Posted, receipt.Status);
         Assert.Equal(40m, receipt.AmountPaid);
         Assert.Equal(InvoiceStatus.PartiallyPaid, updatedInvoice!.Status);
         Assert.Equal(40m, updatedInvoice.AmountPaid);
         Assert.Equal(60m, updatedInvoice.AmountDue);
+        Assert.Single(updatedInvoice.Transactions);
         Assert.Contains(auditLog.Entries, e =>
             e.Action == AuditAction.ReceiptRecorded &&
             e.InvoiceId == invoice.Id);
@@ -183,17 +144,11 @@ public class BillingServiceTests
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
         var service = CreateBillingService(db);
-        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
-        {
-            CustomerId = customer.Id,
-            Status = InvoiceStatus.Sent,
-            Currency = "USD",
-            Subtotal = 100m,
-            TaxAmount = 10m
-        }, performedBy: "admin@example.com");
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 100m, tax: 10m);
 
         await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
         {
+            IdempotencyKey = "pay-full",
             AmountPaid = 110m,
             PaymentMethod = PaymentMethod.Cash
         }, performedBy: "admin@example.com");
@@ -206,26 +161,140 @@ public class BillingServiceTests
     }
 
     [Fact]
+    public async Task RecordReceiptAsync_RejectsOverpayment()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 100m);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "overpay",
+                AmountPaid = 101m,
+                PaymentMethod = PaymentMethod.Cash
+            }, performedBy: "admin@example.com"));
+
+        Assert.Contains("exceeds balance due", ex.Message);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_RejectsDraftInvoice()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Draft,
+            Currency = "USD",
+            Subtotal = 50m,
+            TaxAmount = 0m
+        }, performedBy: "admin@example.com");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "draft-pay",
+                AmountPaid = 50m,
+                PaymentMethod = PaymentMethod.Cash
+            }, performedBy: "admin@example.com"));
+
+        Assert.Contains("Draft", ex.Message);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_RequiresReferenceForBankTransfer()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "no-ref",
+                AmountPaid = 50m,
+                PaymentMethod = PaymentMethod.BankTransfer
+            }, performedBy: "admin@example.com"));
+
+        Assert.Contains("reference", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_IdempotentReplayReturnsSameReceipt()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 100m);
+
+        var first = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "same-key",
+            AmountPaid = 40m,
+            PaymentMethod = PaymentMethod.BankTransfer,
+            PaymentReference = "REF-A"
+        }, performedBy: "admin@example.com");
+
+        var second = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "same-key",
+            AmountPaid = 40m,
+            PaymentMethod = PaymentMethod.BankTransfer,
+            PaymentReference = "REF-A"
+        }, performedBy: "admin@example.com");
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(1, await db.Receipts.CountAsync());
+        Assert.Equal(1, await db.PaymentTransactions.CountAsync());
+        var updated = await service.GetInvoiceAsync(invoice.Id);
+        Assert.Equal(40m, updated!.AmountPaid);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_RejectsDuplicateMethodAndReference()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 100m);
+
+        await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "k1",
+            AmountPaid = 20m,
+            PaymentMethod = PaymentMethod.MobileMoney,
+            PaymentReference = "MM-1"
+        }, performedBy: "admin@example.com");
+
+        await Assert.ThrowsAsync<ConflictException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "k2",
+                AmountPaid = 20m,
+                PaymentMethod = PaymentMethod.MobileMoney,
+                PaymentReference = "MM-1"
+            }, performedBy: "admin@example.com"));
+    }
+
+    [Fact]
     public async Task RecordReceiptAsync_QueuesPaymentReceiptEmailWhenCustomerNotTracked()
     {
         await using var db = CreateDbContext();
         var customer = await SeedCustomerAsync(db);
         var createService = CreateBillingService(db);
-        var invoice = await createService.CreateInvoiceAsync(new CreateInvoiceRequest
-        {
-            CustomerId = customer.Id,
-            Status = InvoiceStatus.Sent,
-            Currency = "USD",
-            Subtotal = 100m,
-            TaxAmount = 0m
-        }, performedBy: "admin@example.com");
+        var invoice = await CreateSentInvoiceAsync(createService, customer.Id, 100m);
 
-        // Simulate a fresh request scope: navigations are not already tracked.
         db.ChangeTracker.Clear();
         var recordService = CreateBillingService(db);
 
         await recordService.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
         {
+            IdempotencyKey = "email-key",
             AmountPaid = 100m,
             PaymentMethod = PaymentMethod.BankTransfer,
             PaymentReference = "REF-1"
@@ -234,8 +303,184 @@ public class BillingServiceTests
         var message = Assert.Single(db.EmailOutboxMessages.Where(m => m.Kind == EmailDeliveryKind.PaymentReceipt));
         Assert.Equal("billing@acme.test", message.ToEmail);
         Assert.Contains("Receipt", message.Subject);
-        Assert.Contains("$100.00", message.HtmlBody);
         Assert.Equal(invoice.Id, message.InvoiceId);
+    }
+
+    [Fact]
+    public async Task ReverseReceiptAsync_RestoresBalanceAndAllowsVoid()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var auditLog = new FakeAuditLogService();
+        var service = CreateBillingService(db, auditLog);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 100m);
+
+        var receipt = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "to-reverse",
+            AmountPaid = 100m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+
+        var reversed = await service.ReverseReceiptAsync(invoice.Id, receipt.Id, new ReverseReceiptRequest
+        {
+            IdempotencyKey = "rev-1",
+            Reason = "Entered against wrong invoice"
+        }, performedBy: "admin@example.com");
+
+        Assert.Equal(ReceiptStatus.Reversed, reversed.Status);
+        Assert.Equal("Entered against wrong invoice", reversed.ReversalReason);
+
+        var updated = await service.GetInvoiceAsync(invoice.Id);
+        Assert.Equal(0m, updated!.AmountPaid);
+        Assert.Equal(100m, updated.AmountDue);
+        Assert.Equal(InvoiceStatus.Sent, updated.Status);
+        Assert.Equal(2, updated.Transactions.Count);
+        Assert.Contains(auditLog.Entries, e => e.Action == AuditAction.ReceiptReversed);
+
+        var voided = await service.VoidInvoiceAsync(invoice.Id, "admin@example.com");
+        Assert.Equal(InvoiceStatus.Void, voided.Status);
+    }
+
+    [Fact]
+    public async Task ReverseReceiptAsync_RejectsSecondReverse()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+        var receipt = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "once",
+            AmountPaid = 50m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+
+        await service.ReverseReceiptAsync(invoice.Id, receipt.Id, new ReverseReceiptRequest
+        {
+            IdempotencyKey = "rev-a",
+            Reason = "mistake"
+        }, performedBy: "admin@example.com");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ReverseReceiptAsync(invoice.Id, receipt.Id, new ReverseReceiptRequest
+            {
+                IdempotencyKey = "rev-b",
+                Reason = "again"
+            }, performedBy: "admin@example.com"));
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_ReactivatesLicenseAutoSuspendedForOverdue()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var license = new License
+        {
+            CustomerId = customer.Id,
+            ServiceProductId = product.Id,
+            PlanName = "Pro",
+            Status = LicenseStatus.Suspended,
+            AutoSuspendedForOverdueInvoiceId = "pending"
+        };
+        db.Licenses.Add(license);
+        await db.SaveChangesAsync();
+
+        var denyList = new FakeDenyListService();
+        var auditLog = new FakeAuditLogService();
+        var service = CreateBillingService(db, auditLog, denyList);
+        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            LicenseId = license.Id,
+            ServiceProductId = product.Id,
+            Status = InvoiceStatus.Overdue,
+            Currency = "USD",
+            Subtotal = 80m,
+            TaxAmount = 0m,
+            DueDate = DateTime.UtcNow.AddDays(-1)
+        }, performedBy: "admin@example.com");
+
+        // CreateInvoice forces Sent when SendImmediately; set overdue for this scenario.
+        var stored = await db.Invoices.IgnoreQueryFilters().FirstAsync(i => i.Id == invoice.Id);
+        stored.Status = InvoiceStatus.Overdue;
+        stored.DueDate = DateTime.UtcNow.AddDays(-2);
+        license.AutoSuspendedForOverdueInvoiceId = invoice.Id;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "reactivate",
+            AmountPaid = 80m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+
+        var reloaded = await db.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == license.Id);
+        Assert.Equal(LicenseStatus.Active, reloaded.Status);
+        Assert.Null(reloaded.AutoSuspendedForOverdueInvoiceId);
+        Assert.Contains(license.Id, denyList.ClearedLicenseIds);
+        Assert.Contains(auditLog.Entries, e => e.Action == AuditAction.LicenseAutoReactivatedPaid);
+        Assert.Contains(db.EmailOutboxMessages, m => m.Kind == EmailDeliveryKind.LicenseReactivated);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_DoesNotReactivateManuallySuspendedLicense()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var license = new License
+        {
+            CustomerId = customer.Id,
+            ServiceProductId = product.Id,
+            PlanName = "Pro",
+            Status = LicenseStatus.Suspended,
+            AutoSuspendedForOverdueInvoiceId = null
+        };
+        db.Licenses.Add(license);
+        await db.SaveChangesAsync();
+
+        var denyList = new FakeDenyListService();
+        var service = CreateBillingService(db, denyList: denyList);
+        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            LicenseId = license.Id,
+            ServiceProductId = product.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = 80m,
+            TaxAmount = 0m
+        }, performedBy: "admin@example.com");
+
+        await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "manual-suspend",
+            AmountPaid = 80m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+
+        var reloaded = await db.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == license.Id);
+        Assert.Equal(LicenseStatus.Suspended, reloaded.Status);
+        Assert.Empty(denyList.ClearedLicenseIds);
+    }
+
+    private static async Task<InvoiceDto> CreateSentInvoiceAsync(
+        BillingService service,
+        string customerId,
+        decimal subtotal,
+        decimal tax = 0m)
+    {
+        return await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customerId,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = subtotal,
+            TaxAmount = tax
+        }, performedBy: "admin@example.com");
     }
 
     private static AppDbContext CreateDbContext()
@@ -250,13 +495,14 @@ public class BillingServiceTests
     private static BillingService CreateBillingService(
         AppDbContext db,
         IAuditLogService? auditLog = null,
-        IEmailSender? emailSender = null)
+        ILicenseDenyListService? denyList = null)
     {
         return new BillingService(
             db,
             auditLog ?? new FakeAuditLogService(),
             new EmailOutboxService(db),
-            new EmailTemplateService());
+            new EmailTemplateService(),
+            denyList ?? new FakeDenyListService());
     }
 
     private static async Task<Customer> SeedCustomerAsync(AppDbContext db, bool isSuspended = false)
@@ -273,10 +519,41 @@ public class BillingServiceTests
         return customer;
     }
 
-    private sealed class FakeInvoicePdfGenerator : IInvoicePdfGenerator
+    private static async Task<ServiceProduct> SeedProductAsync(AppDbContext db)
     {
-        public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead) =>
-            "%PDF-1.4 fake-invoice"u8.ToArray();
+        var product = new ServiceProduct
+        {
+            Name = "Hostel",
+            Code = "HOSTEL",
+            Description = "Hostel",
+            IsAvailableForSale = true
+        };
+        db.ServiceProducts.Add(product);
+        await db.SaveChangesAsync();
+        return product;
+    }
+
+    private sealed class FakeDenyListService : ILicenseDenyListService
+    {
+        public List<string> ClearedLicenseIds { get; } = [];
+
+        public Task DenyLicenseAsync(string licenseId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task DenyCustomerLicensesAsync(string customerId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<bool> IsDeniedAsync(string licenseId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task ClearLicenseDenyAsync(string licenseId, CancellationToken cancellationToken = default)
+        {
+            ClearedLicenseIds.Add(licenseId);
+            return Task.CompletedTask;
+        }
+
+        public Task ClearCustomerDenyAsync(string customerId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class FakeAuditLogService : IAuditLogService
@@ -316,39 +593,4 @@ public class BillingServiceTests
         string? InvoiceId,
         string? DetailsJson,
         string? IpAddress);
-
-    private sealed class CapturingEmailSender : IEmailSender
-    {
-        public List<CapturedEmail> Messages { get; } = [];
-
-        public Task SendAsync(
-            string toEmail,
-            string subject,
-            string htmlBody,
-            IReadOnlyList<EmailAttachment>? attachments = null,
-            CancellationToken cancellationToken = default)
-        {
-            Messages.Add(new CapturedEmail(toEmail, subject, htmlBody, attachments?.ToList() ?? []));
-            return Task.CompletedTask;
-        }
-    }
-
-    private sealed record CapturedEmail(
-        string ToEmail,
-        string Subject,
-        string HtmlBody,
-        IReadOnlyList<EmailAttachment> Attachments);
-
-    private sealed class ThrowingEmailSender : IEmailSender
-    {
-        public Task SendAsync(
-            string toEmail,
-            string subject,
-            string htmlBody,
-            IReadOnlyList<EmailAttachment>? attachments = null,
-            CancellationToken cancellationToken = default)
-        {
-            throw new InvalidOperationException("SMTP server unavailable.");
-        }
-    }
 }

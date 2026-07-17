@@ -22,10 +22,12 @@ public enum AuditAction
     InvoiceSent,
     InvoiceVoided,
     ReceiptRecorded,
+    ReceiptReversed,
     InvoiceLinkedToLicense,
     EmailDeliveryQueued,
     EmailDeliverySent,
     EmailDeliveryFailed,
     EmailDeliveryRetried,
-    LicenseAutoSuspendedOverdue
+    LicenseAutoSuspendedOverdue,
+    LicenseAutoReactivatedPaid
 }

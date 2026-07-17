@@ -26,11 +26,15 @@ else
                     @(_invoice.Status == InvoiceStatus.Draft ? "Send invoice" : "Send again")
                 </MudButton>
             }
-            @if (_invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
+            @if (_invoice.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
             {
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
+                @if (_invoice.AmountDue > 0)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
+                }
             }
-            @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue)
+            @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue
+                 || (_invoice.Status == InvoiceStatus.PartiallyPaid && _invoice.AmountPaid == 0))
             {
                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="VoidAsync">Void</MudButton>
             }
@@ -73,13 +77,35 @@ else
                 <MudTh>Receipt #</MudTh>
                 <MudTh>Amount</MudTh>
                 <MudTh>Method</MudTh>
+                <MudTh>Reference</MudTh>
+                <MudTh>Status</MudTh>
                 <MudTh>Paid at</MudTh>
+                <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd>@context.ReceiptNumber</MudTd>
                 <MudTd>@context.AmountPaid.ToString("N2")</MudTd>
                 <MudTd>@context.PaymentMethod</MudTd>
+                <MudTd>@(context.PaymentReference ?? "—")</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">
+                        @context.Status
+                    </MudChip>
+                </MudTd>
                 <MudTd>@context.PaidAt.ToString("g")</MudTd>
+                <MudTd>
+                    @if (context.Status == ReceiptStatus.Posted)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                                   OnClick="@(() => ReversePaymentAsync(context))">
+                            Reverse
+                        </MudButton>
+                    }
+                    else if (!string.IsNullOrEmpty(context.ReversalReason))
+                    {
+                        <MudText Typo="Typo.caption">@context.ReversalReason</MudText>
+                    }
+                </MudTd>
             </RowTemplate>
         </MudTable>
     }
@@ -136,6 +162,31 @@ else
         }
 
         Snackbar.Add("Payment recorded.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task ReversePaymentAsync(ReceiptDto receipt)
+    {
+        if (_invoice is null)
+            return;
+
+        var dialog = await DialogService.ShowAsync<ReverseReceiptDialog>("Reverse Payment", new DialogParameters
+        {
+            [nameof(ReverseReceiptDialog.ReceiptNumber)] = receipt.ReceiptNumber,
+            [nameof(ReverseReceiptDialog.Amount)] = receipt.AmountPaid
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not ReverseReceiptRequest request)
+            return;
+
+        var apiResult = await Api.ReverseReceiptAsync(_invoice.Id, receipt.Id, request);
+        if (!apiResult.IsSuccess)
+        {
+            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to reverse payment.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("Payment reversed.", Severity.Success);
         await LoadAsync();
     }
 

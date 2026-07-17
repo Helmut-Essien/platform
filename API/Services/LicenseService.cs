@@ -174,6 +174,7 @@ public class LicenseService(
 
         var now = DateTime.UtcNow;
         license.Status = LicenseStatus.Active;
+        license.AutoSuspendedForOverdueInvoiceId = null;
         license.UpdatedAt = now;
 
         if (request.EmailLicenseKey)
@@ -311,7 +312,8 @@ public class LicenseService(
         string performedBy,
         string? ipAddress = null,
         CancellationToken cancellationToken = default,
-        string? notificationReason = null)
+        string? notificationReason = null,
+        string? autoSuspendedForOverdueInvoiceId = null)
     {
         var license = await db.Licenses
             .IgnoreQueryFilters()
@@ -325,6 +327,9 @@ public class LicenseService(
 
         license.Status = LicenseStatus.Suspended;
         license.UpdatedAt = DateTime.UtcNow;
+        license.AutoSuspendedForOverdueInvoiceId = string.IsNullOrWhiteSpace(autoSuspendedForOverdueInvoiceId)
+            ? null
+            : autoSuspendedForOverdueInvoiceId;
         var suspended = templates.StatusNotice(
             license.Customer, license.ServiceProduct, EmailDeliveryKind.Suspended, notificationReason);
         outbox.Enqueue(

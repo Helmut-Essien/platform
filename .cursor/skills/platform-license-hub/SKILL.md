@@ -65,13 +65,14 @@ Production-ready **centralized admin hub** for the developer/owner to:
 
 - **Customer**: Id, Name, ContactEmail, BillingEmail?, TechnicalEmail?, ContactPhone, InternalNotes, IsSuspended, CreatedAt
 - **ServiceProduct**: Id, Name, Code, Description, IsAvailableForSale
-- **License**: Id, CustomerId, ServiceProductId, Status, ExpiresAt, PlanName, LicenseKeyHash, LicenseKeySentAt, CreatedAt, UpdatedAt
+- **License**: Id, CustomerId, ServiceProductId, Status, ExpiresAt, PlanName, LicenseKeyHash, LicenseKeySentAt, AutoSuspendedForOverdueInvoiceId?, CreatedAt, UpdatedAt
 - **AuditLog**: Id, CustomerId?, LicenseId?, InvoiceId?, Action, PerformedBy, DetailsJson, IpAddress, Timestamp
 - **IntegrationKey**: Id, ServiceProductId, KeyHash, IsActive, CreatedAt, LastUsedAt
 - **Invoice**: Id, CustomerId, LicenseId?, ServiceProductId?, InvoiceNumber, Status, IssueDate, DueDate?, Currency, Subtotal, TaxAmount, TotalAmount, PlanName?, Description?, InternalNotes?, CreatedAt, UpdatedAt
-- **Receipt**: Id, InvoiceId, ReceiptNumber, AmountPaid, PaidAt, PaymentMethod, PaymentReference?, Notes?, CreatedAt
+- **Receipt**: Id, InvoiceId, ReceiptNumber, AmountPaid, PaidAt, PaymentMethod, PaymentReference?, Notes?, Status, ReversedAt?, ReversalReason?, CreatedAt
+- **PaymentTransaction**: Id, InvoiceId, Kind (Payment|Reversal), Amount, PaymentMethod, PaymentReference?, Notes?, ReceiptId?, ReversesTransactionId?, IdempotencyKey, PerformedBy, CreatedAt
 
-ULID IDs: `NUlid.Ulid.NewUlid().ToString()`. Enums → PostgreSQL **strings**.
+ULID IDs: `NUlid.Ulid.NewUlid().ToString()`. Enums → PostgreSQL **strings**. Manual payments are ledger-backed: balances = payments − reversals; receipts remain the customer-facing document.
 
 ## Security model (two audiences)
 
@@ -182,7 +183,8 @@ Activate uses independent flags for key delivery, invoice creation, and invoice 
 5. Renew without rotation by default. `POST /api/licenses/{id}/rotate-key` explicitly rotates and queues a replacement key.
 6. `EmailOutboxWorker` claims PostgreSQL rows with `FOR UPDATE SKIP LOCKED`, retries with backoff, and wipes encrypted key payloads after success.
 7. `LicenseExpiryReminderWorker` queues deduplicated reminders for active licenses approaching expiry.
-8. Suspend/revoke queues notification email. `OverdueInvoiceLifecycleWorker` can mark invoices Overdue and auto-suspend only their linked Active license.
+8. Suspend/revoke queues notification email. `OverdueInvoiceLifecycleWorker` always ages invoices to Overdue; optional auto-suspend sets `License.AutoSuspendedForOverdueInvoiceId`. Paying the overdue invoice fully can auto-reactivate only that provenance (never manual suspensions).
+9. Manual payments: `POST /api/invoices/{id}/receipts` with idempotency key; `POST .../receipts/{receiptId}/reverse` appends an immutable reversal. Overpay and draft payments are rejected.
 
 Configuration:
 

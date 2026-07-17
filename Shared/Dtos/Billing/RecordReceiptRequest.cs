@@ -5,6 +5,10 @@ namespace Platform.Shared.Dtos.Billing;
 
 public class RecordReceiptRequest
 {
+    [Required(ErrorMessage = "Idempotency key is required")]
+    [MaxLength(100, ErrorMessage = "Idempotency key must be 100 characters or less")]
+    public required string IdempotencyKey { get; set; }
+
     [Range(typeof(decimal), "0.01", "79228162514264337593543950335", ErrorMessage = "Amount must be greater than zero")]
     public decimal AmountPaid { get; set; }
 

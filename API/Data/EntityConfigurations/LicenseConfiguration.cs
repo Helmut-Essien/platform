@@ -40,7 +40,11 @@ public class LicenseConfiguration : IEntityTypeConfiguration<License>
         builder.Property(l => l.LicenseKeyLookupHash)
             .HasMaxLength(64);
 
+        builder.Property(l => l.AutoSuspendedForOverdueInvoiceId)
+            .HasMaxLength(26);
+
         builder.HasIndex(l => new { l.ServiceProductId, l.LicenseKeyLookupHash });
+        builder.HasIndex(l => l.AutoSuspendedForOverdueInvoiceId);
 
         builder.Property(l => l.CreatedAt)
             .IsRequired();

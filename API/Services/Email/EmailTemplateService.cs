@@ -61,21 +61,34 @@ public class EmailTemplateService
         EmailDeliveryKind kind,
         string? reason = null)
     {
-        var status = kind == EmailDeliveryKind.Revoked ? "revoked" : "suspended";
+        var (statusWord, accessDetail) = kind switch
+        {
+            EmailDeliveryKind.Revoked => (
+                "revoked",
+                product is null
+                    ? "Licenses associated with this account will fail validation until an administrator restores access."
+                    : "License validation will fail until an administrator restores access."),
+            EmailDeliveryKind.LicenseReactivated => (
+                "reactivated",
+                "License validation will succeed again for this license."),
+            _ => (
+                "suspended",
+                product is null
+                    ? "Licenses associated with this account will fail validation until an administrator restores access."
+                    : "License validation will fail until an administrator restores access.")
+        };
+
         var subject = product is null
-            ? $"Your platform account has been {status}"
-            : $"Your {product.Name} license has been {status}";
+            ? $"Your platform account has been {statusWord}"
+            : $"Your {product.Name} license has been {statusWord}";
         var target = product is null ? "platform account" : $"{WebUtility.HtmlEncode(product.Name)} license";
         var detail = string.IsNullOrWhiteSpace(reason)
             ? string.Empty
             : $"<p style=\"margin:0 0 16px;\"><strong>Reason:</strong> {WebUtility.HtmlEncode(AsSentence(reason))}</p>";
-        var accessDetail = product is null
-            ? "Licenses associated with this account will fail validation until an administrator restores access."
-            : "License validation will fail until an administrator restores access.";
         return (subject, Wrap(
             customer.Name,
-            $"Your {target} has been {status}.",
-            $"Your {target} has been {status}.",
+            $"Your {target} has been {statusWord}.",
+            $"Your {target} has been {statusWord}.",
             $"{detail}<p style=\"margin:0;\">{accessDetail}</p>"));
     }
 

@@ -15,16 +15,13 @@ public class OverdueInvoiceLifecycleWorker(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (settings.Value.AutoSuspendOnOverdue)
+            try
             {
-                try
-                {
-                    await ProcessAsync(stoppingToken);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    logger.LogError(ex, "Overdue invoice lifecycle scan failed.");
-                }
+                await ProcessAsync(stoppingToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Overdue invoice lifecycle scan failed.");
             }
 
             await Task.Delay(
@@ -65,22 +62,21 @@ public class OverdueInvoiceLifecycleWorker(
                 db.ChangeTracker.Clear();
             }
 
-            if (invoiceRow.LicenseId is null)
+            if (!settings.Value.AutoSuspendOnOverdue || invoiceRow.LicenseId is null)
                 continue;
 
-            var status = await db.Licenses
+            var license = await db.Licenses
                 .IgnoreQueryFilters()
-                .Where(x => x.Id == invoiceRow.LicenseId)
-                .Select(x => x.Status)
-                .FirstOrDefaultAsync(cancellationToken);
-            if (status != LicenseStatus.Active)
+                .FirstOrDefaultAsync(x => x.Id == invoiceRow.LicenseId, cancellationToken);
+            if (license is null || license.Status != LicenseStatus.Active)
                 continue;
 
             await licenseService.SuspendAsync(
                 invoiceRow.LicenseId,
                 "system:overdue-invoice",
                 cancellationToken: cancellationToken,
-                notificationReason: "Access was suspended because a linked invoice is overdue.");
+                notificationReason: "Access was suspended because a linked invoice is overdue.",
+                autoSuspendedForOverdueInvoiceId: invoiceRow.Id);
             await audit.WriteAsync(
                 AuditAction.LicenseAutoSuspendedOverdue,
                 "system:overdue-invoice",

@@ -79,7 +79,9 @@ erDiagram
 - `EmailOutboxMessage` stores delivery status and retries. License plaintext is AES-GCM encrypted and wiped after successful send.
 - Invoice PDFs are regenerated from `InvoiceId` at dispatch time.
 - Expiry reminders and suspend/revoke notices use the same outbox.
-- Optional overdue automation suspends only the Active license linked by `Invoice.LicenseId`.
+- Optional overdue automation suspends only the Active license linked by `Invoice.LicenseId` and records `AutoSuspendedForOverdueInvoiceId`.
+- Full payment of clearing overdue invoice(s) can auto-reactivate that license and clear the Redis deny-list.
+- Manual payments append `PaymentTransaction` rows; reversals are immutable offsets. Invoice balances derive from the ledger.
 
 ## License status lifecycle
 

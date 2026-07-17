@@ -25,4 +25,6 @@ public interface IBillingService
     Task<InvoiceDto> VoidInvoiceAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<ReceiptDto> RecordReceiptAsync(string invoiceId, RecordReceiptRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    Task<ReceiptDto> ReverseReceiptAsync(string invoiceId, string receiptId, ReverseReceiptRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 }

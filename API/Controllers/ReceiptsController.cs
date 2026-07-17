@@ -33,6 +33,38 @@ public class ReceiptsController(IBillingService billing) : ControllerBase
                 routeValues: new { invoiceId, id = receipt.Id },
                 value: receipt);
         }
+        catch (ConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPost("{receiptId}/reverse")]
+    public async Task<ActionResult<ReceiptDto>> Reverse(
+        string invoiceId,
+        string receiptId,
+        [FromBody] ReverseReceiptRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var receipt = await billing.ReverseReceiptAsync(
+                invoiceId,
+                receiptId,
+                request,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+            return Ok(receipt);
+        }
+        catch (ConflictException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });

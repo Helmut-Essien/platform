@@ -10,5 +10,6 @@ public enum EmailDeliveryKind
     PaymentReceipt,
     ExpiryReminder,
     Suspended,
-    Revoked
+    Revoked,
+    LicenseReactivated
 }

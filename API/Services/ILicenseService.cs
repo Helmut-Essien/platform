@@ -24,7 +24,8 @@ public interface ILicenseService
         string performedBy,
         string? ipAddress = null,
         CancellationToken cancellationToken = default,
-        string? notificationReason = null);
+        string? notificationReason = null,
+        string? autoSuspendedForOverdueInvoiceId = null);
 
     Task<LicenseDto> RevokeAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 

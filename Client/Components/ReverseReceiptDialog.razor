@@ -1,0 +1,65 @@
+@using Platform.Shared.Dtos.Billing
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Reverse Payment</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            This permanently reverses receipt <strong>@ReceiptNumber</strong> for
+            <strong>@Amount.ToString("N2")</strong>. The original receipt remains for audit.
+        </MudText>
+        <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
+            <MudTextField @bind-Value="_model.Reason"
+                          For="@(() => _model.Reason)"
+                          Label="Reason"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Reason is required"
+                          Lines="3" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="SaveAsync" Disabled="@(!_formValid)">
+            Reverse
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public string ReceiptNumber { get; set; } = "";
+
+    [Parameter] public decimal Amount { get; set; }
+
+    private MudForm? _form;
+    private bool _formValid;
+    private readonly string _idempotencyKey = Guid.NewGuid().ToString("N");
+    private ReverseReceiptRequest _model = new()
+    {
+        IdempotencyKey = "",
+        Reason = ""
+    };
+
+    protected override void OnInitialized()
+    {
+        _model.IdempotencyKey = _idempotencyKey;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+            return;
+
+        await _form.Validate();
+        if (!_formValid)
+            return;
+
+        _model.IdempotencyKey = _idempotencyKey;
+        MudDialog.Close(DialogResult.Ok(_model));
+    }
+}

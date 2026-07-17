@@ -22,6 +22,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<Receipt> Receipts => Set<Receipt>();
 
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+
     public DbSet<InvoiceBrandProfile> InvoiceBrandProfiles => Set<InvoiceBrandProfile>();
 
     public DbSet<EmailOutboxMessage> EmailOutboxMessages => Set<EmailOutboxMessage>();
@@ -40,5 +42,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
         modelBuilder.Entity<Receipt>()
             .HasQueryFilter(r => !r.Invoice.Customer.IsSuspended);
+
+        modelBuilder.Entity<PaymentTransaction>()
+            .HasQueryFilter(p => !p.Invoice.Customer.IsSuspended);
     }
 }

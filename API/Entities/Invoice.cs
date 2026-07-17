@@ -46,5 +46,7 @@ public class Invoice
 
     public ICollection<Receipt> Receipts { get; set; } = [];
 
+    public ICollection<PaymentTransaction> PaymentTransactions { get; set; } = [];
+
     public ICollection<AuditLog> AuditLogs { get; set; } = [];
 }

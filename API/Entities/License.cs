@@ -22,6 +22,12 @@ public class License
 
     public DateTime? LicenseKeySentAt { get; set; }
 
+    /// <summary>
+    /// When set, this license was auto-suspended because the linked invoice became overdue.
+    /// Cleared on manual suspend/activate/reactivate so only overdue-driven suspensions auto-restore.
+    /// </summary>
+    public string? AutoSuspendedForOverdueInvoiceId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

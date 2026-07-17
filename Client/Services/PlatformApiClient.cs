@@ -257,6 +257,19 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<ReceiptDto>(response, ct);
     }
 
+    public async Task<ApiResult<ReceiptDto>> ReverseReceiptAsync(
+        string invoiceId,
+        string receiptId,
+        ReverseReceiptRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync(
+            $"api/invoices/{invoiceId}/receipts/{receiptId}/reverse",
+            request,
+            ct);
+        return await ToApiResultAsync<ReceiptDto>(response, ct);
+    }
+
     public async Task<List<AuditLogDto>> GetAuditLogsAsync(
         string? customerId = null,
         string? licenseId = null,

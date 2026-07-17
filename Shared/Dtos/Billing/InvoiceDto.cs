@@ -47,4 +47,6 @@ public class InvoiceDto
     public DateTime UpdatedAt { get; set; }
 
     public List<ReceiptDto> Receipts { get; set; } = [];
+
+    public List<PaymentTransactionDto> Transactions { get; set; } = [];
 }
