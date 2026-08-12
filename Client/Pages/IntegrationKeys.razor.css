@@ -67,7 +67,7 @@
 
 @media (min-width: 768px) {
     .integration-keys-stats {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: minmax(12rem, 16rem);
     }
 }
 
@@ -212,13 +212,12 @@
 .integration-key-masked {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 0.5rem;
     padding: 0.75rem;
     background: var(--surface-container-lowest, #0b0f08);
     border: 1px solid var(--border-subtle);
     border-radius: 0.25rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .integration-key-masked code {
@@ -226,6 +225,32 @@
     font-size: 0.75rem;
     color: var(--primary, #92d959);
     letter-spacing: 0.08em;
+}
+
+.integration-key-recover-hint {
+    margin: 0 0 1.25rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.integration-key-rotate-link {
+    display: inline;
+    margin-left: 0.25rem;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--primary, #92d959);
+    font-size: inherit;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.integration-key-rotate-link:hover {
+    color: var(--accent-hover, #7ccf2e);
 }
 
 .integration-key-copy-btn {

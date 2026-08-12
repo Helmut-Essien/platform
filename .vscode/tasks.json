@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-api",
+      "command": "${env:HOME}/.dotnet/dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/API/API.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "group": "build",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "build-client",
+      "command": "${env:HOME}/.dotnet/dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/Client/Client.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "group": "build",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "build-platform",
+      "dependsOn": ["build-api", "build-client"],
+      "dependsOrder": "parallel",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

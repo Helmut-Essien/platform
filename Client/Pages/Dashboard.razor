@@ -6,7 +6,7 @@
 <div class="dashboard-page page-content">
     <header class="dashboard-header">
         <h1 class="page-title">Dashboard</h1>
-        <p class="page-subtitle">Platform overview and performance metrics.</p>
+        <p class="page-subtitle">Overview of customers, licenses, and billing.</p>
     </header>
 
     @if (_loading)
@@ -41,8 +41,8 @@
                 </div>
                 <div class="kpi-card-value">@_activeLicenses</div>
                 <div class="kpi-card-foot">
-                    <span class="highlight-primary">Healthy</span>
-                    <span>ecosystem</span>
+                    <span class="highlight-primary">In use</span>
+                    <span>right now</span>
                 </div>
             </article>
 
@@ -90,7 +90,6 @@
             <section class="dashboard-timeline-panel" aria-label="Recent activity">
                 <div class="timeline-panel-head">
                     <h2>Recent Activity</h2>
-                    <span class="timeline-panel-badge">Live Stream</span>
                 </div>
 
                 @if (_recentAudit.Count == 0)
@@ -107,12 +106,13 @@
                                 <div class="timeline-dot @GetTimelineDotClass(entry, index)"></div>
                                 <div class="timeline-event-body">
                                     <p class="timeline-event-title">
-                                        @entry.Action@if (!string.IsNullOrEmpty(GetTargetLabel(entry)))
+                                        @AuditDisplay.ActionLabel(entry.Action)
+                                        @if (!string.IsNullOrEmpty(GetTargetLabel(entry)))
                                         {
                                             <text> — <span class="target">@GetTargetLabel(entry)</span></text>
                                         }
                                     </p>
-                                    <p class="timeline-event-summary">@GetAuditSummary(entry)</p>
+                                    <p class="timeline-event-summary">@AuditDisplay.Summary(entry)</p>
                                     <p class="timeline-event-time">@FormatRelativeTime(entry.Timestamp)</p>
                                 </div>
                             </div>
@@ -139,31 +139,6 @@
                             <span>Generate Integration Key</span>
                             <MudIcon Icon="@Icons.Material.Filled.Api" Size="Size.Small" />
                         </button>
-                    </div>
-                </div>
-
-                <div class="dashboard-sidebar-card platform-health">
-                    <div class="platform-health-watermark" aria-hidden="true">
-                        <MudIcon Icon="@Icons.Material.Filled.Analytics" />
-                    </div>
-                    <h3 class="platform-health-label">Platform Health <span class="demo-badge">Demo data</span></h3>
-                    <div class="health-metric">
-                        <div class="health-metric-head">
-                            <span>API Uptime</span>
-                            <span>99.98%</span>
-                        </div>
-                        <div class="health-bar">
-                            <div class="health-bar-fill" style="width: 99%"></div>
-                        </div>
-                    </div>
-                    <div class="health-metric">
-                        <div class="health-metric-head">
-                            <span>Sync Queue</span>
-                            <span>0%</span>
-                        </div>
-                        <div class="health-bar">
-                            <div class="health-bar-fill" style="width: 2%"></div>
-                        </div>
                     </div>
                 </div>
             </aside>
@@ -230,17 +205,6 @@
             ? name
             : null;
 
-    private static string GetAuditSummary(AuditLogDto entry)
-    {
-        if (!string.IsNullOrWhiteSpace(entry.DetailsJson))
-        {
-            var details = entry.DetailsJson.Trim();
-            return details.Length > 140 ? details[..140] + "…" : details;
-        }
-
-        return $"Recorded by {entry.PerformedBy}.";
-    }
-
     private static string GetTimelineDotClass(AuditLogDto entry, int index)
     {
         if (index == 0)
@@ -251,6 +215,7 @@
             or AuditAction.CustomerSuspended
             or AuditAction.IntegrationKeyRevoked
             or AuditAction.InvoiceVoided
+            or AuditAction.EmailDeliveryFailed
             ? "timeline-dot-attention"
             : "timeline-dot-neutral";
     }
@@ -286,7 +251,6 @@
     private void GoToExpiringLicenses() => Navigation.NavigateTo("/licenses?filter=expiring");
     private void GoToUnpaidInvoices() => Navigation.NavigateTo("/invoices?filter=unpaid");
     private void GoToIssueLicense() => Navigation.NavigateTo("/licenses?add=true");
-    private void GoToInvoices() => Navigation.NavigateTo("/invoices");
     private void GoToIntegrationKeys() => Navigation.NavigateTo("/integration-keys");
     private void GoToAudit() => Navigation.NavigateTo("/audit");
 }

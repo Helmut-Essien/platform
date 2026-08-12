@@ -65,14 +65,19 @@ public class EmailPayloadProtector
 
     private static byte[]? TryDecodeKey(string value)
     {
-        try
-        {
-            var bytes = Convert.FromBase64String(value);
-            return bytes.Length is 16 or 24 or 32 ? bytes : null;
-        }
-        catch (FormatException)
-        {
+        var trimmed = value.Trim();
+        // Avoid Convert.FromBase64String so plain-text secrets (e.g. Jwt:Key) do not
+        // raise a first-chance FormatException under the debugger.
+        if (trimmed.Length is 0 || trimmed.Length % 4 != 0)
             return null;
-        }
+
+        var buffer = new byte[trimmed.Length];
+        if (!Convert.TryFromBase64String(trimmed, buffer, out var written))
+            return null;
+
+        if (written is not (16 or 24 or 32))
+            return null;
+
+        return buffer.AsSpan(0, written).ToArray();
     }
 }

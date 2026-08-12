@@ -1,27 +1,51 @@
 {
-      "version": "0.2.0",
-      "configurations": [
-          {
-              "name": "C#: API [Default Configuration]",
-              "type": "dotnet",
-              "request": "launch",
-              "projectPath": "${workspaceFolder}/API/API.csproj"
-          },
-          {
-              "name": "C#: Client [Default Configuration]",
-              "type": "dotnet",
-              "request": "launch",
-              "projectPath": "${workspaceFolder}/Client/Client.csproj"
-          }
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-api",
+      "program": "${workspaceFolder}/API/bin/Debug/net9.0/API.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/API",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5176",
+        "DOTNET_ROOT": "${env:HOME}/.dotnet"
+      }
+    },
+    {
+      "name": "Client",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-client",
+      "program": "${env:HOME}/.dotnet/dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/Client/Client.csproj",
+        "--no-build",
+        "--launch-profile",
+        "http"
       ],
-      "compounds": [
-          {
-              "name": "Platform: API + Client",
-              "configurations": [
-                  "C#: API [Default Configuration]",
-                  "C#: Client [Default Configuration]"
-              ],
-              "stopAll": true
-          }
-      ]
-  }
+      "cwd": "${workspaceFolder}/Client",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ROOT": "${env:HOME}/.dotnet",
+        "PATH": "${env:HOME}/.dotnet:${env:PATH}"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Platform: API + Client",
+      "configurations": ["API", "Client"],
+      "stopAll": true
+    }
+  ]
+}

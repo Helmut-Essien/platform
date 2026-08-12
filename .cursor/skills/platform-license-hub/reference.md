@@ -200,6 +200,7 @@ See `.cursor/skills/platform-admin-ui/implementation-patterns.md` for full as-bu
 | Code | Name |
 |------|------|
 | HOSTEL | Hostel Management |
+| ORDERFLOW | OrderFlow |
 | LAUNDRY | Laundry App |
 | SCHOOL | School Management |
 | ASSET | Asset Management |

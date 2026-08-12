@@ -5,7 +5,6 @@
 @inject TokenStorage TokenStorage
 @inject JwtAuthenticationStateProvider AuthState
 @inject NavigationManager Navigation
-@inject ISnackbar Snackbar
 
 <MudPaper Class="login-card pa-5 pa-sm-8" Elevation="0">
     <div class="login-brand">
@@ -20,40 +19,53 @@
     @if (_hasError)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="login-error"
-                  CloseIconClicked="@(() => _hasError = false)">
+                  CloseIconClicked="@(() => _hasError = false)"
+                  ShowCloseIcon="true">
             @_errorMessage
         </MudAlert>
     }
 
-    <MudForm @ref="_form" Model="_login" @bind-IsValid="_formValid" Class="login-form">
+    @* Native <form> + properly typed input attributes so password managers work without breaking render *@
+    <form id="platform-login-form"
+          class="login-form"
+          method="post"
+          action="/login"
+          autocomplete="on"
+          @onsubmit="HandleSubmitAsync"
+          @onsubmit:preventDefault>
         <MudTextField @bind-Value="_login.Email"
-                      For="@(() => _login.Email)"
                       Label="Email"
                       Variant="Variant.Outlined"
                       InputType="InputType.Email"
                       FullWidth="true"
+                      Required="true"
+                      RequiredError="Email is required"
                       Disabled="_busy"
-                      autocomplete="email"
-                      spellcheck="false"
-                      OnKeyUp="OnKeyUp" />
+                      InputId="login-username"
+                      AutoFocus="true"
+                      UserAttributes="_emailAttrs" />
+
         <MudTextField @bind-Value="_login.Password"
-                      For="@(() => _login.Password)"
                       Label="Password"
                       Variant="Variant.Outlined"
                       InputType="@(_passwordVisible ? InputType.Text : InputType.Password)"
                       Adornment="Adornment.End"
-                      AdornmentIcon="@(_passwordVisible ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                      AdornmentIcon="@(_passwordVisible ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
                       OnAdornmentClick="TogglePasswordVisibility"
+                      AdornmentAriaLabel="@(_passwordVisible ? "Hide password" : "Show password")"
                       FullWidth="true"
+                      Required="true"
+                      RequiredError="Password is required"
                       Disabled="_busy"
-                      autocomplete="current-password"
-                      OnKeyUp="OnKeyUp" />
-        <MudButton Variant="Variant.Filled"
+                      InputId="login-password"
+                      UserAttributes="_passwordAttrs" />
+
+        <MudButton ButtonType="ButtonType.Submit"
+                   Variant="Variant.Filled"
                    Color="Color.Primary"
                    FullWidth="true"
                    Class="login-submit"
-                   Disabled="@(_busy || !_formValid)"
-                   OnClick="LoginAsync">
+                   Disabled="@(_busy || !CanSubmit)">
             @if (_busy)
             {
                 <MudProgressCircular Color="Color.Inherit" Size="Size.Small" Indeterminate="true" Class="mr-2" />
@@ -64,41 +76,61 @@
                 <span>Sign in</span>
             }
         </MudButton>
-    </MudForm>
+    </form>
 </MudPaper>
 
 @code {
-    private MudForm? _form;
-    private bool _formValid;
+    // Per-instance dictionaries only (never static). MudBlazor may write into UserAttributes;
+    // sharing a static instance across fields / renders causes unhandled errors mid-render.
+    // Use real bools for HTML boolean attributes (string "false" is not a bool).
+    private readonly Dictionary<string, object> _emailAttrs = new()
+    {
+        ["name"] = "username",
+        ["autocomplete"] = "username",
+        ["autocapitalize"] = "none",
+        ["spellcheck"] = false
+    };
+
+    private readonly Dictionary<string, object> _passwordAttrs = new()
+    {
+        ["name"] = "password",
+        ["autocomplete"] = "current-password"
+    };
+
     private bool _busy;
     private bool _passwordVisible;
     private bool _hasError;
     private string _errorMessage = "";
     private LoginRequest _login = new() { Email = "", Password = "" };
 
+    private bool CanSubmit =>
+        !string.IsNullOrWhiteSpace(_login.Email) && !string.IsNullOrWhiteSpace(_login.Password);
+
     private void TogglePasswordVisibility() => _passwordVisible = !_passwordVisible;
 
-    private async Task OnKeyUp(KeyboardEventArgs e)
+    private async Task HandleSubmitAsync()
     {
         _hasError = false;
-        if (e.Key is "Enter" && !_busy)
-            await LoginAsync();
-    }
 
-    private async Task LoginAsync()
-    {
-        if (_form is null)
+        if (_busy)
             return;
 
-        await _form.Validate();
-        if (!_formValid)
+        if (string.IsNullOrWhiteSpace(_login.Email) || string.IsNullOrWhiteSpace(_login.Password))
+        {
+            _hasError = true;
+            _errorMessage = "Email and password are required.";
             return;
+        }
 
         _busy = true;
-        _hasError = false;
         try
         {
-            var result = await Api.LoginAsync(_login);
+            var result = await Api.LoginAsync(new LoginRequest
+            {
+                Email = _login.Email.Trim(),
+                Password = _login.Password
+            });
+
             if (!result.IsSuccess)
             {
                 _hasError = true;
@@ -109,6 +141,12 @@
             await TokenStorage.SetAsync(result.Data!.Token, result.Data.Email);
             AuthState.NotifyStateChanged();
             Navigation.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            _hasError = true;
+            _errorMessage = "Sign-in failed. Check that the API is running and try again.";
+            Console.Error.WriteLine($"Login error: {ex}");
         }
         finally
         {

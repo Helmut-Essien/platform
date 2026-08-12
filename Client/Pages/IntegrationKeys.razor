@@ -39,14 +39,6 @@
                     <span class="integration-keys-stat-label">Active Keys</span>
                     <span class="integration-keys-stat-value">@ActiveKeyCount</span>
                 </div>
-                <div class="integration-keys-stat-card">
-                    <span class="integration-keys-stat-label">Requests / 24h <span class="demo-badge">Demo data</span></span>
-                    <span class="integration-keys-stat-value">1.2M</span>
-                </div>
-                <div class="integration-keys-stat-card">
-                    <span class="integration-keys-stat-label">Avg Latency <span class="demo-badge">Demo data</span></span>
-                    <span class="integration-keys-stat-value">14ms</span>
-                </div>
             </section>
 
             <section class="integration-keys-bento">
@@ -65,17 +57,21 @@
                                         <p class="integration-key-card-subtitle">@GetSubtitle(product)</p>
                                     </div>
                                 </div>
-                                <span class="integration-key-status-badge @(key.IsActive ? "integration-key-status-active" : "integration-key-status-revoked")">
-                                    @(key.IsActive ? "Active" : "Revoked")
-                                </span>
+                                <StatusBadge IntegrationKeyActive="key.IsActive" />
                             </div>
-                            <label class="integration-key-field-label">Service Key</label>
+                            <label class="integration-key-field-label">Service key</label>
                             <div class="integration-key-masked">
                                 <code>@MaskKey(key.ServiceProductCode)</code>
-                                <button type="button" class="integration-key-copy-btn" aria-label="Copy key" @onclick="() => CopyMaskedKeyAsync(key)">
-                                    <MudIcon Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small" />
-                                </button>
                             </div>
+                            <p class="integration-key-recover-hint">
+                                Key not recoverable after creation.
+                                @if (key.IsActive)
+                                {
+                                    <button type="button" class="integration-key-rotate-link" @onclick="() => RotateFromCardAsync(key)">
+                                        Rotate to issue a new key
+                                    </button>
+                                }
+                            </p>
                         </div>
                         <div class="integration-key-card-footer">
                             <span class="integration-key-created">Created: @key.CreatedAt.ToString("MMM dd, yyyy")</span>
@@ -239,17 +235,16 @@
         await ReloadKeysAsync();
     }
 
-    private Task CopyMaskedKeyAsync(IntegrationKeyDto key)
+    private async Task RotateFromCardAsync(IntegrationKeyDto key)
     {
-        Snackbar.Add("Full key cannot be recovered. Generate a new key to rotate credentials.", Severity.Info);
-        return Task.CompletedTask;
+        await OpenGenerateDialogAsync(key.ServiceProductId);
     }
 
     private ServiceProductDto? GetProduct(IntegrationKeyDto key) =>
         _products.FirstOrDefault(p => p.Id == key.ServiceProductId);
 
     private static string GetSubtitle(ServiceProductDto? product) =>
-        string.IsNullOrWhiteSpace(product?.Description) ? "Enterprise API" : product.Description;
+        string.IsNullOrWhiteSpace(product?.Description) ? "Service API" : product.Description;
 
     private static string MaskKey(string? code)
     {

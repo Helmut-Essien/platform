@@ -49,7 +49,7 @@ public class LicenseKeyDeliveryServiceTests
 
         var message = Assert.Single(db.EmailOutboxMessages);
         Assert.Equal("owner@acme.test", message.ToEmail);
-        Assert.Equal("Your Hostel Manager license is active", message.Subject);
+        Assert.Equal("Your Hostel Manager license is ready", message.Subject);
         Assert.DoesNotContain("HOSTEL-", message.HtmlBody);
         Assert.Contains("Growth", message.HtmlBody);
         Assert.StartsWith("HOSTEL-", protector.Unprotect(message.EncryptedPayload!));
@@ -95,7 +95,7 @@ public class LicenseKeyDeliveryServiceTests
         await db.SaveChangesAsync();
 
         var message = Assert.Single(db.EmailOutboxMessages);
-        Assert.Equal("Your Laundry Manager license key has been rotated", message.Subject);
+        Assert.Equal("Your Laundry Manager license key has been replaced", message.Subject);
     }
 
     private static AppDbContext CreateDbContext()

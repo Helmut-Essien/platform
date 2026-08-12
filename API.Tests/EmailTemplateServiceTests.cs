@@ -17,9 +17,9 @@ public class EmailTemplateServiceTests
 
         var template = templates.Invoice(customer, invoice);
 
-        Assert.Equal("Invoice INV-2026-00001 from Platform License Hub", template.Subject);
-        Assert.Contains("Platform License Hub", template.Html);
-        Assert.Contains("This is an automated transactional message", template.Html);
+        Assert.Equal("Invoice INV-2026-00001 from HelmutCode Solutions", template.Subject);
+        Assert.Contains("HelmutCode Solutions", template.Html);
+        Assert.Contains("This is an automated message about your licenses, invoices, or payments", template.Html);
         Assert.Contains("$100.00", template.Html);
         Assert.Contains("$20.00", template.Html);
         Assert.Contains("$120.00", template.Html);

@@ -7,19 +7,32 @@ namespace Platform.Api.Data;
 
 public static class SeedData
 {
+    public const string OrderFlowServiceCode = "ORDERFLOW";
+    public const string OrderFlowDevLicenseKey = "ORDERFLOW-DEVK-TEST";
+
     // Dev-only plaintext keys — never stored in the database.
     public static readonly IReadOnlyDictionary<string, string> DevIntegrationKeys = new Dictionary<string, string>
     {
         ["HOSTEL"] = "HOSTEL-INTEGRATION-DEV-KEY-7f3a9c2e1b4d",
         ["LAUNDRY"] = "LAUNDRY-INTEGRATION-DEV-KEY-8e4b0d3f2c5a",
         ["SCHOOL"] = "SCHOOL-INTEGRATION-DEV-KEY-9f5c1e4a3d6b",
-        ["ASSET"] = "ASSET-INTEGRATION-DEV-KEY-0a6d2f5b4e7c"
+        ["ASSET"] = "ASSET-INTEGRATION-DEV-KEY-0a6d2f5b4e7c",
+        [OrderFlowServiceCode] = "ORDERFLOW-INTEGRATION-DEV-KEY-1b7e3c4a5d8f"
     };
 
     public static async Task SeedAsync(AppDbContext db, ILogger? logger = null, bool isDevelopment = false)
     {
-        if (await db.ServiceProducts.AnyAsync())
-            return;
+        if (!await db.ServiceProducts.AnyAsync())
+            await SeedCatalogAndDemoCustomerAsync(db, logger, isDevelopment);
+
+        await SeedOrderFlowAsync(db, logger, isDevelopment);
+    }
+
+    private static async Task SeedCatalogAndDemoCustomerAsync(
+        AppDbContext db,
+        ILogger? logger,
+        bool isDevelopment)
+    {
 
         var now = DateTime.UtcNow;
 
@@ -52,7 +65,8 @@ public static class SeedData
                 Code = "ASSET",
                 Description = "Asset tracking and management system",
                 IsAvailableForSale = true
-            }
+            },
+            CreateOrderFlowProduct()
         };
 
         db.ServiceProducts.AddRange(products);
@@ -119,8 +133,121 @@ public static class SeedData
             }
         }
 
-        await SeedBillingAsync(db, cancellationToken: default);
     }
+
+    public static async Task SeedOrderFlowAsync(
+        AppDbContext db,
+        ILogger? logger = null,
+        bool isDevelopment = false)
+    {
+        var now = DateTime.UtcNow;
+        var product = await db.ServiceProducts.FirstOrDefaultAsync(p => p.Code == OrderFlowServiceCode);
+        if (product is null)
+        {
+            product = CreateOrderFlowProduct();
+            db.ServiceProducts.Add(product);
+            db.AuditLogs.Add(new AuditLog
+            {
+                Action = AuditAction.ServiceProductCreated,
+                PerformedBy = "system",
+                DetailsJson = """{"serviceCode":"ORDERFLOW","source":"seed"}""",
+                Timestamp = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var plainIntegrationKey = DevIntegrationKeys[OrderFlowServiceCode];
+        var hasActiveKey = await db.IntegrationKeys.AnyAsync(k =>
+            k.ServiceProductId == product.Id && k.IsActive);
+        if (!hasActiveKey)
+        {
+            db.IntegrationKeys.Add(new IntegrationKey
+            {
+                ServiceProductId = product.Id,
+                KeyHash = BCrypt.Net.BCrypt.HashPassword(plainIntegrationKey),
+                KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainIntegrationKey),
+                IsActive = true,
+                CreatedAt = now
+            });
+            db.AuditLogs.Add(new AuditLog
+            {
+                Action = AuditAction.IntegrationKeyCreated,
+                PerformedBy = "system",
+                DetailsJson = """{"serviceCode":"ORDERFLOW","source":"seed"}""",
+                Timestamp = now
+            });
+            await db.SaveChangesAsync();
+        }
+
+        if (isDevelopment && logger is not null)
+        {
+            logger.LogWarning(
+                "DEV integration key for {ServiceCode}: {IntegrationKey} (use in X-Integration-Key header)",
+                OrderFlowServiceCode,
+                plainIntegrationKey);
+        }
+
+        if (!isDevelopment)
+            return;
+
+        var customer = await db.Customers.FirstOrDefaultAsync();
+        if (customer is null)
+        {
+            customer = new Customer
+            {
+                Name = "OrderFlow Demo Shop",
+                ContactEmail = "demo@orderflow.example",
+                ContactPhone = "+233200000000",
+                InternalNotes = "Seeded demo customer for OrderFlow development",
+                IsSuspended = false,
+                CreatedAt = now
+            };
+            db.Customers.Add(customer);
+            await db.SaveChangesAsync();
+        }
+
+        var licenseLookup = KeyLookupHasher.ComputeSha256Hex(OrderFlowDevLicenseKey);
+        var hasDemoLicense = await db.Licenses
+            .IgnoreQueryFilters()
+            .AnyAsync(l => l.ServiceProductId == product.Id && l.LicenseKeyLookupHash == licenseLookup);
+        if (hasDemoLicense)
+            return;
+
+        db.Licenses.Add(new License
+        {
+            CustomerId = customer.Id,
+            ServiceProductId = product.Id,
+            Status = LicenseStatus.Active,
+            PlanName = "Growth",
+            LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword(OrderFlowDevLicenseKey),
+            LicenseKeyLookupHash = licenseLookup,
+            LicenseKeySentAt = now,
+            ExpiresAt = now.AddYears(1),
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        db.AuditLogs.Add(new AuditLog
+        {
+            Action = AuditAction.LicenseActivated,
+            PerformedBy = "system",
+            CustomerId = customer.Id,
+            DetailsJson = """{"serviceCode":"ORDERFLOW","planName":"Growth","source":"seed"}""",
+            Timestamp = now
+        });
+        await db.SaveChangesAsync();
+
+        logger?.LogWarning(
+            "DEV OrderFlow license key: {LicenseKey} (plan Growth, expires in 1 year)",
+            OrderFlowDevLicenseKey);
+    }
+
+    private static ServiceProduct CreateOrderFlowProduct() => new()
+    {
+        Name = "OrderFlow",
+        Code = OrderFlowServiceCode,
+        Description = "WhatsApp-native order, inventory, and Mobile Money management for retailers",
+        IsAvailableForSale = true
+    };
 
     public static async Task SeedBillingAsync(AppDbContext db, CancellationToken cancellationToken = default)
     {

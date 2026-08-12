@@ -1,0 +1,47 @@
+# Full stack for a free lab VM (API + Blazor UI + Postgres + Redis).
+# Usage on the server:
+#   cp .env.example .env   # then edit secrets
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: platform-api:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:80
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Port=5432;Database=platform_db;Username=platform;Password=${POSTGRES_PASSWORD}
+      Jwt__Issuer: Platform.Api
+      Jwt__Audience: Platform.Client
+      Jwt__Key: ${JWT_KEY}
+      Jwt__ExpiryMinutes: "480"
+      AdminSeed__Email: ${ADMIN_EMAIL}
+      AdminSeed__Password: ${ADMIN_PASSWORD}
+      Redis__ConnectionString: redis:6379
+      Email__Provider: Logging
+    ports:
+      - "80:80"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: platform_db
+    volumes:
+      - platform_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  platform_pgdata:

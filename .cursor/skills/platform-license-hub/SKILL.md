@@ -214,7 +214,7 @@ Connection: `localhost:5432`, db `platform_db`, user `platform`, password `platf
 
 **VS Code PostgreSQL (Microsoft):** `sslmode=disable`; server `localhost` with **no trailing spaces**; not the mssql extension.
 
-**Seeded services:** `HOSTEL`, `LAUNDRY`, `SCHOOL`, `ASSET`. Dev integration keys in `SeedData.DevIntegrationKeys` (Development log only).
+**Seeded services:** `HOSTEL`, `LAUNDRY`, `SCHOOL`, `ASSET`, `ORDERFLOW`. Dev integration keys in `SeedData.DevIntegrationKeys` (Development log only). `SeedOrderFlowAsync` is idempotent so existing databases also get OrderFlow plus a Development demo license `ORDERFLOW-DEVK-TEST`.
 
 ## Coding standards
 

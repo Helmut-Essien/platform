@@ -5,116 +5,215 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 
-<div class="page-content">
+<div class="invoice-detail-page page-content">
 @if (_loading)
 {
-    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="120px" Class="mb-4" />
+    <div class="invoice-detail-loading" aria-busy="true" aria-label="Loading invoice">
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="3.5rem" Width="40%" Class="mb-4" />
+        <div class="invoice-detail-summary-grid">
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="11rem" />
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="11rem" />
+        </div>
+        <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="12rem" Class="mt-4" />
+    </div>
 }
 else if (_invoice is null)
 {
-    <h1 class="page-title">Invoice not found</h1>
-    <MudButton Variant="Variant.Text" Href="/invoices">Back to invoices</MudButton>
+    <header class="invoice-detail-header">
+        <div>
+            <a href="/invoices" class="invoice-detail-back">← Back to invoices</a>
+            <h1 class="page-title">Invoice not found</h1>
+            <p class="page-subtitle">This invoice may have been removed or the link is invalid.</p>
+        </div>
+    </header>
 }
 else
 {
     <header class="invoice-detail-header">
-        <h1 class="page-title">Invoice @_invoice.InvoiceNumber</h1>
-        <div class="d-flex gap-2 flex-wrap">
+        <div class="invoice-detail-header-main">
+            <a href="/invoices" class="invoice-detail-back">← Back to invoices</a>
+            <div class="invoice-detail-title-row">
+                <h1 class="page-title">@_invoice.InvoiceNumber</h1>
+                <StatusBadge InvoiceStatus="_invoice.Status" />
+            </div>
+            <p class="page-subtitle">
+                @_invoice.CustomerName
+                @if (!string.IsNullOrEmpty(_invoice.ServiceProductCode))
+                {
+                    <text> · @_invoice.ServiceProductCode</text>
+                }
+                @if (!string.IsNullOrEmpty(_invoice.PlanName))
+                {
+                    <text> · @_invoice.PlanName</text>
+                }
+            </p>
+        </div>
+        <div class="invoice-detail-actions">
             @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
             {
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendInvoiceAsync">
+                <button type="button" class="btn-primary-cta" @onclick="SendInvoiceAsync">
+                    <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" />
                     @(_invoice.Status == InvoiceStatus.Draft ? "Send invoice" : "Send again")
-                </MudButton>
+                </button>
             }
             @if (_invoice.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
             {
                 @if (_invoice.AmountDue > 0)
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RecordPaymentAsync">Record payment</MudButton>
+                    <button type="button" class="btn-primary-cta" @onclick="RecordPaymentAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.Payments" Size="Size.Small" />
+                        Record payment
+                    </button>
                 }
             }
             @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue
                  || (_invoice.Status == InvoiceStatus.PartiallyPaid && _invoice.AmountPaid == 0))
             {
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="VoidAsync">Void</MudButton>
+                <button type="button" class="btn-invoice-void" @onclick="VoidAsync">
+                    <MudIcon Icon="@Icons.Material.Filled.Block" Size="Size.Small" />
+                    Void
+                </button>
             }
         </div>
     </header>
 
-    <MudGrid Class="mb-4">
-        <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4" Elevation="0">
-                <MudChip T="string" Size="Size.Small" Variant="@GetStatusVariant(_invoice.Status)" Color="Color.Primary" Class="mb-2">@_invoice.Status</MudChip>
-                <MudText><strong>Customer:</strong> @_invoice.CustomerName</MudText>
+    <section class="invoice-detail-summary-grid" aria-label="Invoice summary">
+        <article class="invoice-detail-panel">
+            <h2 class="invoice-detail-panel-title">Details</h2>
+            <dl class="invoice-detail-meta">
+                <div>
+                    <dt>Customer</dt>
+                    <dd>@_invoice.CustomerName</dd>
+                </div>
                 @if (!string.IsNullOrEmpty(_invoice.ServiceProductCode))
                 {
-                    <MudText><strong>Service:</strong> @_invoice.ServiceProductCode</MudText>
+                    <div>
+                        <dt>Service</dt>
+                        <dd class="mono">@_invoice.ServiceProductCode</dd>
+                    </div>
                 }
-                <MudText><strong>Issue date:</strong> @_invoice.IssueDate.ToString("yyyy-MM-dd")</MudText>
-                <MudText><strong>Due:</strong> @(_invoice.DueDate?.ToString("yyyy-MM-dd") ?? "—")</MudText>
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4" Elevation="0">
-                <MudText>Subtotal: @_invoice.Subtotal.ToString("N2") @_invoice.Currency</MudText>
-                <MudText>Tax: @_invoice.TaxAmount.ToString("N2")</MudText>
-                <MudText><strong>Total: @_invoice.TotalAmount.ToString("N2")</strong></MudText>
-                <MudText>Paid: @_invoice.AmountPaid.ToString("N2")</MudText>
-                <MudText Color="Color.Primary"><strong>Due: @_invoice.AmountDue.ToString("N2")</strong></MudText>
-            </MudPaper>
-        </MudItem>
-    </MudGrid>
+                @if (!string.IsNullOrEmpty(_invoice.PlanName))
+                {
+                    <div>
+                        <dt>Plan</dt>
+                        <dd>@_invoice.PlanName</dd>
+                    </div>
+                }
+                <div>
+                    <dt>Issue date</dt>
+                    <dd class="mono">@_invoice.IssueDate.ToString("yyyy-MM-dd")</dd>
+                </div>
+                <div>
+                    <dt>Due date</dt>
+                    <dd class="mono">@(_invoice.DueDate?.ToString("yyyy-MM-dd") ?? "—")</dd>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(_invoice.Description))
+                {
+                    <div class="invoice-detail-meta-full">
+                        <dt>Description</dt>
+                        <dd>@_invoice.Description</dd>
+                    </div>
+                }
+            </dl>
+        </article>
 
-    <MudText Typo="Typo.h6" Class="mb-2">Receipts</MudText>
-    @if (_invoice.Receipts.Count == 0)
-    {
-        <MudText Typo="Typo.body2" Class="mb-4">No payments recorded.</MudText>
-    }
-    else
-    {
-        <MudTable Items="_invoice.Receipts" Dense="true" Hover="true" Class="mb-4">
-            <HeaderContent>
-                <MudTh>Receipt #</MudTh>
-                <MudTh>Amount</MudTh>
-                <MudTh>Method</MudTh>
-                <MudTh>Reference</MudTh>
-                <MudTh>Status</MudTh>
-                <MudTh>Paid at</MudTh>
-                <MudTh></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd>@context.ReceiptNumber</MudTd>
-                <MudTd>@context.AmountPaid.ToString("N2")</MudTd>
-                <MudTd>@context.PaymentMethod</MudTd>
-                <MudTd>@(context.PaymentReference ?? "—")</MudTd>
-                <MudTd>
-                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">
-                        @context.Status
-                    </MudChip>
-                </MudTd>
-                <MudTd>@context.PaidAt.ToString("g")</MudTd>
-                <MudTd>
-                    @if (context.Status == ReceiptStatus.Posted)
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
-                                   OnClick="@(() => ReversePaymentAsync(context))">
-                            Reverse
-                        </MudButton>
-                    }
-                    else if (!string.IsNullOrEmpty(context.ReversalReason))
-                    {
-                        <MudText Typo="Typo.caption">@context.ReversalReason</MudText>
-                    }
-                </MudTd>
-            </RowTemplate>
-        </MudTable>
-    }
+        <article class="invoice-detail-panel invoice-detail-money-panel">
+            <h2 class="invoice-detail-panel-title">Amounts</h2>
+            <div class="invoice-detail-money-stack">
+                <div class="invoice-detail-money-row">
+                    <span>Subtotal</span>
+                    <span class="mono">@FormatMoney(_invoice.Subtotal, _invoice.Currency)</span>
+                </div>
+                <div class="invoice-detail-money-row">
+                    <span>Tax</span>
+                    <span class="mono">@FormatMoney(_invoice.TaxAmount, _invoice.Currency)</span>
+                </div>
+                <div class="invoice-detail-money-row invoice-detail-money-total">
+                    <span>Total</span>
+                    <span class="mono">@FormatMoney(_invoice.TotalAmount, _invoice.Currency)</span>
+                </div>
+                <div class="invoice-detail-money-row">
+                    <span>Paid</span>
+                    <span class="mono invoice-detail-money-paid">@FormatMoney(_invoice.AmountPaid, _invoice.Currency)</span>
+                </div>
+                <div class="invoice-detail-money-row invoice-detail-money-due">
+                    <span>Amount due</span>
+                    <span class="mono">@FormatMoney(_invoice.AmountDue, _invoice.Currency)</span>
+                </div>
+            </div>
+        </article>
+    </section>
 
-    <MudPaper Class="pa-4 mb-4" Elevation="0">
+    <section class="invoice-detail-receipts-panel" aria-label="Receipts">
+        <div class="invoice-detail-section-head">
+            <h2>Receipts</h2>
+            <span class="invoice-detail-section-count">@_invoice.Receipts.Count</span>
+        </div>
+
+        @if (_invoice.Receipts.Count == 0)
+        {
+            <div class="invoice-detail-empty">
+                <p>No payments recorded yet.</p>
+                @if (_invoice.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue
+                     && _invoice.AmountDue > 0)
+                {
+                    <button type="button" class="btn-primary-cta" @onclick="RecordPaymentAsync">
+                        <MudIcon Icon="@Icons.Material.Filled.Payments" Size="Size.Small" />
+                        Record payment
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="invoice-detail-receipts-table-wrap">
+                <table class="invoice-detail-receipts-table">
+                    <thead>
+                        <tr>
+                            <th>Receipt</th>
+                            <th class="cell-right">Amount</th>
+                            <th>Method</th>
+                            <th>Reference</th>
+                            <th>Status</th>
+                            <th>Paid at</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var receipt in _invoice.Receipts.OrderByDescending(r => r.PaidAt))
+                        {
+                            <tr class="@(receipt.Status == ReceiptStatus.Reversed ? "is-reversed" : null)">
+                                <td class="mono">@receipt.ReceiptNumber</td>
+                                <td class="cell-right mono">@FormatMoney(receipt.AmountPaid, _invoice.Currency)</td>
+                                <td>@receipt.PaymentMethod</td>
+                                <td class="mono">@(string.IsNullOrWhiteSpace(receipt.PaymentReference) ? "—" : receipt.PaymentReference)</td>
+                                <td><StatusBadge ReceiptStatus="receipt.Status" /></td>
+                                <td class="mono">@receipt.PaidAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="cell-right">
+                                    @if (receipt.Status == ReceiptStatus.Posted)
+                                    {
+                                        <button type="button" class="btn-receipt-reverse" @onclick="() => ReversePaymentAsync(receipt)">
+                                            Reverse
+                                        </button>
+                                    }
+                                    else if (!string.IsNullOrEmpty(receipt.ReversalReason))
+                                    {
+                                        <span class="invoice-detail-reversal-reason" title="@receipt.ReversalReason">
+                                            @Truncate(receipt.ReversalReason, 40)
+                                        </span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="invoice-detail-delivery-panel" aria-label="Email deliveries">
         <DeliveryTimeline InvoiceId="@_invoice.Id" />
-    </MudPaper>
-
-    <MudButton Variant="Variant.Text" Href="/invoices">Back to invoices</MudButton>
+    </section>
 }
 </div>
 
@@ -229,14 +328,19 @@ else
         await LoadAsync();
     }
 
-    private static Variant GetStatusVariant(InvoiceStatus status) => status switch
+    private static string FormatMoney(decimal amount, string currency)
     {
-        InvoiceStatus.Paid => Variant.Filled,
-        InvoiceStatus.Sent => Variant.Outlined,
-        InvoiceStatus.PartiallyPaid => Variant.Outlined,
-        InvoiceStatus.Overdue => Variant.Filled,
-        InvoiceStatus.Void => Variant.Text,
-        InvoiceStatus.Draft => Variant.Text,
-        _ => Variant.Text
-    };
+        var code = string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant();
+        return code switch
+        {
+            "USD" => $"${amount:N2}",
+            "EUR" => $"€{amount:N2}",
+            "GBP" => $"£{amount:N2}",
+            "GHS" => $"GH₵{amount:N2}",
+            _ => $"{code} {amount:N2}"
+        };
+    }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..(max - 1)] + "…";
 }

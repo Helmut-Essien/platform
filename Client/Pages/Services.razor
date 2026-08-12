@@ -50,10 +50,6 @@
                     <span class="services-stat-value">@ActiveServiceCount</span>
                 </div>
                 <div class="services-stat-card">
-                    <span class="services-stat-label">System Uptime <span class="demo-badge">Demo data</span></span>
-                    <span class="services-stat-value services-stat-value-neutral">99.98%</span>
-                </div>
-                <div class="services-stat-card">
                     <span class="services-stat-label">Total Licenses</span>
                     <span class="services-stat-value services-stat-value-neutral">@TotalLicenseCount</span>
                 </div>
@@ -149,29 +145,6 @@
                 </div>
             }
         </div>
-
-        @if (_products.Count > 0)
-        {
-            <section class="services-insights">
-                <div class="services-insight-card">
-                    <h3>Service Performance Matrix <span class="demo-badge">Demo data</span></h3>
-                    <div class="services-chart-placeholder" aria-hidden="true">
-                        @foreach (var height in _chartHeights)
-                        {
-                            <div class="services-chart-bar" style="height: @(height)%"></div>
-                        }
-                    </div>
-                    <p>License volume distribution across catalog services.</p>
-                </div>
-                <div class="services-insight-card services-glass-card">
-                    <div class="services-glass-icon">
-                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" />
-                    </div>
-                    <h3>Automated Health Checks</h3>
-                    <p>All active services are monitored. Integration keys and availability status reflect live catalog health.</p>
-                </div>
-            </section>
-        }
     }
 </div>
 
@@ -182,7 +155,6 @@
     private string? _createdServiceId;
     private string? _togglingId;
     private List<ServiceProductDto> _products = [];
-    private readonly int[] _chartHeights = [40, 65, 50, 85, 70, 90, 75];
 
     [SupplyParameterFromQuery] public string? Add { get; set; }
 

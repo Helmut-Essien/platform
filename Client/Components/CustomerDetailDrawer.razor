@@ -15,9 +15,7 @@
                 <div class="customer-drawer-avatar @(Customer.IsSuspended ? "suspended" : "")">@GetInitials(Customer.Name)</div>
                 <div class="min-width-0">
                     <h2 class="page-title-drawer">@Customer.Name</h2>
-                    <span class="status-badge @(Customer.IsSuspended ? "status-badge-suspended" : "status-badge-active")">
-                        @(Customer.IsSuspended ? "Suspended" : "Active")
-                    </span>
+                    <StatusBadge CustomerSuspended="Customer.IsSuspended" />
                 </div>
             </div>
             <MudIconButton Icon="@Icons.Material.Filled.Close"

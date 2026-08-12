@@ -1,0 +1,37 @@
+@using Platform.Client.Helpers
+@using Platform.Shared.Enums
+
+<span class="status-badge @StatusToneMapper.CssClass(_tone)">@_label</span>
+
+@code {
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public StatusTone? Tone { get; set; }
+
+    [Parameter] public LicenseStatus? LicenseStatus { get; set; }
+    [Parameter] public InvoiceStatus? InvoiceStatus { get; set; }
+    [Parameter] public ReceiptStatus? ReceiptStatus { get; set; }
+    [Parameter] public bool? CustomerSuspended { get; set; }
+    [Parameter] public bool? IntegrationKeyActive { get; set; }
+
+    private string _label = "";
+    private StatusTone _tone = StatusTone.Neutral;
+
+    protected override void OnParametersSet()
+    {
+        if (LicenseStatus is { } license)
+            (_label, _tone) = StatusToneMapper.ForLicense(license);
+        else if (InvoiceStatus is { } invoice)
+            (_label, _tone) = StatusToneMapper.ForInvoice(invoice);
+        else if (ReceiptStatus is { } receipt)
+            (_label, _tone) = StatusToneMapper.ForReceipt(receipt);
+        else if (CustomerSuspended is { } suspended)
+            (_label, _tone) = StatusToneMapper.ForCustomer(suspended);
+        else if (IntegrationKeyActive is { } active)
+            (_label, _tone) = StatusToneMapper.ForIntegrationKey(active);
+        else
+        {
+            _label = Label ?? "—";
+            _tone = Tone ?? StatusTone.Neutral;
+        }
+    }
+}

@@ -74,9 +74,7 @@
                     <TemplateColumn Title="Status">
                         <CellTemplate>
                             <div class="cell-center">
-                                <span class="status-badge @(context.Item.IsSuspended ? "status-badge-suspended" : "status-badge-active")">
-                                    @(context.Item.IsSuspended ? "Suspended" : "Active")
-                                </span>
+                                <StatusBadge CustomerSuspended="context.Item.IsSuspended" />
                             </div>
                         </CellTemplate>
                     </TemplateColumn>

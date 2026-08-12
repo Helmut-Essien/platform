@@ -168,10 +168,19 @@ The client runs by default on http://localhost:5154.
 
 ### 5. Sign in
 
-In development mode, the application seeds an admin user:
+In **Development**, the API seeds a **demo** Admin account (for local use only):
 
-- Email: admin@platform.local
-- Password: Admin123!
+- Email: `demo@helmutcode.local`
+- Password: `Demo123!`
+
+In **Production**, no demo password is stored in source control. Bootstrap the **live** Admin account with environment variables or a secret store (create only if that email does not already exist):
+
+```bash
+AdminSeed__Email=you@yourdomain.com
+AdminSeed__Password='YourStrongPasswordHere'
+```
+
+Do not commit the production password. Domain demo data (customers, sample invoices) is separate from Identity login seeding.
 
 ## Database and migrations
 

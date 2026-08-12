@@ -644,6 +644,52 @@ body.nav-overlay .platform-sidebar-overlay.mud-drawer--open {
     background-color: var(--accent-hover, #7ccf2e) !important;
 }
 
+/* Unified status badges (customers, licenses, invoices, receipts, keys) */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.625rem;
+    border-radius: 0.25rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.status-badge--active {
+    background: var(--primary, #92d959);
+    color: var(--on-primary, #193800);
+    border: 1px solid transparent;
+}
+
+.status-badge--pending {
+    background: transparent;
+    color: var(--primary, #92d959);
+    border: 1px solid var(--primary, #92d959);
+}
+
+.status-badge--suspended {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+}
+
+.status-badge--attention {
+    background: var(--error, #ffb4ab);
+    color: var(--on-error, #690005);
+    border: 1px solid transparent;
+}
+
+.status-badge--muted,
+.status-badge--neutral {
+    background: var(--bg-elevated, #2a2a2a);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+}
+
 /* Shared primary page CTAs (Customers, Licenses, Settings, …) */
 .btn-primary-cta {
     display: inline-flex;

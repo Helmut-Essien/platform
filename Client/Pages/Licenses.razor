@@ -18,6 +18,18 @@
     </header>
 
     <section class="licenses-filters-grid" aria-label="Filters">
+        <div class="licenses-filter-field licenses-filter-search">
+            <span class="licenses-filter-label">Search</span>
+            <MudTextField @bind-Value="_search"
+                          Placeholder="Search customer, service, or plan..."
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          DebounceInterval="300"
+                          OnDebounceIntervalElapsed="ReloadGrid" />
+        </div>
         <div class="licenses-filter-field">
             <span class="licenses-filter-label">Customer</span>
             <MudSelect T="string" Value="_filterCustomerId" ValueChanged="OnCustomerFilterChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
@@ -48,30 +60,7 @@
                 }
             </MudSelect>
         </div>
-        <div class="licenses-filter-actions">
-            <button type="button" class="btn-more-filters" @onclick="ToggleMoreFilters">
-                <MudIcon Icon="@Icons.Material.Filled.FilterList" Size="Size.Small" />
-                More Filters
-            </button>
-        </div>
     </section>
-
-    @if (_showMoreFilters)
-    {
-        <section class="licenses-more-filters" aria-label="Additional filters">
-            <MudTextField @bind-Value="_search"
-                          Placeholder="Search customer, service, or plan..."
-                          Variant="Variant.Outlined"
-                          Margin="Margin.Dense"
-                          Adornment="Adornment.Start"
-                          AdornmentIcon="@Icons.Material.Filled.Search"
-                          Class="flex-grow-1"
-                          Immediate="true"
-                          DebounceInterval="300"
-                          OnDebounceIntervalElapsed="ReloadGrid" />
-            <MudButton Variant="Variant.Outlined" OnClick="ReloadGrid">Apply</MudButton>
-        </section>
-    }
 
     <div class="licenses-table-panel">
         <MudDataGrid @ref="_grid"
@@ -104,9 +93,7 @@
                 <PropertyColumn Property="x => x.PlanName" Title="Plan" />
                 <TemplateColumn Title="Status">
                     <CellTemplate>
-                        <span class="license-status-badge @GetStatusClass(context.Item.Status)">
-                            @context.Item.Status
-                        </span>
+                        <StatusBadge LicenseStatus="context.Item.Status" />
                     </CellTemplate>
                 </TemplateColumn>
                 <TemplateColumn Title="Expires">
@@ -225,7 +212,6 @@
 </div>
 
 @code {
-    private bool _showMoreFilters;
     private MudDataGrid<LicenseDto>? _grid;
     private HashSet<LicenseDto> _selected = [];
     private List<CustomerDto> _customers = [];
@@ -256,7 +242,6 @@
         {
             _filterExpiring = true;
             _filterStatus = LicenseStatus.Active;
-            _showMoreFilters = true;
         }
 
         if (!string.IsNullOrEmpty(Add))
@@ -309,8 +294,6 @@
         if (_grid is not null)
             await _grid.ReloadServerData();
     }
-
-    private void ToggleMoreFilters() => _showMoreFilters = !_showMoreFilters;
 
     private async Task OnCustomerFilterChanged(string? value)
     {
@@ -571,16 +554,6 @@
     }
 
     private static bool KeyWasSent(LicenseDto license) => license.LicenseKeySentAt.HasValue;
-
-    private static string GetStatusClass(LicenseStatus status) => status switch
-    {
-        LicenseStatus.Active => "license-status-active",
-        LicenseStatus.Expired => "license-status-expired",
-        LicenseStatus.Pending => "license-status-pending",
-        LicenseStatus.Suspended => "license-status-suspended",
-        LicenseStatus.Revoked => "license-status-revoked",
-        _ => "license-status-revoked"
-    };
 
     private static string FormatCustomerRef(LicenseDto license)
     {

@@ -6,6 +6,11 @@ using Platform.Shared.Constants;
 
 namespace Platform.Api.Data;
 
+/// <summary>
+/// Seeds the Admin role and a single bootstrap account for the current environment.
+/// Development uses the demo credentials from appsettings.Development.json;
+/// Production uses live credentials supplied only via secrets / environment variables.
+/// </summary>
 public static class IdentitySeedData
 {
     public static async Task SeedAdminAsync(
@@ -24,22 +29,57 @@ public static class IdentitySeedData
                 throw new InvalidOperationException(
                     "Failed to create Admin role: " + string.Join(", ", roleResult.Errors.Select(e => e.Description)));
             }
+
+            logger.LogInformation("Created Identity role {Role}", PlatformRoles.Admin);
         }
 
         var settings = adminSeedOptions.Value;
-        if (string.IsNullOrWhiteSpace(settings.Email))
-            return;
+        var email = settings.Email?.Trim() ?? string.Empty;
+        var accountKind = environment.IsDevelopment() ? "demo" : "live";
 
-        var existing = await userManager.FindByEmailAsync(settings.Email);
-        if (existing is not null)
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            if (environment.IsDevelopment())
+            {
+                logger.LogWarning(
+                    "AdminSeed:Email is empty. Set AdminSeed in appsettings.Development.json to create the demo Admin account.");
+            }
+            else
+            {
+                logger.LogInformation(
+                    "AdminSeed:Email is empty. No live Admin account will be seeded. " +
+                    "Set AdminSeed__Email and AdminSeed__Password via production secrets to bootstrap the first login.");
+            }
+
             return;
+        }
+
+        var existing = await userManager.FindByEmailAsync(email);
+        if (existing is not null)
+        {
+            logger.LogDebug(
+                "Bootstrap {AccountKind} Admin account {Email} already exists; leaving password unchanged.",
+                accountKind,
+                email);
+            return;
+        }
 
         if (string.IsNullOrWhiteSpace(settings.Password))
         {
             if (environment.IsDevelopment())
             {
                 logger.LogWarning(
-                    "AdminSeed:Password is not configured. Set AdminSeed:Password in appsettings.Development.json to create the admin user.");
+                    "AdminSeed:Password is empty. Set AdminSeed:Password in appsettings.Development.json " +
+                    "to create the demo Admin account ({Email}).",
+                    email);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "AdminSeed:Password is empty for {Email}. " +
+                    "Set AdminSeed__Password via production secrets to create the live Admin account. " +
+                    "No password was committed in app configuration.",
+                    email);
             }
 
             return;
@@ -47,8 +87,8 @@ public static class IdentitySeedData
 
         var user = new ApplicationUser
         {
-            UserName = settings.Email,
-            Email = settings.Email,
+            UserName = email,
+            Email = email,
             EmailConfirmed = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -57,16 +97,21 @@ public static class IdentitySeedData
         if (!createResult.Succeeded)
         {
             throw new InvalidOperationException(
-                "Failed to create admin user: " + string.Join(", ", createResult.Errors.Select(e => e.Description)));
+                $"Failed to create {accountKind} Admin user: " +
+                string.Join(", ", createResult.Errors.Select(e => e.Description)));
         }
 
         var roleAssignResult = await userManager.AddToRoleAsync(user, PlatformRoles.Admin);
         if (!roleAssignResult.Succeeded)
         {
             throw new InvalidOperationException(
-                "Failed to assign Admin role: " + string.Join(", ", roleAssignResult.Errors.Select(e => e.Description)));
+                $"Failed to assign Admin role to {accountKind} user: " +
+                string.Join(", ", roleAssignResult.Errors.Select(e => e.Description)));
         }
 
-        logger.LogInformation("Seeded admin user {Email}", settings.Email);
+        logger.LogInformation(
+            "Seeded {AccountKind} Admin account {Email} (password is not logged).",
+            accountKind,
+            email);
     }
 }

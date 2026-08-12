@@ -30,11 +30,6 @@
             <div class="invoices-stat-card">
                 <span class="invoices-stat-label">TOTAL REVENUE</span>
                 <span class="invoices-stat-value">@FormatMoney(TotalRevenue, "USD")</span>
-                <div class="invoices-stat-footnote positive">
-                    <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Small" />
-                    <span>+12.5% vs last month</span>
-                    <span class="demo-badge">Demo data</span>
-                </div>
             </div>
             <div class="invoices-stat-card">
                 <span class="invoices-stat-label">OUTSTANDING</span>
@@ -80,7 +75,7 @@
                     <MudSelectItem Value="@((InvoiceStatus?)null)">All Statuses</MudSelectItem>
                     @foreach (var status in Enum.GetValues<InvoiceStatus>())
                     {
-                        <MudSelectItem Value="@((InvoiceStatus?)status)">@FormatStatusLabel(status)</MudSelectItem>
+                        <MudSelectItem Value="@((InvoiceStatus?)status)">@status</MudSelectItem>
                     }
                 </MudSelect>
             </div>
@@ -150,9 +145,7 @@
                 </TemplateColumn>
                 <TemplateColumn Title="Status">
                     <CellTemplate>
-                        <span class="invoice-status-badge @GetStatusClass(context.Item.Status)">
-                            @FormatStatusLabel(context.Item.Status)
-                        </span>
+                        <StatusBadge InvoiceStatus="context.Item.Status" />
                     </CellTemplate>
                 </TemplateColumn>
                 <TemplateColumn Title="Issue Date">
@@ -194,34 +187,8 @@
             <PagerContent>
                 <MudDataGridPager T="InvoiceDto" />
             </PagerContent>
-        </MudDataGrid>
+            </MudDataGrid>
     </div>
-
-    @if (_statsInvoices.Count > 0)
-    {
-        <section class="invoices-insights">
-            <div class="invoices-insight-card">
-                <div class="invoices-insight-glow"></div>
-                <div class="invoices-insight-icon-bg">
-                    <MudIcon Icon="@Icons.Material.Filled.SettingsSuggest" />
-                </div>
-                <h3>Automated Billing Rules <span class="demo-badge">Demo data</span></h3>
-                <p>Configure automated retry logic for failed payments and custom grace periods for recurring service contracts. Current success rate: 98.4%.</p>
-                <button type="button" class="btn-insight" @onclick="ShowBillingSettingsInfo">VIEW SETTINGS</button>
-            </div>
-            <div class="invoices-insight-card invoices-projection-card">
-                <div class="invoices-projection-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Insights" />
-                </div>
-                <h4>Q3 Projection</h4>
-                <p class="invoices-projection-sub">Estimated Revenue: @FormatMoney(RevenueProjection, "USD")</p>
-                <div class="invoices-projection-bar">
-                    <div class="invoices-projection-bar-fill" style="width: @(ProjectionPercent)%"></div>
-                </div>
-                <span class="invoices-projection-foot">@ProjectionPercent% OF GOAL REACHED</span>
-            </div>
-        </section>
-    }
 </div>
 
 @code {
@@ -262,9 +229,6 @@
             return _statsInvoices.Count(i => i.Status == InvoiceStatus.Paid && i.IssueDate >= start);
         }
     }
-
-    private decimal RevenueProjection => TotalRevenue * 3m;
-    private int ProjectionPercent => TotalRevenue <= 0 ? 0 : Math.Min(100, (int)Math.Round(PaidThisMonth / Math.Max(TotalRevenue / 12m, 1m) * 100m));
 
     protected override async Task OnInitializedAsync()
     {
@@ -448,9 +412,6 @@
         _statsInvoices = result.Items.ToList();
     }
 
-    private void ShowBillingSettingsInfo() =>
-        Navigation.NavigateTo("/settings");
-
     private static string Escape(string? value) =>
         (value ?? "").Replace("\"", "\"\"");
 
@@ -458,23 +419,6 @@
         currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
             ? $"${amount:N2}"
             : $"{amount:N2} {currency}";
-
-    private static string GetStatusClass(InvoiceStatus status) => status switch
-    {
-        InvoiceStatus.Paid => "invoice-status-paid",
-        InvoiceStatus.Sent => "invoice-status-sent",
-        InvoiceStatus.PartiallyPaid => "invoice-status-partial",
-        InvoiceStatus.Overdue => "invoice-status-overdue",
-        InvoiceStatus.Draft => "invoice-status-draft",
-        InvoiceStatus.Void => "invoice-status-void",
-        _ => "invoice-status-draft"
-    };
-
-    private static string FormatStatusLabel(InvoiceStatus status) => status switch
-    {
-        InvoiceStatus.PartiallyPaid => "Partially Paid",
-        _ => status.ToString()
-    };
 
     private static string GetInitials(string? name)
     {

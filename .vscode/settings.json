@@ -1,0 +1,17 @@
+{
+  "dotnet.defaultSolution": "Platform.slnx",
+  "dotnetAcquisitionExtension.existingDotnetPath": [
+    {
+      "extensionId": "ms-dotnettools.csharp",
+      "path": "/home/helmut/.dotnet"
+    },
+    {
+      "extensionId": "ms-dotnettools.csdevkit",
+      "path": "/home/helmut/.dotnet"
+    }
+  ],
+  "terminal.integrated.env.linux": {
+    "DOTNET_ROOT": "/home/helmut/.dotnet",
+    "PATH": "/home/helmut/.dotnet:/home/helmut/.dotnet/tools:${env:PATH}"
+  }
+}

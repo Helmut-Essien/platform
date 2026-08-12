@@ -1,0 +1,279 @@
+.invoice-detail-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.invoice-detail-header {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+@media (min-width: 768px) {
+    .invoice-detail-header {
+        flex-direction: row;
+        align-items: flex-end;
+        justify-content: space-between;
+    }
+}
+
+.invoice-detail-back {
+    display: inline-block;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-bottom: 0.5rem;
+}
+
+.invoice-detail-back:hover {
+    color: var(--primary, #92d959);
+}
+
+.invoice-detail-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.invoice-detail-title-row .page-title {
+    margin: 0;
+}
+
+.invoice-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.btn-invoice-void {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    background: transparent;
+    color: var(--text-error, #ffb4ab);
+    border: 1px solid rgba(255, 180, 171, 0.35);
+    border-radius: 0.25rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.btn-invoice-void:hover {
+    background: rgba(255, 180, 171, 0.08);
+    border-color: var(--text-error, #ffb4ab);
+}
+
+.invoice-detail-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+@media (min-width: 900px) {
+    .invoice-detail-summary-grid {
+        grid-template-columns: 1.2fr 1fr;
+    }
+}
+
+.invoice-detail-panel,
+.invoice-detail-receipts-panel,
+.invoice-detail-delivery-panel {
+    background: var(--surface-container-low, #191d14);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    padding: 1.25rem 1.5rem;
+}
+
+.invoice-detail-panel-title {
+    margin: 0 0 1rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.invoice-detail-meta {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.875rem 1.25rem;
+}
+
+.invoice-detail-meta-full {
+    grid-column: 1 / -1;
+}
+
+.invoice-detail-meta dt {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.invoice-detail-meta dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+}
+
+.invoice-detail-meta .mono,
+.invoice-detail-money-stack .mono,
+.invoice-detail-receipts-table .mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.invoice-detail-money-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+}
+
+.invoice-detail-money-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+}
+
+.invoice-detail-money-total {
+    padding-top: 0.5rem;
+    margin-top: 0.25rem;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.invoice-detail-money-total .mono {
+    color: var(--text-primary);
+}
+
+.invoice-detail-money-paid .mono,
+.invoice-detail-money-paid {
+    color: var(--primary, #92d959);
+}
+
+.invoice-detail-money-due {
+    margin-top: 0.25rem;
+    padding: 0.75rem 0.875rem;
+    background: var(--surface-container-highest, #32362c);
+    border-radius: 0.375rem;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.invoice-detail-money-due .mono {
+    color: var(--primary, #92d959);
+    font-size: 1.125rem;
+    font-weight: 700;
+}
+
+.invoice-detail-section-head {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin-bottom: 1rem;
+}
+
+.invoice-detail-section-head h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.invoice-detail-section-count {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    background: var(--surface-container-highest, #32362c);
+    color: var(--text-secondary);
+}
+
+.invoice-detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.invoice-detail-empty p {
+    margin: 0;
+}
+
+.invoice-detail-receipts-table-wrap {
+    overflow-x: auto;
+}
+
+.invoice-detail-receipts-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.invoice-detail-receipts-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
+}
+
+.invoice-detail-receipts-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+
+.invoice-detail-receipts-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.invoice-detail-receipts-table tr.is-reversed td {
+    color: var(--text-secondary);
+}
+
+.invoice-detail-receipts-table .cell-right {
+    text-align: right;
+}
+
+.btn-receipt-reverse {
+    background: transparent;
+    border: none;
+    color: var(--text-error, #ffb4ab);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+}
+
+.btn-receipt-reverse:hover {
+    text-decoration: underline;
+}
+
+.invoice-detail-reversal-reason {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}

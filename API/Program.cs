@@ -114,11 +114,15 @@ if (app.Environment.IsDevelopment())
 
 app.UseForwardedHeaders();
 
-app.UseDefaultFiles();
-app.UseStaticFiles(new StaticFileOptions
+var webRoot = app.Environment.WebRootPath;
+if (!string.IsNullOrEmpty(webRoot) && Directory.Exists(webRoot))
 {
-    ServeUnknownFileTypes = true
-});
+    app.UseDefaultFiles();
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        ServeUnknownFileTypes = true
+    });
+}
 
 app.UseCors("Client");
 
@@ -127,6 +131,7 @@ app.UseAuthorization();
 app.UseRateLimiter();
 
 app.MapControllers();
-app.MapFallbackToFile("index.html");
+if (!string.IsNullOrEmpty(webRoot) && Directory.Exists(webRoot))
+    app.MapFallbackToFile("index.html");
 
 app.Run();

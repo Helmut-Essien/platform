@@ -50,8 +50,12 @@
 
 @media (min-width: 768px) {
     .licenses-filters-grid {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: 1.4fr 1fr 1fr 1fr;
     }
+}
+
+.licenses-filter-search {
+    min-width: 0;
 }
 
 .licenses-filter-field {
@@ -67,48 +71,6 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--text-secondary);
-}
-
-.licenses-filter-actions {
-    display: flex;
-    align-items: flex-end;
-}
-
-.btn-more-filters {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.625rem 0.75rem;
-    background: var(--bg-elevated, #2a2a2a);
-    color: var(--text-primary);
-    border: 1px solid var(--border-subtle);
-    border-radius: 0.25rem;
-    font-size: 0.875rem;
-    cursor: pointer;
-    transition: background 0.2s ease;
-}
-
-.btn-more-filters:hover {
-    background: var(--surface-container-high, #272b22);
-}
-
-.licenses-more-filters {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem;
-    background: var(--surface-container-low, #191d14);
-    border: 1px solid var(--border-subtle);
-    border-radius: 0.5rem;
-}
-
-@media (min-width: 768px) {
-    .licenses-more-filters {
-        flex-direction: row;
-        align-items: center;
-    }
 }
 
 .licenses-table-panel {
@@ -178,39 +140,6 @@
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     font-size: 0.75rem;
     color: var(--text-secondary);
-}
-
-.license-status-badge {
-    display: inline-flex;
-    padding: 0.125rem 0.625rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-}
-
-.license-status-active {
-    background: var(--primary, #92d959);
-    color: var(--on-primary, #193800);
-}
-
-.license-status-expired {
-    background: var(--error-container, #93000a);
-    color: var(--error, #ffb4ab);
-}
-
-.license-status-pending,
-.license-status-suspended {
-    background: transparent;
-    color: var(--primary, #92d959);
-    border: 1px solid var(--primary, #92d959);
-}
-
-.license-status-revoked {
-    background: var(--bg-elevated, #2a2a2a);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-subtle);
 }
 
 .license-expires-mono {
