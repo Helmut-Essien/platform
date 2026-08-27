@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
 using Platform.Api.Services.Email;
@@ -30,6 +32,45 @@ public class EmailPayloadProtectorTests
             () => CreateProtector(2).Unprotect(encrypted));
     }
 
+    [Fact]
+    public void Constructor_InDevelopment_FallsBackToJwtKey()
+    {
+        var settings = Options.Create(new EmailSettings { Outbox = new EmailOutboxSettings() });
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "Platform_Dev_Jwt_Signing_Key_Change_In_Production_Min32Chars"
+            })
+            .Build();
+
+        var protector = new EmailPayloadProtector(
+            settings,
+            config,
+            new FakeHostEnvironment { EnvironmentName = Environments.Development });
+
+        Assert.Equal("ok", protector.Unprotect(protector.Protect("ok")));
+    }
+
+    [Fact]
+    public void Constructor_InProduction_RequiresOutboxEncryptionKey()
+    {
+        var settings = Options.Create(new EmailSettings { Outbox = new EmailOutboxSettings() });
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "Platform_Dev_Jwt_Signing_Key_Change_In_Production_Min32Chars"
+            })
+            .Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            new EmailPayloadProtector(
+                settings,
+                config,
+                new FakeHostEnvironment { EnvironmentName = Environments.Production }));
+
+        Assert.Contains("Email:Outbox:EncryptionKey", ex.Message);
+    }
+
     private static EmailPayloadProtector CreateProtector(byte fill)
     {
         var key = Enumerable.Repeat(fill, 32).ToArray();
@@ -37,6 +78,17 @@ public class EmailPayloadProtectorTests
         {
             Outbox = new EmailOutboxSettings { EncryptionKey = Convert.ToBase64String(key) }
         });
-        return new EmailPayloadProtector(settings, new ConfigurationBuilder().Build());
+        return new EmailPayloadProtector(
+            settings,
+            new ConfigurationBuilder().Build(),
+            new FakeHostEnvironment { EnvironmentName = Environments.Development });
+    }
+
+    private sealed class FakeHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Development;
+        public string ApplicationName { get; set; } = "API.Tests";
+        public string ContentRootPath { get; set; } = ".";
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

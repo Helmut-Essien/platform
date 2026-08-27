@@ -23,7 +23,11 @@ var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConn
 
 var connectionString = rawConnectionString?.Trim();
 
-Console.Error.WriteLine($"[Startup] Resolved (len={connectionString?.Length ?? -1}) = '{connectionString?[..Math.Min(60, connectionString.Length)]}...'");
+if (builder.Environment.IsDevelopment())
+{
+    Console.Error.WriteLine(
+        $"[Startup] Database connection resolved (len={connectionString?.Length ?? -1}).");
+}
 
 if (string.IsNullOrEmpty(connectionString))
     throw new InvalidOperationException(
@@ -38,15 +42,16 @@ if (connectionString.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
     var database = uri.AbsolutePath.TrimStart('/');
     var port = uri.Port > 0 ? uri.Port : 5432;
     connectionString = $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password}";
-    Console.Error.WriteLine($"[Startup] Converted URI to key=value: {connectionString}");
+    if (builder.Environment.IsDevelopment())
+        Console.Error.WriteLine($"[Startup] Converted postgres URI → Host={uri.Host};Port={port};Database={database};Username={username}");
 }
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddPlatformAuthentication(builder.Configuration);
-builder.Services.AddPlatformEmail(builder.Configuration);
-builder.Services.AddPlatformRedis(builder.Configuration);
+builder.Services.AddPlatformEmail(builder.Configuration, builder.Environment);
+builder.Services.AddPlatformRedis(builder.Configuration, builder.Environment);
 builder.Services.Configure<LifecycleSettings>(
     builder.Configuration.GetSection(LifecycleSettings.SectionName));
 builder.Services.AddHostedService<LicenseExpiryReminderWorker>();
@@ -56,18 +61,35 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("Client", policy =>
     {
-        var configOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
-        var devOrigins = new[]
+        var configOrigins = (builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [])
+            .Where(o => !string.IsNullOrWhiteSpace(o))
+            .ToArray();
+        string[] origins;
+        if (builder.Environment.IsDevelopment())
         {
-            "http://localhost:5154",
-            "https://localhost:7296",
-            "http://localhost:5173",
-            "https://localhost:7173",
-            "http://localhost:5174"
-        };
-        var allOrigins = configOrigins.Concat(devOrigins).Distinct().ToArray();
+            var devOrigins = new[]
+            {
+                "http://localhost:5154",
+                "https://localhost:7296",
+                "http://localhost:5173",
+                "https://localhost:7173",
+                "http://localhost:5174"
+            };
+            origins = configOrigins.Concat(devOrigins).Distinct().ToArray();
+        }
+        else
+        {
+            origins = configOrigins;
+        }
 
-        policy.WithOrigins(allOrigins)
+        if (origins.Length == 0)
+        {
+            // Non-dev without explicit origins: allow same-origin hosted WASM only (no cross-origin).
+            policy.SetIsOriginAllowed(_ => false);
+            return;
+        }
+
+        policy.WithOrigins(origins)
             .AllowAnyHeader()
             .AllowAnyMethod();
     });

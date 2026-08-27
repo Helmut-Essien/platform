@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Platform.Api.Configuration;
 using Platform.Api.Services;
 using Platform.Api.Services.Billing;
@@ -7,7 +8,10 @@ namespace Platform.Api.Extensions;
 
 public static class EmailServiceExtensions
 {
-    public static IServiceCollection AddPlatformEmail(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddPlatformEmail(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         services.Configure<EmailSettings>(configuration.GetSection(EmailSettings.SectionName));
 
@@ -40,9 +44,12 @@ public static class EmailServiceExtensions
             selected = nameof(LoggingEmailSender);
         }
 
-        Console.Error.WriteLine(
-            $"[Startup] Email provider config: Provider='{provider}' → {selected} " +
-            $"(ResendApiKey set={hasResendKey}, Smtp Host set={hasSmtpHost})");
+        if (environment.IsDevelopment())
+        {
+            Console.Error.WriteLine(
+                $"[Startup] Email provider config: Provider='{provider}' → {selected} " +
+                $"(ResendApiKey set={hasResendKey}, Smtp Host set={hasSmtpHost})");
+        }
 
         services.AddSingleton<IInvoicePdfGenerator, InvoicePdfGenerator>();
         services.AddSingleton<EmailPayloadProtector>();

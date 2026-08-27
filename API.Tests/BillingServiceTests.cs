@@ -302,7 +302,8 @@ public class BillingServiceTests
 
         var message = Assert.Single(db.EmailOutboxMessages.Where(m => m.Kind == EmailDeliveryKind.PaymentReceipt));
         Assert.Equal("billing@acme.test", message.ToEmail);
-        Assert.Contains("Receipt", message.Subject);
+        Assert.Contains("Payment received", message.Subject);
+        Assert.Contains("receipt", message.Subject, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(invoice.Id, message.InvoiceId);
     }
 

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
 
@@ -9,12 +10,19 @@ public class EmailPayloadProtector
 {
     private readonly byte[] _key;
 
-    public EmailPayloadProtector(IOptions<EmailSettings> settings, IConfiguration configuration)
+    public EmailPayloadProtector(
+        IOptions<EmailSettings> settings,
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         var configured = settings.Value.Outbox.EncryptionKey;
-        var keyMaterial = !string.IsNullOrWhiteSpace(configured)
+        string? keyMaterial = !string.IsNullOrWhiteSpace(configured)
             ? configured
-            : configuration["Jwt:Key"];
+            : null;
+
+        // Development-only convenience: reuse Jwt:Key when outbox key is unset.
+        if (keyMaterial is null && environment.IsDevelopment())
+            keyMaterial = configuration["Jwt:Key"];
 
         if (string.IsNullOrWhiteSpace(keyMaterial))
             throw new InvalidOperationException(

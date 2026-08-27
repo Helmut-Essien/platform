@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
 using Platform.Api.Data;
@@ -116,6 +118,17 @@ public class LicenseKeyDeliveryServiceTests
                 EncryptionKey = Convert.ToBase64String(new byte[32])
             }
         });
-        return new EmailPayloadProtector(settings, new ConfigurationBuilder().Build());
+        return new EmailPayloadProtector(
+            settings,
+            new ConfigurationBuilder().Build(),
+            new FakeHostEnvironment());
+    }
+
+    private sealed class FakeHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Development;
+        public string ApplicationName { get; set; } = "API.Tests";
+        public string ContentRootPath { get; set; } = ".";
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

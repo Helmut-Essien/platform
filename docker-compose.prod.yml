@@ -26,6 +26,7 @@ services:
       AdminSeed__Password: ${ADMIN_PASSWORD}
       Redis__ConnectionString: redis:6379
       Email__Provider: Logging
+      Email__Outbox__EncryptionKey: ${EMAIL_OUTBOX_ENCRYPTION_KEY}
     ports:
       - "80:80"
 
