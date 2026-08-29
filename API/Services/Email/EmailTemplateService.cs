@@ -229,6 +229,18 @@ public class EmailTemplateService
         return $"{prefix}{amount:N2}";
     }
 
+    public (string Subject, string Html) PasswordReset(string email, string resetLink) =>
+        ("Reset your Platform admin password",
+            Wrap(email,
+                "Reset your admin password",
+                "We received a request to reset the password for your Platform License Hub admin account.",
+                $"""
+                <p style="margin:0 0 16px;">If you made this request, use the button below. The link expires after a short period.</p>
+                <p style="margin:0 0 16px;"><a href="{WebUtility.HtmlEncode(resetLink)}" style="display:inline-block;padding:12px 20px;background:#5c9f24;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Reset password</a></p>
+                <p style="margin:0 0 16px;font-size:14px;color:#55604e;">If the button does not work, copy this URL into your browser:<br /><span style="word-break:break-all;">{WebUtility.HtmlEncode(resetLink)}</span></p>
+                <p style="margin:0;">If you did not request a reset, you can ignore this email. Your password will stay the same.</p>
+                """));
+
     private static string AsSentence(string value)
     {
         var trimmed = value.Trim();

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Platform.Client.Services;
+using Platform.Shared.Dtos.Auth;
 using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
@@ -41,6 +42,38 @@ public class PlatformApiClientTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Equal("HOSTEL-ABCD-1234", body!.LicenseKey);
         Assert.Equal("HOSTEL", body.ServiceCode);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_PostsToForgotPasswordEndpoint()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new { message = "If an account exists for that email, a reset link has been sent." }));
+        var client = CreateClient(handler);
+
+        var result = await client.ForgotPasswordAsync(new ForgotPasswordRequest { Email = "admin@test.com" });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("/api/auth/forgot-password", handler.LastRequest!.RequestUri!.PathAndQuery);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest.Method);
+    }
+
+    [Fact]
+    public async Task ResetPasswordAsync_PostsToResetPasswordEndpoint()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new { message = "Password has been reset. You can sign in with your new password." }));
+        var client = CreateClient(handler);
+
+        var result = await client.ResetPasswordAsync(new ResetPasswordRequest
+        {
+            Email = "admin@test.com",
+            Token = "token-value",
+            NewPassword = "NewPassword1!"
+        });
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("/api/auth/reset-password", handler.LastRequest!.RequestUri!.PathAndQuery);
     }
 
     [Fact]

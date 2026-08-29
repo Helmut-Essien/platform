@@ -47,8 +47,13 @@ if (connectionString.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
 }
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, npgsql =>
+        npgsql.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(10),
+            errorCodesToAdd: null)));
 
+builder.Services.Configure<AuthSettings>(builder.Configuration.GetSection(AuthSettings.SectionName));
 builder.Services.AddPlatformAuthentication(builder.Configuration);
 builder.Services.AddPlatformEmail(builder.Configuration, builder.Environment);
 builder.Services.AddPlatformRedis(builder.Configuration, builder.Environment);
@@ -57,13 +62,21 @@ builder.Services.Configure<LifecycleSettings>(
 builder.Services.AddHostedService<LicenseExpiryReminderWorker>();
 builder.Services.AddHostedService<OverdueInvoiceLifecycleWorker>();
 
+if (!builder.Environment.IsDevelopment())
+{
+    if (CorsOrigins.Resolve(builder.Configuration).Length == 0)
+    {
+        throw new InvalidOperationException(
+            "Cors:Origins must be configured in production. " +
+            "Set Cors__Origins__0 (and additional indices) or a comma-separated CORS_ORIGINS environment variable.");
+    }
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Client", policy =>
     {
-        var configOrigins = (builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [])
-            .Where(o => !string.IsNullOrWhiteSpace(o))
-            .ToArray();
+        var configOrigins = CorsOrigins.Resolve(builder.Configuration);
         string[] origins;
         if (builder.Environment.IsDevelopment())
         {
@@ -75,7 +88,7 @@ builder.Services.AddCors(options =>
                 "https://localhost:7173",
                 "http://localhost:5174"
             };
-            origins = configOrigins.Concat(devOrigins).Distinct().ToArray();
+            origins = configOrigins.Concat(devOrigins).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         }
         else
         {
@@ -95,6 +108,7 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IBillingService, BillingService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
@@ -118,7 +132,7 @@ using (var scope = app.Services.CreateScope())
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     var adminSeed = scope.ServiceProvider.GetRequiredService<IOptions<AdminSeedSettings>>();
 
-    await db.Database.MigrateAsync();
+    await DatabaseStartup.MigrateWithRetryAsync(db, logger);
     await SeedData.SeedAsync(db, logger, app.Environment.IsDevelopment());
     await SeedData.SeedBillingAsync(db);
     await IdentitySeedData.SeedAdminAsync(

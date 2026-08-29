@@ -13,21 +13,25 @@ public class DashboardService(AppDbContext db) : IDashboardService
 
         var customerCount = await db.Customers.CountAsync(cancellationToken);
 
-        var activeLicenses = await db.Licenses.CountAsync(
-            l => l.Status == LicenseStatus.Active,
-            cancellationToken);
+        var activeLicenses = await db.Licenses
+            .IgnoreQueryFilters()
+            .CountAsync(l => l.Status == LicenseStatus.Active, cancellationToken);
 
-        var expiringWithin30Days = await db.Licenses.CountAsync(
-            l => l.Status == LicenseStatus.Active
-                && l.ExpiresAt.HasValue
-                && l.ExpiresAt.Value <= threshold,
-            cancellationToken);
+        var expiringWithin30Days = await db.Licenses
+            .IgnoreQueryFilters()
+            .CountAsync(
+                l => l.Status == LicenseStatus.Active
+                    && l.ExpiresAt.HasValue
+                    && l.ExpiresAt.Value <= threshold,
+                cancellationToken);
 
-        var unpaidInvoices = await db.Invoices.CountAsync(
-            i => i.Status == InvoiceStatus.Sent
-                || i.Status == InvoiceStatus.PartiallyPaid
-                || i.Status == InvoiceStatus.Overdue,
-            cancellationToken);
+        var unpaidInvoices = await db.Invoices
+            .IgnoreQueryFilters()
+            .CountAsync(
+                i => i.Status == InvoiceStatus.Sent
+                    || i.Status == InvoiceStatus.PartiallyPaid
+                    || i.Status == InvoiceStatus.Overdue,
+                cancellationToken);
 
         return new DashboardStatsDto
         {

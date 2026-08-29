@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Platform.Api.Extensions;
 using Platform.Api.Identity;
 using Platform.Api.Services;
@@ -13,9 +14,11 @@ namespace Platform.Api.Controllers;
 public class AuthController(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
-    IJwtTokenService jwtTokenService) : ControllerBase
+    IJwtTokenService jwtTokenService,
+    IAdminAuthService adminAuth) : ControllerBase
 {
     [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.AuthLoginPolicy)]
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponse>> Login(
         [FromBody] LoginRequest request,
@@ -34,6 +37,39 @@ public class AuthController(
         var response = jwtTokenService.CreateToken(user, roles);
 
         return Ok(response);
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.AuthLoginPolicy)]
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword(
+        [FromBody] ForgotPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        await adminAuth.RequestPasswordResetAsync(request.Email, cancellationToken);
+        return Ok(new { message = "If an account exists for that email, a reset link has been sent." });
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitingExtensions.AuthLoginPolicy)]
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword(
+        [FromBody] ResetPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await adminAuth.ResetPasswordAsync(
+                request.Email,
+                request.Token,
+                request.NewPassword,
+                cancellationToken);
+            return Ok(new { message = "Password has been reset. You can sign in with your new password." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [Authorize(Policy = PlatformAuthorizationPolicies.AdminOnly)]

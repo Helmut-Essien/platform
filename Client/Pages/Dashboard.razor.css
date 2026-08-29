@@ -275,6 +275,17 @@
     margin: 0 0 1.5rem;
 }
 
+.sidebar-card-copy {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-secondary, #a8b4a0);
+}
+
+.dashboard-ops-note .sidebar-card-title {
+    margin-bottom: 0.75rem;
+}
+
 .quick-actions-stack {
     display: flex;
     flex-direction: column;

@@ -15,13 +15,35 @@ public class EmailOutboxWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var delay = TimeSpan.FromSeconds(Math.Max(2, settings.Value.Outbox.PollIntervalSeconds));
-        while (!stoppingToken.IsCancellationRequested)
+        List<string>? inFlightBatch = null;
+
+        while (true)
         {
+            if (stoppingToken.IsCancellationRequested && inFlightBatch is null)
+                break;
+
             try
             {
-                var ids = await ClaimBatchAsync(stoppingToken);
-                foreach (var id in ids)
-                    await SendAsync(id, stoppingToken);
+                if (inFlightBatch is null && !stoppingToken.IsCancellationRequested)
+                    inFlightBatch = await ClaimBatchAsync(stoppingToken);
+
+                if (inFlightBatch is { Count: > 0 })
+                {
+                    while (inFlightBatch.Count > 0)
+                    {
+                        var id = inFlightBatch[0];
+                        inFlightBatch.RemoveAt(0);
+                        var sendToken = stoppingToken.IsCancellationRequested
+                            ? CancellationToken.None
+                            : stoppingToken;
+                        await SendAsync(id, sendToken);
+                    }
+
+                    inFlightBatch = null;
+                }
+
+                if (stoppingToken.IsCancellationRequested)
+                    break;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -30,7 +52,11 @@ public class EmailOutboxWorker(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Email outbox poll failed.");
+                inFlightBatch = null;
             }
+
+            if (stoppingToken.IsCancellationRequested)
+                break;
 
             await Task.Delay(delay, stoppingToken);
         }

@@ -22,6 +22,18 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<LoginResponse>(response, ct);
     }
 
+    public async Task<ApiResult<object>> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync("api/auth/forgot-password", request, ct);
+        return await ToApiResultAsync<object>(response, ct);
+    }
+
+    public async Task<ApiResult<object>> ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync("api/auth/reset-password", request, ct);
+        return await ToApiResultAsync<object>(response, ct);
+    }
+
     public async Task<LoginResponse?> GetMeAsync(CancellationToken ct = default) =>
         await http.GetFromJsonAsync<LoginResponse>("api/auth/me", ct);
 

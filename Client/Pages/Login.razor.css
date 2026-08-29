@@ -68,6 +68,16 @@
     margin-bottom: 1.125rem;
 }
 
+.login-forgot-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: -0.25rem 0 0.75rem;
+}
+
+.login-forgot-link {
+    font-size: 0.875rem;
+}
+
 .login-submit {
     margin-top: 0.25rem;
     min-height: 3rem;

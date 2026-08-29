@@ -3,6 +3,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
 using Platform.Api.Data;
+using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
 
@@ -29,7 +30,6 @@ public class RedisLicenseDenyListService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // DB status is authoritative; Redis is an acceleration layer for validation cache.
             logger.LogWarning(
                 ex,
                 "Failed to write Redis deny-list for license {LicenseId}. Suspend/revoke still applied in the database.",
@@ -82,8 +82,11 @@ public class RedisLicenseDenyListService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Failed to read Redis deny-list for license {LicenseId}; treating as not denied in cache", licenseId);
-            return false;
+            logger.LogWarning(
+                ex,
+                "Failed to read Redis deny-list for license {LicenseId}; falling back to database status",
+                licenseId);
+            return await IsDeniedInDatabaseAsync(licenseId, cancellationToken);
         }
     }
 
@@ -120,6 +123,24 @@ public class RedisLicenseDenyListService(
     internal int ValidationCacheSeconds => settings.Value.ValidationCacheSeconds;
 
     internal int IntegrationKeyLastUsedUpdateMinutes => settings.Value.IntegrationKeyLastUsedUpdateMinutes;
+
+    private async Task<bool> IsDeniedInDatabaseAsync(string licenseId, CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(l => l.Id == licenseId)
+            .Select(l => new { l.Status, CustomerSuspended = l.Customer.IsSuspended })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (license is null)
+            return true;
+
+        return license.CustomerSuspended
+            || license.Status is LicenseStatus.Suspended or LicenseStatus.Revoked or LicenseStatus.Pending;
+    }
 
     private async Task InvalidateValidationCacheAsync(string licenseId, CancellationToken cancellationToken)
     {

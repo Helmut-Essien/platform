@@ -44,10 +44,12 @@ public class LicenseExpiryReminderWorker(
         var dedupeAfter = now.AddDays(-Math.Max(1, settings.Value.ExpiryReminderDays));
 
         var licenses = await db.Licenses
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Include(x => x.Customer)
             .Include(x => x.ServiceProduct)
             .Where(x => x.Status == LicenseStatus.Active
+                && !x.Customer.IsSuspended
                 && x.ExpiresAt.HasValue
                 && x.ExpiresAt.Value > now
                 && x.ExpiresAt.Value <= threshold)

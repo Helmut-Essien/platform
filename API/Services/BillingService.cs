@@ -163,6 +163,7 @@ public class BillingService(
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
 
         var query = db.Invoices
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .Include(i => i.Customer)
             .Include(i => i.ServiceProduct)
