@@ -17,37 +17,36 @@ public class RedisLicenseDenyListService(
 
     public async Task DenyLicenseAsync(string licenseId, CancellationToken cancellationToken = default)
     {
+        // Always invalidate positive validation cache first so a failed deny write
+        // cannot leave a fresh "valid" cache entry serving revoked licenses.
+        await InvalidateValidationCacheAsync(licenseId, cancellationToken);
+
         try
         {
+            // No TTL: deny entries persist until ClearLicenseDenyAsync (reactivate).
+            // Growth is bounded by distinct license ids that were ever revoked/suspended.
             await cache.SetStringAsync(
                 DenyKey(licenseId),
                 "1",
                 new DistributedCacheEntryOptions(),
                 cancellationToken);
 
-            await InvalidateValidationCacheAsync(licenseId, cancellationToken);
             logger.LogDebug("License {LicenseId} added to deny-list", licenseId);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(
                 ex,
-                "Failed to write Redis deny-list for license {LicenseId}. Suspend/revoke still applied in the database.",
+                "Failed to write Redis deny-list for license {LicenseId}. Suspend/revoke still applied in the database; validation cache was invalidated.",
                 licenseId);
         }
     }
 
     public async Task DenyCustomerLicensesAsync(string customerId, CancellationToken cancellationToken = default)
     {
+        List<string> licenseIds;
         try
         {
-            await cache.SetStringAsync(
-                $"customer:deny:{customerId}",
-                "1",
-                new DistributedCacheEntryOptions(),
-                cancellationToken);
-
-            List<string> licenseIds;
             await using (var scope = scopeFactory.CreateAsyncScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -58,9 +57,23 @@ public class RedisLicenseDenyListService(
                     .Select(l => l.Id)
                     .ToListAsync(cancellationToken);
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to load licenses for customer deny {CustomerId}", customerId);
+            licenseIds = [];
+        }
 
-            foreach (var licenseId in licenseIds)
-                await InvalidateValidationCacheAsync(licenseId, cancellationToken);
+        foreach (var licenseId in licenseIds)
+            await InvalidateValidationCacheAsync(licenseId, cancellationToken);
+
+        try
+        {
+            await cache.SetStringAsync(
+                $"customer:deny:{customerId}",
+                "1",
+                new DistributedCacheEntryOptions(),
+                cancellationToken);
 
             logger.LogDebug("Customer {CustomerId} licenses marked denied in cache layer", customerId);
         }
@@ -68,7 +81,7 @@ public class RedisLicenseDenyListService(
         {
             logger.LogWarning(
                 ex,
-                "Failed to write Redis customer deny-list for {CustomerId}. Customer suspension still applied in the database.",
+                "Failed to write Redis customer deny-list for {CustomerId}. Customer suspension still applied in the database; validation caches were invalidated.",
                 customerId);
         }
     }
@@ -95,12 +108,13 @@ public class RedisLicenseDenyListService(
         try
         {
             await cache.RemoveAsync(DenyKey(licenseId), cancellationToken);
-            await InvalidateValidationCacheAsync(licenseId, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to clear Redis deny-list for license {LicenseId}", licenseId);
         }
+
+        await InvalidateValidationCacheAsync(licenseId, cancellationToken);
     }
 
     public async Task ClearCustomerDenyAsync(string customerId, CancellationToken cancellationToken = default)
@@ -117,8 +131,6 @@ public class RedisLicenseDenyListService(
 
     internal static string ValidationCacheKey(string serviceProductId, string lookupHash) =>
         $"license:valid:{serviceProductId}:{lookupHash}";
-
-    internal static string ValidationCacheKeyByLicenseId(string licenseId) => $"license:valid:{licenseId}";
 
     internal int ValidationCacheSeconds => settings.Value.ValidationCacheSeconds;
 
@@ -144,23 +156,28 @@ public class RedisLicenseDenyListService(
 
     private async Task InvalidateValidationCacheAsync(string licenseId, CancellationToken cancellationToken)
     {
-        await cache.RemoveAsync(ValidationCacheKeyByLicenseId(licenseId), cancellationToken);
-
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        var license = await db.Licenses
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .Where(l => l.Id == licenseId)
-            .Select(l => new { l.ServiceProductId, l.LicenseKeyLookupHash })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (license?.LicenseKeyLookupHash is not null)
+        try
         {
-            await cache.RemoveAsync(
-                ValidationCacheKey(license.ServiceProductId, license.LicenseKeyLookupHash),
-                cancellationToken);
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var license = await db.Licenses
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Where(l => l.Id == licenseId)
+                .Select(l => new { l.ServiceProductId, l.LicenseKeyLookupHash })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (license?.LicenseKeyLookupHash is not null)
+            {
+                await cache.RemoveAsync(
+                    ValidationCacheKey(license.ServiceProductId, license.LicenseKeyLookupHash),
+                    cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to invalidate validation cache for license {LicenseId}", licenseId);
         }
     }
 }

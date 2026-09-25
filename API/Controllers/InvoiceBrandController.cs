@@ -33,14 +33,7 @@ public class InvoiceBrandController(IInvoiceBrandService invoiceBrand) : Control
         [FromBody] UpdateInvoiceBrandRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var profile = await invoiceBrand.UpdateAsync(request, cancellationToken);
-            return Ok(profile);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        var profile = await invoiceBrand.UpdateAsync(request, cancellationToken);
+        return Ok(profile);
     }
 }

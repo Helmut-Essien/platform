@@ -128,7 +128,7 @@ public class CustomerService(
         CancellationToken cancellationToken = default)
     {
         var customer = await db.Customers.FindAsync([id], cancellationToken)
-            ?? throw new InvalidOperationException("Customer not found.");
+            ?? throw new NotFoundException("Customer not found.");
 
         var normalizedEmail = request.ContactEmail.Trim().ToLowerInvariant();
 
@@ -158,7 +158,7 @@ public class CustomerService(
         CancellationToken cancellationToken = default)
     {
         var customer = await db.Customers.FindAsync([id], cancellationToken)
-            ?? throw new InvalidOperationException("Customer not found.");
+            ?? throw new NotFoundException("Customer not found.");
 
         if (customer.IsSuspended)
             throw new InvalidOperationException("Customer is already suspended.");
@@ -193,7 +193,7 @@ public class CustomerService(
         CancellationToken cancellationToken = default)
     {
         var customer = await db.Customers.FindAsync([id], cancellationToken)
-            ?? throw new InvalidOperationException("Customer not found.");
+            ?? throw new NotFoundException("Customer not found.");
 
         if (!customer.IsSuspended)
             throw new InvalidOperationException("Customer is not suspended.");

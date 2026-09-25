@@ -50,16 +50,18 @@ public class LicenseValidationService(
 
         var utcNow = DateTime.UtcNow;
 
+        // LookupHash is required for O(1) candidate selection. Legacy rows without a
+        // lookup hash will not validate until the key is rotated (backfills hash).
         var licensesQuery = db.Licenses
             .IgnoreQueryFilters()
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .Where(l => l.ServiceProductId == serviceProduct.Id
                 && l.LicenseKeyHash != null
+                && l.LicenseKeyLookupHash == lookupHash
                 && l.Status == LicenseStatus.Active
                 && !l.Customer.IsSuspended
-                && (l.ExpiresAt == null || l.ExpiresAt > utcNow)
-                && (l.LicenseKeyLookupHash == lookupHash || l.LicenseKeyLookupHash == null));
+                && (l.ExpiresAt == null || l.ExpiresAt > utcNow));
 
         var licenses = await licensesQuery.ToListAsync(cancellationToken);
 
@@ -134,14 +136,30 @@ public class LicenseValidationService(
                 return null;
 
             if (await denyList.IsDeniedAsync(entry.LicenseId, cancellationToken))
+            {
+                await cache.RemoveAsync(cacheKey, cancellationToken);
                 return Invalid("License is not valid.");
+            }
 
             var customerDenied = await cache.GetStringAsync($"customer:deny:{entry.CustomerId}", cancellationToken);
             if (customerDenied is not null)
+            {
+                await cache.RemoveAsync(cacheKey, cancellationToken);
                 return Invalid("License is not valid.");
+            }
+
+            // Cheap PK status check so a missed deny-list write cannot serve revoked licenses.
+            if (!await IsLicenseStillValidInDatabaseAsync(entry.LicenseId, cancellationToken))
+            {
+                await cache.RemoveAsync(cacheKey, cancellationToken);
+                return Invalid("License is not valid.");
+            }
 
             if (entry.Response.ExpiresAt.HasValue && entry.Response.ExpiresAt.Value < DateTime.UtcNow)
+            {
+                await cache.RemoveAsync(cacheKey, cancellationToken);
                 return Invalid("License has expired.");
+            }
 
             return entry.Response;
         }
@@ -150,6 +168,31 @@ public class LicenseValidationService(
             logger.LogWarning(ex, "Failed to read validation cache for service {ServiceProductId}", serviceProductId);
             return null;
         }
+    }
+
+    private async Task<bool> IsLicenseStillValidInDatabaseAsync(
+        string licenseId,
+        CancellationToken cancellationToken)
+    {
+        var utcNow = DateTime.UtcNow;
+        var row = await db.Licenses
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(l => l.Id == licenseId)
+            .Select(l => new
+            {
+                l.Status,
+                l.ExpiresAt,
+                CustomerSuspended = l.Customer.IsSuspended
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (row is null)
+            return false;
+
+        return row.Status == LicenseStatus.Active
+            && !row.CustomerSuspended
+            && (row.ExpiresAt == null || row.ExpiresAt > utcNow);
     }
 
     private async Task CacheValidationAsync(
@@ -216,8 +259,7 @@ public class LicenseValidationService(
 
         IQueryable<Entities.IntegrationKey> query = db.IntegrationKeys
             .Include(k => k.ServiceProduct)
-            .Where(k => k.IsActive
-                && (k.KeyLookupHash == lookupHash || k.KeyLookupHash == null));
+            .Where(k => k.IsActive && k.KeyLookupHash == lookupHash);
 
         if (!string.IsNullOrWhiteSpace(serviceCode))
             query = query.Where(k => k.ServiceProduct.Code == serviceCode.Trim().ToUpperInvariant());

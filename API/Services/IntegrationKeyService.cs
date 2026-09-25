@@ -31,7 +31,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
         CancellationToken cancellationToken = default)
     {
         var product = await db.ServiceProducts.FindAsync([serviceProductId], cancellationToken)
-            ?? throw new InvalidOperationException("Service product not found.");
+            ?? throw new NotFoundException("Service product not found.");
 
         var plainKey = GenerateIntegrationKey(product.Code);
 
@@ -92,7 +92,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
     {
         var key = await db.IntegrationKeys.Include(k => k.ServiceProduct)
             .FirstOrDefaultAsync(k => k.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("Integration key not found.");
+            ?? throw new NotFoundException("Integration key not found.");
 
         if (!key.IsActive)
             throw new InvalidOperationException("Integration key is already revoked.");

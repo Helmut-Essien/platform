@@ -390,7 +390,7 @@ public class PlatformApiClient(HttpClient http)
                 ? err.Errors
                 : null;
 
-            return (err.Message ?? response.ReasonPhrase, fieldErrors);
+            return (err.DisplayMessage ?? response.ReasonPhrase, fieldErrors);
         }
         catch
         {

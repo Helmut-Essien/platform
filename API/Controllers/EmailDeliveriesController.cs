@@ -23,13 +23,6 @@ public class EmailDeliveriesController(IEmailOutboxService outbox) : ControllerB
     [HttpPost("{id}/retry")]
     public async Task<ActionResult<EmailDeliveryDto>> Retry(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            return Ok(await outbox.RetryAsync(id, cancellationToken));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(await outbox.RetryAsync(id, cancellationToken));
     }
 }

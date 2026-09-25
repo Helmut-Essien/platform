@@ -35,18 +35,11 @@ public class InvoicesController(IBillingService billing) : ControllerBase
     [HttpPost("{id}/send")]
     public async Task<ActionResult<InvoiceDto>> Send(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            return Ok(await billing.SendInvoiceAsync(
+        return Ok(await billing.SendInvoiceAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
     }
 
     [HttpPost]
@@ -54,38 +47,24 @@ public class InvoicesController(IBillingService billing) : ControllerBase
         [FromBody] CreateInvoiceRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var invoice = await billing.CreateInvoiceAsync(
+        var invoice = await billing.CreateInvoiceAsync(
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return CreatedAtAction(nameof(Get), new { id = invoice.Id }, invoice);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return CreatedAtAction(nameof(Get), new { id = invoice.Id }, invoice);
     }
 
     [HttpPost("{id}/void")]
     public async Task<ActionResult<InvoiceDto>> Void(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var invoice = await billing.VoidInvoiceAsync(
+        var invoice = await billing.VoidInvoiceAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(invoice);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(invoice);
     }
 }

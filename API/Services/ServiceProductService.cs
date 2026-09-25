@@ -77,7 +77,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         CancellationToken cancellationToken = default)
     {
         var product = await db.ServiceProducts.FindAsync([id], cancellationToken)
-            ?? throw new InvalidOperationException("Service product not found.");
+            ?? throw new NotFoundException("Service product not found.");
 
         product.Name = request.Name.Trim();
         product.Description = request.Description?.Trim();
@@ -102,7 +102,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         var product = await db.ServiceProducts
             .Include(p => p.Licenses)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("Service product not found.");
+            ?? throw new NotFoundException("Service product not found.");
 
         if (product.Licenses.Count > 0)
             throw new InvalidOperationException("Cannot delete a service product that has active licenses.");

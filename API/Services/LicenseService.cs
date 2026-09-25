@@ -31,13 +31,13 @@ public class LicenseService(
         await using var ownedTransaction = transaction;
 
         var customer = await db.Customers.FindAsync([request.CustomerId], cancellationToken)
-            ?? throw new InvalidOperationException("Customer not found.");
+            ?? throw new NotFoundException("Customer not found.");
 
         if (customer.IsSuspended)
             throw new InvalidOperationException("Cannot issue license for a suspended customer.");
 
         _ = await db.ServiceProducts.FindAsync([request.ServiceProductId], cancellationToken)
-            ?? throw new InvalidOperationException("Service product not found.");
+            ?? throw new NotFoundException("Service product not found.");
 
         var now = DateTime.UtcNow;
         var license = new License
@@ -164,7 +164,7 @@ public class LicenseService(
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("License not found.");
+            ?? throw new NotFoundException("License not found.");
 
         if (license.Customer.IsSuspended)
             throw new InvalidOperationException("Customer is suspended.");
@@ -219,7 +219,7 @@ public class LicenseService(
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("License not found.");
+            ?? throw new NotFoundException("License not found.");
 
         if (license.Customer.IsSuspended)
             throw new InvalidOperationException("Customer is suspended.");
@@ -289,7 +289,7 @@ public class LicenseService(
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("License not found.");
+            ?? throw new NotFoundException("License not found.");
 
         if (license.Status is LicenseStatus.Revoked)
             throw new InvalidOperationException("Cannot update a revoked license.");
@@ -320,7 +320,7 @@ public class LicenseService(
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("License not found.");
+            ?? throw new NotFoundException("License not found.");
 
         if (license.Status is not LicenseStatus.Active)
             throw new InvalidOperationException($"Cannot suspend license in status {license.Status}.");
@@ -361,7 +361,7 @@ public class LicenseService(
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("License not found.");
+            ?? throw new NotFoundException("License not found.");
 
         if (license.Status == LicenseStatus.Revoked)
             throw new InvalidOperationException("License is already revoked.");
@@ -405,7 +405,7 @@ public class LicenseService(
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("License not found.");
+            ?? throw new NotFoundException("License not found.");
 
         if (license.Customer.IsSuspended)
             throw new InvalidOperationException("Customer is suspended.");

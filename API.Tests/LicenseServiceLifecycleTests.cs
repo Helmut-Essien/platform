@@ -60,7 +60,7 @@ public class LicenseServiceLifecycleTests
         var (_, _, license) = await SeedPendingLicenseAsync(db, customerSuspended: true);
         var service = CreateLicenseService(db);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<NotFoundException>(() =>
             service.ActivateAsync(
                 license.Id,
                 new ActivateLicenseRequest

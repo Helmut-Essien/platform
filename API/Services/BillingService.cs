@@ -31,7 +31,7 @@ public class BillingService(
         await using var ownedTransaction = transaction;
 
         var customer = await db.Customers.FindAsync([request.CustomerId], cancellationToken)
-            ?? throw new InvalidOperationException("Customer not found.");
+            ?? throw new NotFoundException("Customer not found.");
 
         if (customer.IsSuspended)
             throw new InvalidOperationException("Cannot create invoice for a suspended customer.");
@@ -41,7 +41,7 @@ public class BillingService(
             var license = await db.Licenses
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(l => l.Id == request.LicenseId, cancellationToken)
-                ?? throw new InvalidOperationException("License not found.");
+                ?? throw new NotFoundException("License not found.");
 
             if (license.CustomerId != request.CustomerId)
                 throw new InvalidOperationException("License does not belong to the customer.");
@@ -74,7 +74,7 @@ public class BillingService(
 
         var action = request.Status == InvoiceStatus.Sent ? AuditAction.InvoiceSent : AuditAction.InvoiceCreated;
         await auditLog.WriteAsync(action, performedBy, request.CustomerId, request.LicenseId, invoice.Id,
-            $$"""{"invoiceNumber":"{{invoice.InvoiceNumber}}","total":{{total}}}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, total }), ipAddress, cancellationToken);
 
         if (request.LicenseId is not null)
         {
@@ -136,7 +136,7 @@ public class BillingService(
             .IgnoreQueryFilters()
             .Include(x => x.Customer)
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("Invoice not found.");
+            ?? throw new NotFoundException("Invoice not found.");
 
         if (invoice.Status is InvoiceStatus.Void or InvoiceStatus.Paid)
             throw new InvalidOperationException($"Cannot send an invoice in status {invoice.Status}.");
@@ -148,7 +148,7 @@ public class BillingService(
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.InvoiceSent, performedBy, invoice.CustomerId, invoice.LicenseId,
-            invoice.Id, $$"""{"invoiceNumber":"{{invoice.InvoiceNumber}}"}""", ipAddress, cancellationToken);
+            invoice.Id, AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber }), ipAddress, cancellationToken);
         return await MapInvoiceAsync(id, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load invoice.");
     }
@@ -219,7 +219,7 @@ public class BillingService(
             .Include(i => i.PaymentTransactions)
             .Include(i => i.Customer)
             .FirstOrDefaultAsync(i => i.Id == id, cancellationToken)
-            ?? throw new InvalidOperationException("Invoice not found.");
+            ?? throw new NotFoundException("Invoice not found.");
 
         if (invoice.Status == InvoiceStatus.Void)
             throw new InvalidOperationException("Invoice is already void.");
@@ -239,7 +239,7 @@ public class BillingService(
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.InvoiceVoided, performedBy, invoice.CustomerId, invoice.LicenseId,
-            invoice.Id, $$"""{"invoiceNumber":"{{invoice.InvoiceNumber}}"}""", ipAddress, cancellationToken);
+            invoice.Id, AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber }), ipAddress, cancellationToken);
 
         if (transaction is not null)
             await transaction.CommitAsync(cancellationToken);
@@ -289,7 +289,7 @@ public class BillingService(
             .Include(i => i.Receipts)
             .Include(i => i.PaymentTransactions)
             .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken)
-            ?? throw new InvalidOperationException("Invoice not found.");
+            ?? throw new NotFoundException("Invoice not found.");
 
         if (invoice.Status is not (InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue))
             throw new InvalidOperationException($"Cannot record payment for an invoice in status {invoice.Status}.");
@@ -401,7 +401,12 @@ public class BillingService(
 
         await auditLog.WriteAsync(AuditAction.ReceiptRecorded, performedBy, invoice.CustomerId, invoice.LicenseId,
             invoice.Id,
-            $$"""{"receiptNumber":"{{receipt.ReceiptNumber}}","amount":{{request.AmountPaid}},"transactionId":"{{payment.Id}}"}""",
+            AuditJson.Serialize(new
+            {
+                receiptNumber = receipt.ReceiptNumber,
+                amount = request.AmountPaid,
+                transactionId = payment.Id
+            }),
             ipAddress, cancellationToken);
 
         var licenseIdToClearDeny = await TryQueueLicenseReactivationAsync(invoice, cancellationToken);
@@ -462,20 +467,20 @@ public class BillingService(
             .ThenInclude(r => r.PaymentTransaction)
             .Include(i => i.PaymentTransactions)
             .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken)
-            ?? throw new InvalidOperationException("Invoice not found.");
+            ?? throw new NotFoundException("Invoice not found.");
 
         if (invoice.Status == InvoiceStatus.Void)
             throw new InvalidOperationException("Cannot reverse payment on a void invoice.");
 
         var receipt = invoice.Receipts.FirstOrDefault(r => r.Id == receiptId)
-            ?? throw new InvalidOperationException("Receipt not found.");
+            ?? throw new NotFoundException("Receipt not found.");
 
         if (receipt.Status == ReceiptStatus.Reversed)
             throw new InvalidOperationException("Receipt is already reversed.");
 
         var payment = invoice.PaymentTransactions.FirstOrDefault(t =>
             t.Kind == PaymentTransactionKind.Payment && t.ReceiptId == receipt.Id)
-            ?? throw new InvalidOperationException("Payment transaction for receipt was not found.");
+            ?? throw new NotFoundException("Payment transaction for receipt was not found.");
 
         if (invoice.PaymentTransactions.Any(t =>
                 t.Kind == PaymentTransactionKind.Reversal && t.ReversesTransactionId == payment.Id))
@@ -530,7 +535,13 @@ public class BillingService(
 
         await auditLog.WriteAsync(AuditAction.ReceiptReversed, performedBy, invoice.CustomerId, invoice.LicenseId,
             invoice.Id,
-            $$"""{"receiptNumber":"{{receipt.ReceiptNumber}}","amount":{{payment.Amount}},"transactionId":"{{reversal.Id}}","reason":{{System.Text.Json.JsonSerializer.Serialize(reason)}}}""",
+            AuditJson.Serialize(new
+            {
+                receiptNumber = receipt.ReceiptNumber,
+                amount = payment.Amount,
+                transactionId = reversal.Id,
+                reason
+            }),
             ipAddress, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -604,7 +615,7 @@ public class BillingService(
             license.CustomerId,
             license.Id,
             invoice.Id,
-            $$"""{"invoiceId":"{{invoice.Id}}"}""",
+            AuditJson.Serialize(new { invoiceId = invoice.Id }),
             cancellationToken: cancellationToken);
 
         return license.Id;

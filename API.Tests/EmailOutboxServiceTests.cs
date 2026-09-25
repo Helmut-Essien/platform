@@ -31,6 +31,26 @@ public class EmailOutboxServiceTests
     }
 
     [Fact]
+    public async Task RetryAsync_RejectsDeadLetterLicenseKeyWithoutEncryptedPayload()
+    {
+        await using var db = CreateDb();
+        var service = new EmailOutboxService(db);
+        var message = service.Enqueue(
+            EmailDeliveryKind.LicenseKey,
+            "owner@example.test",
+            "Key",
+            "<p>{{LICENSE_KEY}}</p>",
+            encryptedPayload: [1, 2, 3]);
+        message.Status = EmailDeliveryStatus.DeadLetter;
+        message.EncryptedPayload = null;
+        message.HtmlBody = "<p>[redacted]</p>";
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.RetryAsync(message.Id));
+        Assert.Contains("sensitive payload was cleared", ex.Message);
+    }
+
+    [Fact]
     public async Task ListAsync_FiltersByRelatedEntity()
     {
         await using var db = CreateDb();

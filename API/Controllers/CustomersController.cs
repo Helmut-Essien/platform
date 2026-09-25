@@ -49,20 +49,13 @@ public class CustomersController(ICustomerService customers) : ControllerBase
         [FromBody] CreateCustomerRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var customer = await customers.CreateAsync(
+        var customer = await customers.CreateAsync(
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return CreatedAtAction(nameof(Get), new { id = customer.Id }, customer);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return CreatedAtAction(nameof(Get), new { id = customer.Id }, customer);
     }
 
     [HttpPut("{id}")]
@@ -71,58 +64,37 @@ public class CustomersController(ICustomerService customers) : ControllerBase
         [FromBody] UpdateCustomerRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var customer = await customers.UpdateAsync(
+        var customer = await customers.UpdateAsync(
                 id,
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(customer);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(customer);
     }
 
     [HttpPost("{id}/suspend")]
     public async Task<ActionResult<CustomerDto>> Suspend(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var customer = await customers.SuspendAsync(
+        var customer = await customers.SuspendAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(customer);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(customer);
     }
 
     [HttpPost("{id}/reactivate")]
     public async Task<ActionResult<CustomerDto>> Reactivate(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var customer = await customers.ReactivateAsync(
+        var customer = await customers.ReactivateAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(customer);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(customer);
     }
 }

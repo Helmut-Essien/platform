@@ -4,8 +4,6 @@ namespace Platform.Api.Http;
 
 public static class AdminRequestContext
 {
-    public const string PerformedByHeader = "X-Admin-User";
-
     public static string GetPerformedBy(HttpContext httpContext)
     {
         if (httpContext.User.Identity?.IsAuthenticated == true)
@@ -16,7 +14,7 @@ public static class AdminRequestContext
                 ?? "admin";
         }
 
-        return httpContext.Request.Headers[PerformedByHeader].FirstOrDefault() ?? "admin";
+        return "system";
     }
 
     public static string? GetIpAddress(HttpContext httpContext) =>

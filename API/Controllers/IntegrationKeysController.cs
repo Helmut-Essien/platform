@@ -26,38 +26,24 @@ public class IntegrationKeysController(IIntegrationKeyService integrationKeys) :
         [FromQuery] string serviceProductId,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var result = await integrationKeys.CreateAsync(
+        var result = await integrationKeys.CreateAsync(
                 serviceProductId,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return CreatedAtAction(nameof(List), new { serviceProductId }, result);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return CreatedAtAction(nameof(List), new { serviceProductId }, result);
     }
 
     [HttpPost("{id}/revoke")]
     public async Task<ActionResult<IntegrationKeyDto>> Revoke(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var key = await integrationKeys.RevokeAsync(
+        var key = await integrationKeys.RevokeAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(key);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(key);
     }
 }

@@ -118,6 +118,8 @@ builder.Services.AddScoped<IIntegrationKeyService, IntegrationKeyService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<IInvoiceBrandService, InvoiceBrandService>();
 
+builder.Services.AddExceptionHandler<Platform.Api.Http.PlatformExceptionHandler>();
+builder.Services.AddProblemDetails();
 builder.Services.AddPlatformControllers();
 builder.Services.AddPlatformRateLimiting(builder.Configuration);
 builder.Services.AddOpenApi();
@@ -148,6 +150,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseExceptionHandler();
 app.UseForwardedHeaders();
 
 var webRoot = app.Environment.WebRootPath;

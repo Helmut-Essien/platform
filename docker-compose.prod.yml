@@ -21,12 +21,17 @@ services:
       Jwt__Issuer: Platform.Api
       Jwt__Audience: Platform.Client
       Jwt__Key: ${JWT_KEY}
-      Jwt__ExpiryMinutes: "480"
+      Jwt__ExpiryMinutes: "60"
       AdminSeed__Email: ${ADMIN_EMAIL}
       AdminSeed__Password: ${ADMIN_PASSWORD}
       Redis__ConnectionString: redis:6379
+      # Production checklist: set Email__Provider to Smtp or Resend (not Logging),
+      # Email__FromAddress, provider credentials, and CORS_ORIGINS / Cors__Origins__0
+      # when the UI is not same-origin with the API.
       Email__Provider: Logging
       Email__Outbox__EncryptionKey: ${EMAIL_OUTBOX_ENCRYPTION_KEY}
+      # Cors__Origins__0: https://admin.example.com
+      # Auth__ClientBaseUrl: https://admin.example.com
     ports:
       - "80:80"
 

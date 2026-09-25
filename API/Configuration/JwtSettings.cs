@@ -10,5 +10,5 @@ public class JwtSettings
 
     public string Key { get; set; } = string.Empty;
 
-    public int ExpiryMinutes { get; set; } = 480;
+    public int ExpiryMinutes { get; set; } = 60;
 }

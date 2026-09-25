@@ -33,7 +33,7 @@ public class ServiceProductServiceTests
         await using var db = CreateDbContext();
         var service = new ServiceProductService(db, new FakeAuditLogService());
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var ex = await Assert.ThrowsAsync<NotFoundException>(() =>
             service.DeleteAsync("nonexistent-id", performedBy: "admin@example.com"));
 
         Assert.Equal("Service product not found.", ex.Message);

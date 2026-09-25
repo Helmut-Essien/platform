@@ -18,29 +18,18 @@ public class ReceiptsController(IBillingService billing) : ControllerBase
         [FromBody] RecordReceiptRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var receipt = await billing.RecordReceiptAsync(
+        var receipt = await billing.RecordReceiptAsync(
                 invoiceId,
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return CreatedAtAction(
-                actionName: nameof(Record),
-                controllerName: "Receipts",
-                routeValues: new { invoiceId, id = receipt.Id },
-                value: receipt);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return CreatedAtAction(
+            actionName: nameof(Record),
+            controllerName: "Receipts",
+            routeValues: new { invoiceId, id = receipt.Id },
+            value: receipt);
     }
 
     [HttpPost("{receiptId}/reverse")]
@@ -50,24 +39,13 @@ public class ReceiptsController(IBillingService billing) : ControllerBase
         [FromBody] ReverseReceiptRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var receipt = await billing.ReverseReceiptAsync(
+        var receipt = await billing.ReverseReceiptAsync(
                 invoiceId,
                 receiptId,
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
-            return Ok(receipt);
-        }
-        catch (ConflictException ex)
-        {
-            return Conflict(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(receipt);
     }
 }

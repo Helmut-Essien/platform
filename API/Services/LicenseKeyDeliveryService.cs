@@ -20,12 +20,12 @@ public class LicenseKeyDeliveryService(
         var serviceProduct = license.ServiceProduct
             ?? await db.ServiceProducts.AsNoTracking()
                 .FirstOrDefaultAsync(s => s.Id == license.ServiceProductId, cancellationToken)
-            ?? throw new InvalidOperationException("Service product not found.");
+            ?? throw new NotFoundException("Service product not found.");
 
         var customer = license.Customer
             ?? await db.Customers.AsNoTracking()
                 .FirstOrDefaultAsync(c => c.Id == license.CustomerId, cancellationToken)
-            ?? throw new InvalidOperationException("Customer not found.");
+            ?? throw new NotFoundException("Customer not found.");
 
         var plainKey = GenerateLicenseKey(serviceProduct.Code);
         license.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey);
@@ -58,12 +58,9 @@ public class LicenseKeyDeliveryService(
     private static string RandomSegment(int length)
     {
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        var bytes = new byte[length];
-        RandomNumberGenerator.Fill(bytes);
         var sb = new StringBuilder(length);
         for (var i = 0; i < length; i++)
-            sb.Append(chars[bytes[i] % chars.Length]);
+            sb.Append(chars[RandomNumberGenerator.GetInt32(chars.Length)]);
         return sb.ToString();
     }
-
 }

@@ -31,20 +31,13 @@ public class ServiceProductsController(IServiceProductService serviceProducts) :
         [FromBody] CreateServiceProductRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var product = await serviceProducts.CreateAsync(
+        var product = await serviceProducts.CreateAsync(
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return CreatedAtAction(nameof(Get), new { id = product.Id }, product);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return CreatedAtAction(nameof(Get), new { id = product.Id }, product);
     }
 
     [HttpPut("{id}")]
@@ -53,39 +46,25 @@ public class ServiceProductsController(IServiceProductService serviceProducts) :
         [FromBody] UpdateServiceProductRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var product = await serviceProducts.UpdateAsync(
+        var product = await serviceProducts.UpdateAsync(
                 id,
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(product);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(product);
     }
 
     [HttpDelete("{id}")]
     public async Task<ActionResult> Delete(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            await serviceProducts.DeleteAsync(
+        await serviceProducts.DeleteAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return NoContent();
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return NoContent();
     }
 }

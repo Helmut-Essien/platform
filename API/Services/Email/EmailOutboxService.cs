@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Services;
 using Platform.Shared.Dtos.Email;
 using Platform.Shared.Enums;
 
@@ -61,10 +62,18 @@ public class EmailOutboxService(AppDbContext db) : IEmailOutboxService
     public async Task<EmailDeliveryDto> RetryAsync(string id, CancellationToken cancellationToken = default)
     {
         var message = await db.EmailOutboxMessages.FindAsync([id], cancellationToken)
-            ?? throw new InvalidOperationException("Email delivery not found.");
+            ?? throw new NotFoundException("Email delivery not found.");
 
         if (message.Status is not (EmailDeliveryStatus.Failed or EmailDeliveryStatus.DeadLetter))
             throw new InvalidOperationException("Only failed email deliveries can be retried.");
+
+        if (RequiresEncryptedPayload(message.Kind)
+            && message.EncryptedPayload is not { Length: > 0 })
+        {
+            throw new InvalidOperationException(
+                "This delivery can no longer be retried because its sensitive payload was cleared. "
+                + "Issue a new password reset or rotate the license key.");
+        }
 
         message.Status = EmailDeliveryStatus.Pending;
         message.NextAttemptAt = DateTime.UtcNow;
@@ -73,6 +82,11 @@ public class EmailOutboxService(AppDbContext db) : IEmailOutboxService
         await db.SaveChangesAsync(cancellationToken);
         return Map(message);
     }
+
+    private static bool RequiresEncryptedPayload(EmailDeliveryKind kind) =>
+        kind is EmailDeliveryKind.LicenseKey
+            or EmailDeliveryKind.LicenseKeyRotated
+            or EmailDeliveryKind.PasswordReset;
 
     private static EmailDeliveryDto Map(EmailOutboxMessage x) => new()
     {

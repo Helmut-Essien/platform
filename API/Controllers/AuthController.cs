@@ -57,19 +57,12 @@ public class AuthController(
         [FromBody] ResetPasswordRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            await adminAuth.ResetPasswordAsync(
+        await adminAuth.ResetPasswordAsync(
                 request.Email,
                 request.Token,
                 request.NewPassword,
                 cancellationToken);
-            return Ok(new { message = "Password has been reset. You can sign in with your new password." });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(new { message = "Password has been reset. You can sign in with your new password." });
     }
 
     [Authorize(Policy = PlatformAuthorizationPolicies.AdminOnly)]

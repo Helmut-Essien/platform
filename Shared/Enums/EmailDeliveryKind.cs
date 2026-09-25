@@ -11,5 +11,6 @@ public enum EmailDeliveryKind
     ExpiryReminder,
     Suspended,
     Revoked,
-    LicenseReactivated
+    LicenseReactivated,
+    PasswordReset
 }

@@ -47,20 +47,13 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromBody] CreateLicenseRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var license = await licenses.CreateAsync(
+        var license = await licenses.CreateAsync(
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return CreatedAtAction(nameof(Get), new { id = license.Id }, license);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return CreatedAtAction(nameof(Get), new { id = license.Id }, license);
     }
 
     [HttpPost("{id}/activate")]
@@ -69,21 +62,14 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromBody] ActivateLicenseRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var license = await licenses.ActivateAsync(
+        var license = await licenses.ActivateAsync(
                 id,
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(license);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(license);
     }
 
     [HttpPost("{id}/renew")]
@@ -92,21 +78,14 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromBody] RenewLicenseRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var license = await licenses.RenewAsync(
+        var license = await licenses.RenewAsync(
                 id,
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(license);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(license);
     }
 
     [HttpPut("{id}")]
@@ -115,59 +94,38 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromBody] UpdateLicenseRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var license = await licenses.UpdateAsync(
+        var license = await licenses.UpdateAsync(
                 id,
                 request,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(license);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(license);
     }
 
     [HttpPost("{id}/suspend")]
     public async Task<ActionResult<LicenseDto>> Suspend(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var license = await licenses.SuspendAsync(
+        var license = await licenses.SuspendAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(license);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(license);
     }
 
     [HttpPost("{id}/revoke")]
     public async Task<ActionResult<LicenseDto>> Revoke(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var license = await licenses.RevokeAsync(
+        var license = await licenses.RevokeAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(license);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(license);
     }
 
     [HttpPost("{id}/resend-key")]
@@ -177,19 +135,12 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
     [HttpPost("{id}/rotate-key")]
     public async Task<ActionResult<LicenseDto>> RotateKey(string id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var license = await licenses.RotateKeyAsync(
+        var license = await licenses.RotateKeyAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);
 
-            return Ok(license);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return Ok(license);
     }
 }

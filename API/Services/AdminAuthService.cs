@@ -1,21 +1,26 @@
-using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
+using Platform.Api.Data;
 using Platform.Api.Identity;
 using Platform.Api.Services.Email;
+using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
 
 public class AdminAuthService(
     UserManager<ApplicationUser> userManager,
-    IEmailSender emailSender,
+    AppDbContext db,
+    IEmailOutboxService outbox,
+    EmailPayloadProtector protector,
     EmailTemplateService templates,
     IOptions<AuthSettings> authSettings,
     ILogger<AdminAuthService> logger) : IAdminAuthService
 {
+    public const string ResetLinkPlaceholder = "{{RESET_LINK}}";
+
     public async Task RequestPasswordResetAsync(string email, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = email.Trim();
@@ -32,9 +37,15 @@ public class AdminAuthService(
         var resetLink =
             $"{baseUrl}/reset-password?email={Uri.EscapeDataString(normalizedEmail)}&token={encodedToken}";
 
-        var template = templates.PasswordReset(normalizedEmail, resetLink);
-        await emailSender.SendAsync(normalizedEmail, template.Subject, template.Html, cancellationToken: cancellationToken);
-        logger.LogInformation("Password reset email sent to {Email}", normalizedEmail);
+        var template = templates.PasswordReset(normalizedEmail, ResetLinkPlaceholder);
+        outbox.Enqueue(
+            EmailDeliveryKind.PasswordReset,
+            normalizedEmail,
+            template.Subject,
+            template.Html,
+            encryptedPayload: protector.Protect(resetLink));
+        await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Password reset email queued for {Email}", normalizedEmail);
     }
 
     public async Task ResetPasswordAsync(

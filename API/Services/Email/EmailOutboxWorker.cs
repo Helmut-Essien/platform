@@ -1,7 +1,9 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
 using Platform.Api.Data;
+using Platform.Api.Helpers;
 using Platform.Api.Services.Billing;
 using Platform.Shared.Enums;
 
@@ -112,7 +114,12 @@ public class EmailOutboxWorker(
         {
             var body = message.HtmlBody;
             if (message.EncryptedPayload is { Length: > 0 })
-                body = body.Replace("{{LICENSE_KEY}}", protector.Unprotect(message.EncryptedPayload), StringComparison.Ordinal);
+            {
+                var secret = protector.Unprotect(message.EncryptedPayload);
+                body = body
+                    .Replace("{{LICENSE_KEY}}", WebUtility.HtmlEncode(secret), StringComparison.Ordinal)
+                    .Replace("{{RESET_LINK}}", WebUtility.HtmlEncode(secret), StringComparison.Ordinal);
+            }
 
             IReadOnlyList<EmailAttachment>? attachments = null;
             if (message.Kind == EmailDeliveryKind.Invoice && message.InvoiceId is not null)
@@ -140,6 +147,9 @@ public class EmailOutboxWorker(
             message.UpdatedAt = DateTime.UtcNow;
             message.LastError = null;
             message.EncryptedPayload = null;
+            message.HtmlBody = message.HtmlBody
+                .Replace("{{LICENSE_KEY}}", "[delivered]", StringComparison.Ordinal)
+                .Replace("{{RESET_LINK}}", "[delivered]", StringComparison.Ordinal);
             db.AuditLogs.Add(new Platform.Api.Entities.AuditLog
             {
                 Action = AuditAction.EmailDeliverySent,
@@ -147,7 +157,7 @@ public class EmailOutboxWorker(
                 CustomerId = message.CustomerId,
                 LicenseId = message.LicenseId,
                 InvoiceId = message.InvoiceId,
-                DetailsJson = $$"""{"deliveryId":"{{message.Id}}","kind":"{{message.Kind}}"}"""
+                DetailsJson = AuditJson.Serialize(new { deliveryId = message.Id, kind = message.Kind.ToString() })
             });
             await db.SaveChangesAsync(cancellationToken);
         }
@@ -162,6 +172,13 @@ public class EmailOutboxWorker(
                 : DateTime.UtcNow.AddMinutes(Math.Pow(2, message.AttemptCount));
             message.LastError = Sanitize(ex.Message);
             message.UpdatedAt = DateTime.UtcNow;
+            if (message.Status == EmailDeliveryStatus.DeadLetter)
+            {
+                message.EncryptedPayload = null;
+                message.HtmlBody = message.HtmlBody
+                    .Replace("{{LICENSE_KEY}}", "[redacted]", StringComparison.Ordinal)
+                    .Replace("{{RESET_LINK}}", "[redacted]", StringComparison.Ordinal);
+            }
             db.AuditLogs.Add(new Platform.Api.Entities.AuditLog
             {
                 Action = AuditAction.EmailDeliveryFailed,
@@ -169,7 +186,12 @@ public class EmailOutboxWorker(
                 CustomerId = message.CustomerId,
                 LicenseId = message.LicenseId,
                 InvoiceId = message.InvoiceId,
-                DetailsJson = $$"""{"deliveryId":"{{message.Id}}","kind":"{{message.Kind}}","attempt":{{message.AttemptCount}}}"""
+                DetailsJson = AuditJson.Serialize(new
+                {
+                    deliveryId = message.Id,
+                    kind = message.Kind.ToString(),
+                    attempt = message.AttemptCount
+                })
             });
             await db.SaveChangesAsync(cancellationToken);
             logger.LogWarning(ex, "Email delivery {DeliveryId} failed on attempt {Attempt}.", id, message.AttemptCount);

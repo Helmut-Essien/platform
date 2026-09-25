@@ -137,6 +137,28 @@ public class LicenseValidationServiceTests
         Assert.Equal("License is not valid.", result.Message);
     }
 
+    [Fact]
+    public async Task ValidateAsync_CacheHitReChecksDatabaseStatusAfterRevoke()
+    {
+        await using var db = CreateDbContext();
+        var fixture = await SeedActiveLicenseAsync(db);
+        var service = CreateService(db, new FakeDenyList());
+
+        Assert.True((await service.ValidateAsync(
+            PlainIntegrationKey,
+            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey })).IsValid);
+
+        fixture.License.Status = LicenseStatus.Revoked;
+        await db.SaveChangesAsync();
+
+        var result = await service.ValidateAsync(
+            PlainIntegrationKey,
+            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
+
+        Assert.False(result.IsValid);
+        Assert.Equal("License is not valid.", result.Message);
+    }
+
     private static LicenseValidationService CreateService(
         AppDbContext db,
         ILicenseDenyListService denyList,
