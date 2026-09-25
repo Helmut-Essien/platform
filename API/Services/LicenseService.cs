@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Helpers;
@@ -19,24 +18,20 @@ public class LicenseService(
     IEmailOutboxService outbox,
     EmailTemplateService templates) : ILicenseService
 {
-    public async Task<LicenseDto> CreateAsync(
+    public Task<LicenseDto> CreateAsync(
         CreateLicenseRequest request,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
-        IDbContextTransaction? transaction = null;
-        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
-            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await using var ownedTransaction = transaction;
-
-        var customer = await db.Customers.FindAsync([request.CustomerId], cancellationToken)
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+        var customer = await db.Customers.FindAsync([request.CustomerId], ct)
             ?? throw new NotFoundException("Customer not found.");
 
         if (customer.IsSuspended)
             throw new InvalidOperationException("Cannot issue license for a suspended customer.");
 
-        _ = await db.ServiceProducts.FindAsync([request.ServiceProductId], cancellationToken)
+        _ = await db.ServiceProducts.FindAsync([request.ServiceProductId], ct)
             ?? throw new NotFoundException("Service product not found.");
 
         var now = DateTime.UtcNow;
@@ -52,10 +47,10 @@ public class LicenseService(
         };
 
         db.Licenses.Add(license);
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseIssued, performedBy, request.CustomerId, license.Id,
-            null, $$"""{"planName":"{{request.PlanName}}"}""", ipAddress, cancellationToken);
+            null, $$"""{"planName":"{{request.PlanName}}"}""", ipAddress, ct);
 
         if (request.CreateInvoice)
         {
@@ -69,15 +64,15 @@ public class LicenseService(
                 performedBy,
                 request.SendInvoice ? InvoiceStatus.Sent : InvoiceStatus.Draft,
                 ipAddress,
-                cancellationToken);
+                ct);
         }
 
-        var result = await MapLicenseAsync(license.Id, cancellationToken: cancellationToken)
+        var result = await MapLicenseAsync(license.Id, cancellationToken: ct)
             ?? throw new InvalidOperationException("Failed to load created license.");
         if (transaction is not null)
-            await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(ct);
         return result;
-    }
+        }, cancellationToken);
 
     public async Task<LicenseDto?> GetAsync(
         string id,
@@ -148,22 +143,18 @@ public class LicenseService(
         };
     }
 
-    public async Task<LicenseDto> ActivateAsync(
+    public Task<LicenseDto> ActivateAsync(
         string id,
         ActivateLicenseRequest request,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
-        IDbContextTransaction? transaction = null;
-        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
-            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await using var ownedTransaction = transaction;
-
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
         var license = await db.Licenses
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
-            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            .FirstOrDefaultAsync(l => l.Id == id, ct)
             ?? throw new NotFoundException("License not found.");
 
         if (license.Customer.IsSuspended)
@@ -178,14 +169,14 @@ public class LicenseService(
         license.UpdatedAt = now;
 
         if (request.EmailLicenseKey)
-            await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: false, cancellationToken);
+            await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: false, ct);
         else if (string.IsNullOrEmpty(license.LicenseKeyHash))
             throw new InvalidOperationException("A new license must be delivered by email when first activated.");
 
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseActivated, performedBy, license.CustomerId, license.Id,
-            null, $$"""{"licenseKeyQueued":{{request.EmailLicenseKey.ToString().ToLowerInvariant()}}}""", ipAddress, cancellationToken);
+            null, $$"""{"licenseKeyQueued":{{request.EmailLicenseKey.ToString().ToLowerInvariant()}}}""", ipAddress, ct);
 
         if (request.CreateInvoice)
         {
@@ -193,32 +184,28 @@ public class LicenseService(
                 license, request.Subtotal, request.TaxAmount, request.Currency,
                 request.DueDate, request.Description, performedBy,
                 request.SendInvoice ? InvoiceStatus.Sent : InvoiceStatus.Draft,
-                ipAddress, cancellationToken);
+                ipAddress, ct);
         }
 
-        var result = await MapLicenseAsync(license.Id, cancellationToken: cancellationToken)
+        var result = await MapLicenseAsync(license.Id, cancellationToken: ct)
             ?? throw new InvalidOperationException("Failed to load license.");
         if (transaction is not null)
-            await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(ct);
         return result;
-    }
+        }, cancellationToken);
 
-    public async Task<LicenseDto> RenewAsync(
+    public Task<LicenseDto> RenewAsync(
         string id,
         RenewLicenseRequest request,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
-        IDbContextTransaction? transaction = null;
-        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
-            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await using var ownedTransaction = transaction;
-
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
         var license = await db.Licenses
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
-            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            .FirstOrDefaultAsync(l => l.Id == id, ct)
             ?? throw new NotFoundException("License not found.");
 
         if (license.Customer.IsSuspended)
@@ -237,7 +224,7 @@ public class LicenseService(
         {
             if (!request.EmailLicenseKey)
                 throw new InvalidOperationException("Rotated keys must be emailed to the technical contact.");
-            await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: true, cancellationToken);
+            await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: true, ct);
         }
         else if (request.EmailLicenseKey)
         {
@@ -250,15 +237,15 @@ public class LicenseService(
                 license.CustomerId,
                 license.Id);
         }
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseRenewed, performedBy, license.CustomerId, license.Id,
-            null, $$"""{"keyRotated":{{request.RotateLicenseKey.ToString().ToLowerInvariant()}}}""", ipAddress, cancellationToken);
+            null, $$"""{"keyRotated":{{request.RotateLicenseKey.ToString().ToLowerInvariant()}}}""", ipAddress, ct);
 
         if (request.RotateLicenseKey)
         {
             await auditLog.WriteAsync(AuditAction.LicenseKeyRotated, performedBy, license.CustomerId, license.Id,
-                null, null, ipAddress, cancellationToken);
+                null, null, ipAddress, ct);
         }
 
         if (request.CreateInvoice)
@@ -267,15 +254,15 @@ public class LicenseService(
                 license, request.Subtotal, request.TaxAmount, request.Currency,
                 request.DueDate, request.Description, performedBy,
                 request.SendInvoice ? InvoiceStatus.Sent : InvoiceStatus.Draft,
-                ipAddress, cancellationToken);
+                ipAddress, ct);
         }
 
-        var result = await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
+        var result = await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, ct)
             ?? throw new InvalidOperationException("Failed to load license.");
         if (transaction is not null)
-            await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(ct);
         return result;
-    }
+        }, cancellationToken);
 
     public async Task<LicenseDto> UpdateAsync(
         string id,

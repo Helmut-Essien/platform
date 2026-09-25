@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Helpers;
@@ -19,18 +18,14 @@ public class BillingService(
 {
     private const int MaxNumberGenerationAttempts = 3;
 
-    public async Task<InvoiceDto> CreateInvoiceAsync(
+    public Task<InvoiceDto> CreateInvoiceAsync(
         CreateInvoiceRequest request,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
-        IDbContextTransaction? transaction = null;
-        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
-            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await using var ownedTransaction = transaction;
-
-        var customer = await db.Customers.FindAsync([request.CustomerId], cancellationToken)
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+        var customer = await db.Customers.FindAsync([request.CustomerId], ct)
             ?? throw new NotFoundException("Customer not found.");
 
         if (customer.IsSuspended)
@@ -40,7 +35,7 @@ public class BillingService(
         {
             var license = await db.Licenses
                 .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(l => l.Id == request.LicenseId, cancellationToken)
+                .FirstOrDefaultAsync(l => l.Id == request.LicenseId, ct)
                 ?? throw new NotFoundException("License not found.");
 
             if (license.CustomerId != request.CustomerId)
@@ -70,28 +65,28 @@ public class BillingService(
             UpdatedAt = now
         };
 
-        await SaveNewInvoiceAsync(invoice, cancellationToken);
+        await SaveNewInvoiceAsync(invoice, ct);
 
         var action = request.Status == InvoiceStatus.Sent ? AuditAction.InvoiceSent : AuditAction.InvoiceCreated;
         await auditLog.WriteAsync(action, performedBy, request.CustomerId, request.LicenseId, invoice.Id,
-            AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, total }), ipAddress, cancellationToken);
+            AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, total }), ipAddress, ct);
 
         if (request.LicenseId is not null)
         {
             await auditLog.WriteAsync(AuditAction.InvoiceLinkedToLicense, performedBy, request.CustomerId,
-                request.LicenseId, invoice.Id, null, ipAddress, cancellationToken);
+                request.LicenseId, invoice.Id, null, ipAddress, ct);
         }
 
         if (invoice.Status == InvoiceStatus.Sent)
             QueueInvoiceEmail(customer, invoice);
 
-        await db.SaveChangesAsync(cancellationToken);
-        var result = await MapInvoiceAsync(invoice.Id, cancellationToken)
+        await db.SaveChangesAsync(ct);
+        var result = await MapInvoiceAsync(invoice.Id, ct)
             ?? throw new InvalidOperationException("Failed to load created invoice.");
         if (transaction is not null)
-            await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(ct);
         return result;
-    }
+        }, cancellationToken);
 
     public async Task<InvoiceDto> CreateInvoiceForLicenseAsync(
         License license,
@@ -202,23 +197,19 @@ public class BillingService(
         };
     }
 
-    public async Task<InvoiceDto> VoidInvoiceAsync(
+    public Task<InvoiceDto> VoidInvoiceAsync(
         string id,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
-        IDbContextTransaction? transaction = null;
-        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
-            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await using var ownedTransaction = transaction;
-
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
         var invoice = await db.Invoices
             .IgnoreQueryFilters()
             .Include(i => i.Receipts)
             .Include(i => i.PaymentTransactions)
             .Include(i => i.Customer)
-            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken)
+            .FirstOrDefaultAsync(i => i.Id == id, ct)
             ?? throw new NotFoundException("Invoice not found.");
 
         if (invoice.Status == InvoiceStatus.Void)
@@ -236,16 +227,16 @@ public class BillingService(
 
         invoice.Status = InvoiceStatus.Void;
         invoice.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.InvoiceVoided, performedBy, invoice.CustomerId, invoice.LicenseId,
-            invoice.Id, AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber }), ipAddress, cancellationToken);
+            invoice.Id, AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber }), ipAddress, ct);
 
         if (transaction is not null)
-            await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(ct);
 
         return MapInvoice(invoice);
-    }
+        }, cancellationToken);
 
     public async Task<ReceiptDto> RecordReceiptAsync(
         string invoiceId,
@@ -261,25 +252,22 @@ public class BillingService(
         var paymentReference = NormalizeOptional(request.PaymentReference);
         ValidatePaymentReference(request.PaymentMethod, paymentReference);
 
-        IDbContextTransaction? transaction = null;
-        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
-            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await using var ownedTransaction = transaction;
-
-        await LockInvoiceRowAsync(invoiceId, cancellationToken);
+        return await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+        await LockInvoiceRowAsync(invoiceId, ct);
 
         var existingByKey = await db.PaymentTransactions
             .IgnoreQueryFilters()
             .Include(x => x.Receipt)
             .FirstOrDefaultAsync(
                 x => x.InvoiceId == invoiceId && x.IdempotencyKey == idempotencyKey,
-                cancellationToken);
+                ct);
         if (existingByKey is not null)
         {
             if (existingByKey.Kind != PaymentTransactionKind.Payment || existingByKey.Receipt is null)
                 throw new ConflictException("Idempotency key was already used for a different payment operation.");
             if (transaction is not null)
-                await transaction.CommitAsync(cancellationToken);
+                await transaction.CommitAsync(ct);
             return MapReceipt(existingByKey.Receipt);
         }
 
@@ -288,7 +276,7 @@ public class BillingService(
             .Include(i => i.Customer)
             .Include(i => i.Receipts)
             .Include(i => i.PaymentTransactions)
-            .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken)
+            .FirstOrDefaultAsync(i => i.Id == invoiceId, ct)
             ?? throw new NotFoundException("Invoice not found.");
 
         if (invoice.Status is not (InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue))
@@ -326,7 +314,7 @@ public class BillingService(
         PaymentTransaction? payment = null;
         for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
         {
-            receipt.ReceiptNumber = await GenerateReceiptNumberAsync(cancellationToken);
+            receipt.ReceiptNumber = await GenerateReceiptNumberAsync(ct);
             if (attempt == 0)
             {
                 db.Receipts.Add(receipt);
@@ -354,7 +342,7 @@ public class BillingService(
 
             try
             {
-                await db.SaveChangesAsync(cancellationToken);
+                await db.SaveChangesAsync(ct);
                 break;
             }
             catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex)
@@ -373,11 +361,11 @@ public class BillingService(
                     .Include(x => x.Receipt)
                     .FirstOrDefaultAsync(
                         x => x.InvoiceId == invoiceId && x.IdempotencyKey == idempotencyKey,
-                        cancellationToken);
+                        ct);
                 if (raced?.Receipt is not null)
                 {
                     if (transaction is not null)
-                        await transaction.RollbackAsync(cancellationToken);
+                        await transaction.RollbackAsync(ct);
                     return MapReceipt(raced.Receipt);
                 }
 
@@ -407,18 +395,19 @@ public class BillingService(
                 amount = request.AmountPaid,
                 transactionId = payment.Id
             }),
-            ipAddress, cancellationToken);
+            ipAddress, ct);
 
-        var licenseIdToClearDeny = await TryQueueLicenseReactivationAsync(invoice, cancellationToken);
+        var licenseIdToClearDeny = await TryQueueLicenseReactivationAsync(invoice, ct);
 
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
         if (transaction is not null)
-            await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(ct);
 
         if (licenseIdToClearDeny is not null)
-            await denyList.ClearLicenseDenyAsync(licenseIdToClearDeny, cancellationToken);
+            await denyList.ClearLicenseDenyAsync(licenseIdToClearDeny, ct);
 
         return MapReceipt(receipt);
+        }, cancellationToken);
     }
 
     public async Task<ReceiptDto> ReverseReceiptAsync(
@@ -432,12 +421,9 @@ public class BillingService(
         var idempotencyKey = NormalizeRequired(request.IdempotencyKey, "Idempotency key");
         var reason = NormalizeRequired(request.Reason, "Reason");
 
-        IDbContextTransaction? transaction = null;
-        if (db.Database.IsRelational() && db.Database.CurrentTransaction is null)
-            transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await using var ownedTransaction = transaction;
-
-        await LockInvoiceRowAsync(invoiceId, cancellationToken);
+        return await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+        await LockInvoiceRowAsync(invoiceId, ct);
 
         var existingByKey = await db.PaymentTransactions
             .IgnoreQueryFilters()
@@ -445,7 +431,7 @@ public class BillingService(
             .ThenInclude(p => p!.Receipt)
             .FirstOrDefaultAsync(
                 x => x.InvoiceId == invoiceId && x.IdempotencyKey == idempotencyKey,
-                cancellationToken);
+                ct);
         if (existingByKey is not null)
         {
             if (existingByKey.Kind != PaymentTransactionKind.Reversal
@@ -456,7 +442,7 @@ public class BillingService(
             }
 
             if (transaction is not null)
-                await transaction.CommitAsync(cancellationToken);
+                await transaction.CommitAsync(ct);
             return MapReceipt(existingByKey.ReversesTransaction.Receipt);
         }
 
@@ -466,7 +452,7 @@ public class BillingService(
             .Include(i => i.Receipts)
             .ThenInclude(r => r.PaymentTransaction)
             .Include(i => i.PaymentTransactions)
-            .FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken)
+            .FirstOrDefaultAsync(i => i.Id == invoiceId, ct)
             ?? throw new NotFoundException("Invoice not found.");
 
         if (invoice.Status == InvoiceStatus.Void)
@@ -512,7 +498,7 @@ public class BillingService(
 
         try
         {
-            await db.SaveChangesAsync(cancellationToken);
+            await db.SaveChangesAsync(ct);
         }
         catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
         {
@@ -522,11 +508,11 @@ public class BillingService(
                 .ThenInclude(p => p!.Receipt)
                 .FirstOrDefaultAsync(
                     x => x.InvoiceId == invoiceId && x.IdempotencyKey == idempotencyKey,
-                    cancellationToken);
+                    ct);
             if (raced?.ReversesTransaction?.Receipt is not null)
             {
                 if (transaction is not null)
-                    await transaction.RollbackAsync(cancellationToken);
+                    await transaction.RollbackAsync(ct);
                 return MapReceipt(raced.ReversesTransaction.Receipt);
             }
 
@@ -542,13 +528,14 @@ public class BillingService(
                 transactionId = reversal.Id,
                 reason
             }),
-            ipAddress, cancellationToken);
+            ipAddress, ct);
 
-        await db.SaveChangesAsync(cancellationToken);
+        await db.SaveChangesAsync(ct);
         if (transaction is not null)
-            await transaction.CommitAsync(cancellationToken);
+            await transaction.CommitAsync(ct);
 
         return MapReceipt(receipt);
+        }, cancellationToken);
     }
 
     private async Task LockInvoiceRowAsync(string invoiceId, CancellationToken cancellationToken)

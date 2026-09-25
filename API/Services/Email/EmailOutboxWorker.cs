@@ -68,33 +68,67 @@ public class EmailOutboxWorker(
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var now = DateTime.UtcNow;
-        var stale = now.AddMinutes(-10);
-        var batchSize = Math.Clamp(settings.Value.Outbox.BatchSize, 1, 100);
 
-        var messages = await db.EmailOutboxMessages
-            .FromSqlInterpolated($"""
-                SELECT * FROM "EmailOutboxMessages"
-                WHERE (
-                    ("Status" IN ('Pending', 'Failed') AND ("NextAttemptAt" IS NULL OR "NextAttemptAt" <= {now}))
-                    OR ("Status" = 'Sending' AND "UpdatedAt" <= {stale})
-                )
-                ORDER BY "CreatedAt"
-                LIMIT {batchSize}
-                FOR UPDATE SKIP LOCKED
-                """)
-            .ToListAsync(cancellationToken);
+        // Captured across strategy retries: after a successful commit, a transient error can
+        // still trigger a retry — return the same ids instead of re-querying an empty Pending set.
+        List<string>? committedClaimIds = null;
+        List<string>? pendingClaimIds = null;
 
-        foreach (var message in messages)
+        // EnableRetryOnFailure requires user transactions to run inside CreateExecutionStrategy.
+        return await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
-            message.Status = EmailDeliveryStatus.Sending;
-            message.UpdatedAt = now;
-        }
+            if (committedClaimIds is not null)
+                return committedClaimIds;
 
-        await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return messages.Select(x => x.Id).ToList();
+            if (transaction is null)
+                throw new InvalidOperationException("Email outbox claim requires a relational transaction.");
+
+            // Ambiguous commit: previous attempt may have committed then failed. Confirm by id.
+            if (pendingClaimIds is { Count: > 0 })
+            {
+                var confirmed = await db.EmailOutboxMessages
+                    .AsNoTracking()
+                    .Where(m => pendingClaimIds.Contains(m.Id) && m.Status == EmailDeliveryStatus.Sending)
+                    .Select(m => m.Id)
+                    .ToListAsync(ct);
+                if (confirmed.Count > 0)
+                {
+                    committedClaimIds = confirmed;
+                    return confirmed;
+                }
+
+                pendingClaimIds = null;
+            }
+
+            var now = DateTime.UtcNow;
+            var stale = now.AddMinutes(-10);
+            var batchSize = Math.Clamp(settings.Value.Outbox.BatchSize, 1, 100);
+
+            var messages = await db.EmailOutboxMessages
+                .FromSqlInterpolated($"""
+                    SELECT * FROM "EmailOutboxMessages"
+                    WHERE (
+                        ("Status" IN ('Pending', 'Failed') AND ("NextAttemptAt" IS NULL OR "NextAttemptAt" <= {now}))
+                        OR ("Status" = 'Sending' AND "UpdatedAt" <= {stale})
+                    )
+                    ORDER BY "CreatedAt"
+                    LIMIT {batchSize}
+                    FOR UPDATE SKIP LOCKED
+                    """)
+                .ToListAsync(ct);
+
+            foreach (var message in messages)
+            {
+                message.Status = EmailDeliveryStatus.Sending;
+                message.UpdatedAt = now;
+            }
+
+            await db.SaveChangesAsync(ct);
+            pendingClaimIds = messages.Select(x => x.Id).ToList();
+            await transaction.CommitAsync(ct);
+            committedClaimIds = pendingClaimIds;
+            return committedClaimIds;
+        }, cancellationToken);
     }
 
     private async Task SendAsync(string id, CancellationToken cancellationToken)

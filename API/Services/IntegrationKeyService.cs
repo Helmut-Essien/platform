@@ -35,53 +35,56 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
 
         var plainKey = GenerateIntegrationKey(product.Code);
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        try
+        return await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
-            var activeKeys = await db.IntegrationKeys
-                .Where(k => k.ServiceProductId == serviceProductId && k.IsActive)
-                .ToListAsync(cancellationToken);
-
-            foreach (var existing in activeKeys)
-                existing.IsActive = false;
-
-            var entity = new IntegrationKey
+            try
             {
-                ServiceProductId = serviceProductId,
-                KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
-                KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey),
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            };
+                var activeKeys = await db.IntegrationKeys
+                    .Where(k => k.ServiceProductId == serviceProductId && k.IsActive)
+                    .ToListAsync(ct);
 
-            db.IntegrationKeys.Add(entity);
-            await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+                foreach (var existing in activeKeys)
+                    existing.IsActive = false;
 
-            await auditLog.WriteAsync(AuditAction.IntegrationKeyCreated, performedBy, null, null, null,
-                $$"""{"serviceProductId":"{{serviceProductId}}","integrationKeyId":"{{entity.Id}}"}""",
-                ipAddress, cancellationToken);
-
-            return new CreateIntegrationKeyResponse
-            {
-                Key = new IntegrationKeyDto
+                var entity = new IntegrationKey
                 {
-                    Id = entity.Id,
-                    ServiceProductId = entity.ServiceProductId,
-                    ServiceProductCode = product.Code,
-                    IsActive = entity.IsActive,
-                    CreatedAt = entity.CreatedAt,
-                    LastUsedAt = entity.LastUsedAt
-                },
-                PlainKey = plainKey
-            };
-        }
-        catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            throw new InvalidOperationException("An integration key rotation is already in progress. Please try again.");
-        }
+                    ServiceProductId = serviceProductId,
+                    KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
+                    KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey),
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
 
+                db.IntegrationKeys.Add(entity);
+                await db.SaveChangesAsync(ct);
+
+                // Audit before commit so a transient failure cannot retry after key rotation committed.
+                await auditLog.WriteAsync(AuditAction.IntegrationKeyCreated, performedBy, null, null, null,
+                    $$"""{"serviceProductId":"{{serviceProductId}}","integrationKeyId":"{{entity.Id}}"}""",
+                    ipAddress, ct);
+
+                if (transaction is not null)
+                    await transaction.CommitAsync(ct);
+
+                return new CreateIntegrationKeyResponse
+                {
+                    Key = new IntegrationKeyDto
+                    {
+                        Id = entity.Id,
+                        ServiceProductId = entity.ServiceProductId,
+                        ServiceProductCode = product.Code,
+                        IsActive = entity.IsActive,
+                        CreatedAt = entity.CreatedAt,
+                        LastUsedAt = entity.LastUsedAt
+                    },
+                    PlainKey = plainKey
+                };
+            }
+            catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+            {
+                throw new InvalidOperationException("An integration key rotation is already in progress. Please try again.");
+            }
+        }, cancellationToken);
     }
 
     public async Task<IntegrationKeyDto> RevokeAsync(
