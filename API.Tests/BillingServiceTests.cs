@@ -256,6 +256,65 @@ public class BillingServiceTests
     }
 
     [Fact]
+    public async Task RecordReceiptAsync_RejectsIdempotencyKeyReusedWithDifferentAmount()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 100m);
+
+        await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "same-key",
+            AmountPaid = 40m,
+            PaymentMethod = PaymentMethod.BankTransfer,
+            PaymentReference = "REF-A"
+        }, performedBy: "admin@example.com");
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "same-key",
+                AmountPaid = 50m,
+                PaymentMethod = PaymentMethod.BankTransfer,
+                PaymentReference = "REF-A"
+            }, performedBy: "admin@example.com"));
+
+        Assert.Contains("different payment", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CreateInvoiceAsync_RejectsPaidStatusAndTreatsZeroTotalAsPaid()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateInvoiceAsync(new CreateInvoiceRequest
+            {
+                CustomerId = customer.Id,
+                Status = InvoiceStatus.Paid,
+                Currency = "USD",
+                Subtotal = 10m,
+                TaxAmount = 0m
+            }, performedBy: "admin@example.com"));
+        Assert.Contains("Draft or Sent", ex.Message);
+
+        var zero = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = 0m,
+            TaxAmount = 0m,
+            DueDate = DateTime.UtcNow.AddDays(-2)
+        }, performedBy: "admin@example.com");
+
+        Assert.Equal(InvoiceStatus.Paid, zero.Status);
+    }
+
+    [Fact]
     public async Task RecordReceiptAsync_RejectsDuplicateMethodAndReference()
     {
         await using var db = CreateDbContext();
@@ -396,7 +455,7 @@ public class BillingServiceTests
             CustomerId = customer.Id,
             LicenseId = license.Id,
             ServiceProductId = product.Id,
-            Status = InvoiceStatus.Overdue,
+            Status = InvoiceStatus.Sent,
             Currency = "USD",
             Subtotal = 80m,
             TaxAmount = 0m,
@@ -424,6 +483,58 @@ public class BillingServiceTests
         Assert.Contains(license.Id, denyList.ClearedLicenseIds);
         Assert.Contains(auditLog.Entries, e => e.Action == AuditAction.LicenseAutoReactivatedPaid);
         Assert.Contains(db.EmailOutboxMessages, m => m.Kind == EmailDeliveryKind.LicenseReactivated);
+    }
+
+    [Fact]
+    public async Task ReverseReceiptAsync_ResuspendsLicenseWhenAutoSuspendEnabled()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var license = new License
+        {
+            CustomerId = customer.Id,
+            ServiceProductId = product.Id,
+            PlanName = "Pro",
+            Status = LicenseStatus.Active
+        };
+        db.Licenses.Add(license);
+        await db.SaveChangesAsync();
+
+        var denyList = new FakeDenyListService();
+        var service = CreateBillingService(
+            db,
+            denyList: denyList,
+            lifecycle: new Platform.Api.Configuration.LifecycleSettings { AutoSuspendOnOverdue = true });
+        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            LicenseId = license.Id,
+            ServiceProductId = product.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = 80m,
+            TaxAmount = 0m,
+            DueDate = DateTime.UtcNow.AddDays(-2)
+        }, performedBy: "admin@example.com");
+
+        var receipt = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "pay-then-reverse",
+            AmountPaid = 80m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+
+        await service.ReverseReceiptAsync(invoice.Id, receipt.Id, new ReverseReceiptRequest
+        {
+            IdempotencyKey = "reverse-overdue",
+            Reason = "bounced"
+        }, performedBy: "admin@example.com");
+
+        var reloaded = await db.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == license.Id);
+        Assert.Equal(LicenseStatus.Suspended, reloaded.Status);
+        Assert.Equal(invoice.Id, reloaded.AutoSuspendedForOverdueInvoiceId);
+        Assert.Contains(license.Id, denyList.DeniedLicenseIds);
     }
 
     [Fact]
@@ -496,14 +607,16 @@ public class BillingServiceTests
     private static BillingService CreateBillingService(
         AppDbContext db,
         IAuditLogService? auditLog = null,
-        ILicenseDenyListService? denyList = null)
+        ILicenseDenyListService? denyList = null,
+        Platform.Api.Configuration.LifecycleSettings? lifecycle = null)
     {
         return new BillingService(
             db,
             auditLog ?? new FakeAuditLogService(),
             new EmailOutboxService(db),
             new EmailTemplateService(),
-            denyList ?? new FakeDenyListService());
+            denyList ?? new FakeDenyListService(),
+            lifecycle is null ? null : Microsoft.Extensions.Options.Options.Create(lifecycle));
     }
 
     private static async Task<Customer> SeedCustomerAsync(AppDbContext db, bool isSuspended = false)
@@ -537,9 +650,13 @@ public class BillingServiceTests
     private sealed class FakeDenyListService : ILicenseDenyListService
     {
         public List<string> ClearedLicenseIds { get; } = [];
+        public List<string> DeniedLicenseIds { get; } = [];
 
-        public Task DenyLicenseAsync(string licenseId, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+        public Task DenyLicenseAsync(string licenseId, CancellationToken cancellationToken = default)
+        {
+            DeniedLicenseIds.Add(licenseId);
+            return Task.CompletedTask;
+        }
 
         public Task DenyCustomerLicensesAsync(string customerId, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;

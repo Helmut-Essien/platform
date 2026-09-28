@@ -32,6 +32,11 @@ public class License
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Optimistic concurrency token. Incremented on every update.
+    /// </summary>
+    public long Version { get; set; }
+
     public Customer Customer { get; set; } = null!;
 
     public ServiceProduct ServiceProduct { get; set; } = null!;

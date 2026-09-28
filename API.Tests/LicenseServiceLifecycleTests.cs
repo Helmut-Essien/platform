@@ -40,7 +40,7 @@ public class LicenseServiceLifecycleTests
             performedBy: "admin@example.com");
 
         Assert.Equal(LicenseStatus.Active, result.Status);
-        Assert.NotNull(result.LicenseKeySentAt);
+        Assert.Null(result.LicenseKeySentAt);
 
         var stored = await db.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == license.Id);
         Assert.Equal(LicenseStatus.Active, stored.Status);
@@ -124,6 +124,91 @@ public class LicenseServiceLifecycleTests
             service.RevokeAsync(license.Id, performedBy: "admin@example.com"));
 
         Assert.Equal("License is already revoked.", ex.Message);
+    }
+
+    [Fact]
+    public async Task ActivateAsync_ClearsDenyListAfterSuspend()
+    {
+        await using var db = CreateDbContext();
+        var (_, _, license) = await SeedPendingLicenseAsync(db);
+        var denyList = new FakeDenyListService();
+        var service = CreateLicenseService(db, denyList: denyList);
+        var activate = new ActivateLicenseRequest
+        {
+            EmailLicenseKey = true,
+            CreateInvoice = false,
+            Currency = "USD"
+        };
+
+        await service.ActivateAsync(license.Id, activate, performedBy: "admin@example.com");
+        await service.SuspendAsync(license.Id, performedBy: "admin@example.com");
+        Assert.Contains(license.Id, denyList.DeniedLicenseIds);
+
+        await service.ActivateAsync(license.Id, activate, performedBy: "admin@example.com");
+        Assert.DoesNotContain(license.Id, denyList.DeniedLicenseIds);
+    }
+
+    [Fact]
+    public async Task ExpireDueLicensesAsync_MarksPastExpiryAndDenies()
+    {
+        await using var db = CreateDbContext();
+        var (_, _, license) = await SeedPendingLicenseAsync(db);
+        license.Status = LicenseStatus.Active;
+        license.ExpiresAt = DateTime.UtcNow.AddDays(-1);
+        await db.SaveChangesAsync();
+
+        var denyList = new FakeDenyListService();
+        var service = CreateLicenseService(db, denyList: denyList);
+        var count = await service.ExpireDueLicensesAsync();
+
+        Assert.Equal(1, count);
+        var stored = await db.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == license.Id);
+        Assert.Equal(LicenseStatus.Expired, stored.Status);
+        Assert.Contains(license.Id, denyList.DeniedLicenseIds);
+    }
+
+    [Fact]
+    public async Task CreateAsync_RejectsSecondOpenLicenseForSameService()
+    {
+        await using var db = CreateDbContext();
+        var (customer, product, _) = await SeedPendingLicenseAsync(db);
+        var service = CreateLicenseService(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateAsync(new CreateLicenseRequest
+            {
+                CustomerId = customer.Id,
+                ServiceProductId = product.Id,
+                PlanName = "Second"
+            }, performedBy: "admin@example.com"));
+
+        Assert.Contains("already has a license", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConflictingWritersThrowConcurrencyException()
+    {
+        var databaseName = NUlid.Ulid.NewUlid().ToString();
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(databaseName)
+            .Options;
+
+        string licenseId;
+        await using (var seed = new AppDbContext(options))
+        {
+            var (_, _, license) = await SeedPendingLicenseAsync(seed);
+            licenseId = license.Id;
+        }
+
+        await using var first = new AppDbContext(options);
+        await using var second = new AppDbContext(options);
+        var left = await first.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == licenseId);
+        var right = await second.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == licenseId);
+        left.PlanName = "Left";
+        right.PlanName = "Right";
+        await first.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
     }
 
     private static LicenseService CreateLicenseService(
@@ -277,8 +362,11 @@ public class LicenseServiceLifecycleTests
         public Task<bool> IsDeniedAsync(string licenseId, CancellationToken cancellationToken = default) =>
             Task.FromResult(DeniedLicenseIds.Contains(licenseId));
 
-        public Task ClearLicenseDenyAsync(string licenseId, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+        public Task ClearLicenseDenyAsync(string licenseId, CancellationToken cancellationToken = default)
+        {
+            DeniedLicenseIds.Remove(licenseId);
+            return Task.CompletedTask;
+        }
 
         public Task ClearCustomerDenyAsync(string customerId, CancellationToken cancellationToken = default) =>
             Task.CompletedTask;

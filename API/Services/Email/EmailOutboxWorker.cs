@@ -176,9 +176,10 @@ public class EmailOutboxWorker(
             }
 
             await sender.SendAsync(message.ToEmail, message.Subject, body, attachments, cancellationToken);
+            var sentAt = DateTime.UtcNow;
             message.Status = EmailDeliveryStatus.Sent;
-            message.SentAt = DateTime.UtcNow;
-            message.UpdatedAt = DateTime.UtcNow;
+            message.SentAt = sentAt;
+            message.UpdatedAt = sentAt;
             message.LastError = null;
             message.EncryptedPayload = null;
             message.HtmlBody = message.HtmlBody
@@ -194,6 +195,7 @@ public class EmailOutboxWorker(
                 DetailsJson = AuditJson.Serialize(new { deliveryId = message.Id, kind = message.Kind.ToString() })
             });
             await db.SaveChangesAsync(cancellationToken);
+            await MarkLicenseKeyDeliveredAsync(db, message, sentAt, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -229,6 +231,37 @@ public class EmailOutboxWorker(
             });
             await db.SaveChangesAsync(cancellationToken);
             logger.LogWarning(ex, "Email delivery {DeliveryId} failed on attempt {Attempt}.", id, message.AttemptCount);
+        }
+    }
+
+    private async Task MarkLicenseKeyDeliveredAsync(
+        AppDbContext db,
+        Platform.Api.Entities.EmailOutboxMessage message,
+        DateTime sentAt,
+        CancellationToken cancellationToken)
+    {
+        if (message.LicenseId is null
+            || message.Kind is not (EmailDeliveryKind.LicenseKey or EmailDeliveryKind.LicenseKeyRotated))
+            return;
+
+        try
+        {
+            // Separate from the outbox save so a license concurrency conflict cannot
+            // mark a delivered message as failed and cause the key to be emailed again.
+            await db.Licenses
+                .IgnoreQueryFilters()
+                .Where(l => l.Id == message.LicenseId)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(l => l.LicenseKeySentAt, sentAt),
+                    cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "License key email {DeliveryId} was sent, but LicenseKeySentAt was not updated for {LicenseId}.",
+                message.Id,
+                message.LicenseId);
         }
     }
 

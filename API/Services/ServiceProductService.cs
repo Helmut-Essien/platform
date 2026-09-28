@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Helpers;
 using Platform.Shared.Dtos.ServiceProducts;
 using Platform.Shared.Enums;
 
@@ -64,7 +65,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.ServiceProductCreated, performedBy, null, null, null,
-            $$"""{"serviceProductId":"{{product.Id}}","code":"{{code}}"}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { serviceProductId = product.Id, code }), ipAddress, cancellationToken);
 
         return MapProduct(product, 0, false);
     }
@@ -86,7 +87,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.ServiceProductUpdated, performedBy, null, null, null,
-            $$"""{"serviceProductId":"{{id}}","code":"{{product.Code}}"}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { serviceProductId = id, code = product.Code }), ipAddress, cancellationToken);
 
         var licenseCount = await db.Licenses.CountAsync(l => l.ServiceProductId == id, cancellationToken);
         var hasKey = await db.IntegrationKeys.AnyAsync(k => k.ServiceProductId == id && k.IsActive, cancellationToken);
@@ -100,14 +101,18 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         CancellationToken cancellationToken = default)
     {
         var product = await db.ServiceProducts
-            .Include(p => p.Licenses)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken)
             ?? throw new NotFoundException("Service product not found.");
 
-        if (product.Licenses.Count > 0)
-            throw new InvalidOperationException("Cannot delete a service product that has active licenses.");
+        var licenseCount = await db.Licenses
+            .IgnoreQueryFilters()
+            .CountAsync(l => l.ServiceProductId == id, cancellationToken);
+        if (licenseCount > 0)
+            throw new InvalidOperationException("Cannot delete a service product that has licenses.");
 
-        var hasInvoices = await db.Invoices.AnyAsync(i => i.ServiceProductId == id, cancellationToken);
+        var hasInvoices = await db.Invoices
+            .IgnoreQueryFilters()
+            .AnyAsync(i => i.ServiceProductId == id, cancellationToken);
         if (hasInvoices)
             throw new InvalidOperationException("Cannot delete a service product that has associated invoices.");
 
@@ -124,7 +129,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.ServiceProductDeleted, performedBy, null, null, null,
-            $$"""{"serviceProductId":"{{id}}","code":"{{product.Code}}"}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { serviceProductId = id, code = product.Code }), ipAddress, cancellationToken);
     }
 
     private static ServiceProductDto MapProduct(ServiceProduct product, int licenseCount, bool hasActiveKey) => new()

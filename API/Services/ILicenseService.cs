@@ -36,4 +36,9 @@ public interface ILicenseService
     Task<LicenseDto> ResendKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<LicenseDto> RotateKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks active licenses whose expiry has passed as expired and denies them.
+    /// </summary>
+    Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default);
 }

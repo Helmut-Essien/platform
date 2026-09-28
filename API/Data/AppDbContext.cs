@@ -28,6 +28,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<EmailOutboxMessage> EmailOutboxMessages => Set<EmailOutboxMessage>();
 
+    public override int SaveChanges()
+    {
+        IncrementLicenseVersions();
+        return base.SaveChanges();
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        IncrementLicenseVersions();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void IncrementLicenseVersions()
+    {
+        foreach (var entry in ChangeTracker.Entries<License>())
+        {
+            if (entry.State == EntityState.Modified)
+                entry.Entity.Version++;
+        }
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

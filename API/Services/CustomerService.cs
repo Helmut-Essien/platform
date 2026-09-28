@@ -112,10 +112,17 @@ public class CustomerService(
             var template = templates.Welcome(customer);
             outbox.Enqueue(EmailDeliveryKind.Welcome, customer.ContactEmail, template.Subject, template.Html, customer.Id);
         }
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+        {
+            throw new InvalidOperationException("A customer with this email already exists.", ex);
+        }
 
         await auditLog.WriteAsync(AuditAction.CustomerCreated, performedBy, customer.Id, null, null,
-            $$"""{"name":"{{customer.Name}}","email":"{{customer.ContactEmail}}"}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { name = customer.Name, email = customer.ContactEmail }), ipAddress, cancellationToken);
 
         return MapCustomer(customer, 0);
     }
@@ -142,10 +149,17 @@ public class CustomerService(
         customer.ContactPhone = request.ContactPhone?.Trim();
         customer.InternalNotes = request.InternalNotes?.Trim();
 
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+        {
+            throw new InvalidOperationException("A customer with this email already exists.", ex);
+        }
 
         await auditLog.WriteAsync(AuditAction.CustomerUpdated, performedBy, customer.Id, null, null,
-            $$"""{"name":"{{customer.Name}}"}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { name = customer.Name }), ipAddress, cancellationToken);
 
         var licenseCount = await db.Licenses.IgnoreQueryFilters().CountAsync(l => l.CustomerId == id, cancellationToken);
         return MapCustomer(customer, licenseCount);
@@ -202,6 +216,14 @@ public class CustomerService(
         await db.SaveChangesAsync(cancellationToken);
 
         await denyList.ClearCustomerDenyAsync(customer.Id, cancellationToken);
+
+        var activeLicenseIds = await db.Licenses
+            .IgnoreQueryFilters()
+            .Where(l => l.CustomerId == customer.Id && l.Status == LicenseStatus.Active)
+            .Select(l => l.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var licenseId in activeLicenseIds)
+            await denyList.ClearLicenseDenyAsync(licenseId, cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.CustomerReactivated, performedBy, customer.Id, null, null,
             null, ipAddress, cancellationToken);

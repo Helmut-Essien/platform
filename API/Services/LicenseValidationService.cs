@@ -4,6 +4,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
 using Platform.Api.Data;
+using Platform.Api.Helpers;
 using Platform.Api.Security;
 using Platform.Shared.Dtos.Licenses;
 using Platform.Shared.Enums;
@@ -61,13 +62,16 @@ public class LicenseValidationService(
                 && l.LicenseKeyLookupHash == lookupHash
                 && l.Status == LicenseStatus.Active
                 && !l.Customer.IsSuspended
-                && (l.ExpiresAt == null || l.ExpiresAt > utcNow));
+                && (l.ExpiresAt == null || l.ExpiresAt > utcNow || l.ExpiresAt.Value.Date == utcNow.Date));
 
         var licenses = await licensesQuery.ToListAsync(cancellationToken);
 
         Entities.License? matchedLicense = null;
         foreach (var license in licenses)
         {
+            if (DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, utcNow))
+                continue;
+
             if (license.LicenseKeyHash is not null &&
                 BCrypt.Net.BCrypt.Verify(request.LicenseKey, license.LicenseKeyHash))
             {
@@ -148,20 +152,16 @@ public class LicenseValidationService(
                 return Invalid("License is not valid.");
             }
 
-            // Cheap PK status check so a missed deny-list write cannot serve revoked licenses.
-            if (!await IsLicenseStillValidInDatabaseAsync(entry.LicenseId, cancellationToken))
+            // Rebuild the response from PostgreSQL so a missed cache delete cannot
+            // keep serving an old plan or a longer expiry.
+            var current = await ReadCurrentEntitlementAsync(entry.LicenseId, lookupHash, cancellationToken);
+            if (current is null)
             {
                 await cache.RemoveAsync(cacheKey, cancellationToken);
                 return Invalid("License is not valid.");
             }
 
-            if (entry.Response.ExpiresAt.HasValue && entry.Response.ExpiresAt.Value < DateTime.UtcNow)
-            {
-                await cache.RemoveAsync(cacheKey, cancellationToken);
-                return Invalid("License has expired.");
-            }
-
-            return entry.Response;
+            return current;
         }
         catch (Exception ex)
         {
@@ -170,8 +170,9 @@ public class LicenseValidationService(
         }
     }
 
-    private async Task<bool> IsLicenseStillValidInDatabaseAsync(
+    private async Task<ValidateLicenseResponse?> ReadCurrentEntitlementAsync(
         string licenseId,
+        string lookupHash,
         CancellationToken cancellationToken)
     {
         var utcNow = DateTime.UtcNow;
@@ -183,16 +184,28 @@ public class LicenseValidationService(
             {
                 l.Status,
                 l.ExpiresAt,
+                l.PlanName,
+                l.LicenseKeyLookupHash,
                 CustomerSuspended = l.Customer.IsSuspended
             })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (row is null)
-            return false;
+            return null;
 
-        return row.Status == LicenseStatus.Active
+        var stillValid = row.Status == LicenseStatus.Active
             && !row.CustomerSuspended
-            && (row.ExpiresAt == null || row.ExpiresAt > utcNow);
+            && !DateTimeNormalizer.IsPastExpiry(row.ExpiresAt, utcNow)
+            && string.Equals(row.LicenseKeyLookupHash, lookupHash, StringComparison.Ordinal);
+        if (!stillValid)
+            return null;
+
+        return new ValidateLicenseResponse
+        {
+            IsValid = true,
+            PlanName = row.PlanName,
+            ExpiresAt = row.ExpiresAt
+        };
     }
 
     private async Task CacheValidationAsync(
@@ -209,6 +222,7 @@ public class LicenseValidationService(
             {
                 LicenseId = licenseId,
                 CustomerId = customerId,
+                LookupHash = lookupHash,
                 Response = response
             };
 

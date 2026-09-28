@@ -34,6 +34,15 @@ public class LicenseService(
         _ = await db.ServiceProducts.FindAsync([request.ServiceProductId], ct)
             ?? throw new NotFoundException("Service product not found.");
 
+        var openLicenseExists = await db.Licenses
+            .IgnoreQueryFilters()
+            .AnyAsync(l => l.CustomerId == request.CustomerId
+                && l.ServiceProductId == request.ServiceProductId
+                && l.Status != LicenseStatus.Revoked, ct);
+        if (openLicenseExists)
+            throw new InvalidOperationException(
+                "This customer already has a license for that service. Renew, activate, or revoke it before issuing another.");
+
         var now = DateTime.UtcNow;
         var license = new License
         {
@@ -47,10 +56,19 @@ public class LicenseService(
         };
 
         db.Licenses.Add(license);
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+        {
+            throw new InvalidOperationException(
+                "This customer already has a license for that service. Renew, activate, or revoke it before issuing another.",
+                ex);
+        }
 
         await auditLog.WriteAsync(AuditAction.LicenseIssued, performedBy, request.CustomerId, license.Id,
-            null, $$"""{"planName":"{{request.PlanName}}"}""", ipAddress, ct);
+            null, AuditJson.Serialize(new { planName = request.PlanName }), ipAddress, ct);
 
         if (request.CreateInvoice)
         {
@@ -122,9 +140,12 @@ public class LicenseService(
             .ToListAsync(cancellationToken);
 
         var ids = licenses.Select(l => l.Id).ToList();
+        var invoiceQuery = includeSuspendedCustomers
+            ? db.Invoices.IgnoreQueryFilters()
+            : db.Invoices;
         var invoiceRows = ids.Count == 0
             ? []
-            : await db.Invoices
+            : await invoiceQuery
                 .AsNoTracking()
                 .Where(i => i.LicenseId != null && ids.Contains(i.LicenseId))
                 .Select(i => new { i.LicenseId, i.Id, i.CreatedAt })
@@ -164,6 +185,9 @@ public class LicenseService(
             throw new InvalidOperationException($"Cannot activate license in status {license.Status}.");
 
         var now = DateTime.UtcNow;
+        if (DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
+            throw new InvalidOperationException("License expiry is in the past. Renew the license before activating.");
+
         license.Status = LicenseStatus.Active;
         license.AutoSuspendedForOverdueInvoiceId = null;
         license.UpdatedAt = now;
@@ -176,7 +200,7 @@ public class LicenseService(
         await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseActivated, performedBy, license.CustomerId, license.Id,
-            null, $$"""{"licenseKeyQueued":{{request.EmailLicenseKey.ToString().ToLowerInvariant()}}}""", ipAddress, ct);
+            null, AuditJson.Serialize(new { licenseKeyQueued = request.EmailLicenseKey }), ipAddress, ct);
 
         if (request.CreateInvoice)
         {
@@ -191,6 +215,7 @@ public class LicenseService(
             ?? throw new InvalidOperationException("Failed to load license.");
         if (transaction is not null)
             await transaction.CommitAsync(ct);
+        await denyList.ClearLicenseDenyAsync(license.Id, ct);
         return result;
         }, cancellationToken);
 
@@ -211,13 +236,17 @@ public class LicenseService(
         if (license.Customer.IsSuspended)
             throw new InvalidOperationException("Customer is suspended.");
 
-        if (license.Status is not (LicenseStatus.Active or LicenseStatus.Expired))
+        if (license.Status is not (LicenseStatus.Active or LicenseStatus.Expired or LicenseStatus.Suspended))
             throw new InvalidOperationException($"Cannot renew license in status {license.Status}.");
 
         var now = DateTime.UtcNow;
+        var renewedExpiry = DateTimeNormalizer.ToUtc(request.ExpiresAt);
+        if (!renewedExpiry.HasValue || DateTimeNormalizer.IsPastExpiry(renewedExpiry, now))
+            throw new InvalidOperationException("Renewal expiry must be in the future.");
+
         license.Status = LicenseStatus.Active;
-        if (request.ExpiresAt.HasValue)
-            license.ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt);
+        license.AutoSuspendedForOverdueInvoiceId = null;
+        license.ExpiresAt = renewedExpiry;
         license.UpdatedAt = now;
 
         if (request.RotateLicenseKey)
@@ -240,7 +269,7 @@ public class LicenseService(
         await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseRenewed, performedBy, license.CustomerId, license.Id,
-            null, $$"""{"keyRotated":{{request.RotateLicenseKey.ToString().ToLowerInvariant()}}}""", ipAddress, ct);
+            null, AuditJson.Serialize(new { keyRotated = request.RotateLicenseKey }), ipAddress, ct);
 
         if (request.RotateLicenseKey)
         {
@@ -261,6 +290,7 @@ public class LicenseService(
             ?? throw new InvalidOperationException("Failed to load license.");
         if (transaction is not null)
             await transaction.CommitAsync(ct);
+        await denyList.ClearLicenseDenyAsync(license.Id, ct);
         return result;
         }, cancellationToken);
 
@@ -284,11 +314,27 @@ public class LicenseService(
         license.PlanName = request.PlanName.Trim();
         license.ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt);
         license.UpdatedAt = DateTime.UtcNow;
+        var becameExpired = license.Status == LicenseStatus.Active
+            && DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, license.UpdatedAt);
+        if (becameExpired)
+            license.Status = LicenseStatus.Expired;
+
+        if (!string.IsNullOrEmpty(license.LicenseKeyLookupHash))
+        {
+            await denyList.InvalidateValidationCacheAsync(
+                license.ServiceProductId,
+                license.LicenseKeyLookupHash,
+                cancellationToken);
+        }
 
         await db.SaveChangesAsync(cancellationToken);
 
+        if (becameExpired)
+            await denyList.DenyLicenseAsync(license.Id, cancellationToken);
+
         await auditLog.WriteAsync(AuditAction.LicenseUpdated, performedBy, license.CustomerId, license.Id, null,
-            $$"""{"planName":"{{license.PlanName}}","expiresAt":"{{license.ExpiresAt:o}}"}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { planName = license.PlanName, expiresAt = license.ExpiresAt, status = license.Status.ToString() }),
+            ipAddress, cancellationToken);
 
         return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load license.");
@@ -404,10 +450,52 @@ public class LicenseService(
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.LicenseKeyRotated, performedBy, license.CustomerId, license.Id,
-            null, """{"source":"manual-rotation"}""", ipAddress, cancellationToken);
+            null, AuditJson.Serialize(new { source = "manual-rotation" }), ipAddress, cancellationToken);
 
         return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load license.");
+    }
+
+    public async Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var horizon = now.Date.AddDays(1);
+        var ids = await db.Licenses
+            .IgnoreQueryFilters()
+            .Where(l => l.Status == LicenseStatus.Active
+                && l.ExpiresAt != null
+                && l.ExpiresAt < horizon)
+            .Select(l => l.Id)
+            .ToListAsync(cancellationToken);
+
+        var expired = 0;
+        foreach (var id in ids)
+        {
+            var license = await db.Licenses
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
+            if (license is null || license.Status != LicenseStatus.Active)
+                continue;
+            if (!DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
+                continue;
+
+            license.Status = LicenseStatus.Expired;
+            license.UpdatedAt = now;
+            await db.SaveChangesAsync(cancellationToken);
+            await denyList.DenyLicenseAsync(license.Id, cancellationToken);
+            await auditLog.WriteAsync(
+                AuditAction.LicenseExpired,
+                "system:license-expiry",
+                license.CustomerId,
+                license.Id,
+                null,
+                AuditJson.Serialize(new { expiresAt = license.ExpiresAt }),
+                cancellationToken: cancellationToken);
+            expired++;
+            db.ChangeTracker.Clear();
+        }
+
+        return expired;
     }
 
     private async Task<LicenseDto?> MapLicenseAsync(
@@ -426,7 +514,10 @@ public class LicenseService(
         if (license is null)
             return null;
 
-        var latestInvoiceId = await db.Invoices
+        var invoiceQuery = includeSuspendedCustomers
+            ? db.Invoices.IgnoreQueryFilters()
+            : db.Invoices;
+        var latestInvoiceId = await invoiceQuery
             .AsNoTracking()
             .Where(i => i.LicenseId == id)
             .OrderByDescending(i => i.CreatedAt)

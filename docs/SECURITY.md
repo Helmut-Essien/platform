@@ -49,8 +49,8 @@ Redis is an **acceleration layer** for validation caching and deny-list invalida
 
 - `AbortOnConnectFail=false` allows the API to start when Redis is temporarily unavailable.
 - When Redis read/write fails, validation **falls back to PostgreSQL** (license status, customer suspension, BCrypt verify).
-- Positive validation cache hits always **re-check license status in PostgreSQL** (cheap PK lookup) so a missed deny-list write cannot serve revoked licenses for the cache TTL.
-- Deny-list entries have **no TTL**; they are cleared on reactivate. Positive cache invalidation runs even when the deny write fails.
+- Positive validation cache hits always **re-read license status, customer suspension, expiry, plan name, and the current key lookup hash from PostgreSQL** and return those current values. A missed cache delete cannot keep a rotated key valid or serve a downgraded plan or a shortened expiry.
+- Deny-list entries have **no TTL**. They are cleared when a license is activated or renewed, when an active license's customer is reactivated, and when an overdue payment auto-reactivates that license. Key rotation deletes the previous validation cache entry before the hash changes.
 - During a Redis outage, positive validation results are not cached — expect higher database load until Redis recovers.
 
 ## Global query filters
@@ -62,7 +62,7 @@ Licenses, invoices, receipts, and payment transactions have EF global filters th
 
 ## Auto-suspend on overdue invoices
 
-When `Lifecycle:AutoSuspendOnOverdue` is enabled, `OverdueInvoiceLifecycleWorker` polls on `Lifecycle:OverduePollMinutes` (default **60 minutes**). An invoice can therefore remain overdue for up to one poll interval before linked licenses are auto-suspended. This is intentional grace, not real-time enforcement.
+When `Lifecycle:AutoSuspendOnOverdue` is enabled, `OverdueInvoiceLifecycleWorker` polls on `Lifecycle:OverduePollMinutes` (default **60 minutes**). An invoice can therefore remain overdue for up to one poll interval before linked licenses are auto-suspended. Reversing a payment that puts the invoice past due suspends the linked active license immediately. Zero-total invoices are not treated as overdue. Calendar dates (midnight) expire or become overdue at the end of that UTC day.
 
 ## Pagination
 

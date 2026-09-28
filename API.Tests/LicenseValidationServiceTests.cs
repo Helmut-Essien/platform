@@ -97,9 +97,10 @@ public class LicenseValidationServiceTests
             new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
         Assert.True(first.IsValid);
 
-        // Break DB match so a cache miss would fail.
+        // Break the BCrypt hash but keep the lookup hash. A cache miss would fail
+        // verification; a hit still skips BCrypt and returns the current plan.
+        fixture.License.PlanName = "Changed";
         fixture.License.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword("HOSTEL-OTHER-KEY1");
-        fixture.License.LicenseKeyLookupHash = KeyLookupHasher.ComputeSha256Hex("HOSTEL-OTHER-KEY1");
         await db.SaveChangesAsync();
 
         var second = await service.ValidateAsync(
@@ -107,7 +108,7 @@ public class LicenseValidationServiceTests
             new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
 
         Assert.True(second.IsValid);
-        Assert.Equal("Growth", second.PlanName);
+        Assert.Equal("Changed", second.PlanName);
 
         var cacheKey = RedisLicenseDenyListService.ValidationCacheKey(
             fixture.Product.Id,
@@ -157,6 +158,28 @@ public class LicenseValidationServiceTests
 
         Assert.False(result.IsValid);
         Assert.Equal("License is not valid.", result.Message);
+    }
+
+    [Fact]
+    public async Task ValidateAsync_CacheHitRejectsRotatedKey()
+    {
+        await using var db = CreateDbContext();
+        var fixture = await SeedActiveLicenseAsync(db);
+        var service = CreateService(db, new FakeDenyList());
+
+        Assert.True((await service.ValidateAsync(
+            PlainIntegrationKey,
+            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey })).IsValid);
+
+        fixture.License.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword("HOSTEL-OTHER-KEY1");
+        fixture.License.LicenseKeyLookupHash = Platform.Api.Security.KeyLookupHasher.ComputeSha256Hex("HOSTEL-OTHER-KEY1");
+        await db.SaveChangesAsync();
+
+        var result = await service.ValidateAsync(
+            PlainIntegrationKey,
+            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
+
+        Assert.False(result.IsValid);
     }
 
     private static LicenseValidationService CreateService(

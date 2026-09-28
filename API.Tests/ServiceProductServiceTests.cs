@@ -67,7 +67,7 @@ public class ServiceProductServiceTests
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.DeleteAsync(product.Id, performedBy: "admin@example.com"));
 
-        Assert.Equal("Cannot delete a service product that has active licenses.", ex.Message);
+        Assert.Equal("Cannot delete a service product that has licenses.", ex.Message);
     }
 
     [Fact]

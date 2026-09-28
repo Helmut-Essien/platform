@@ -117,6 +117,27 @@ public class RedisLicenseDenyListService(
         await InvalidateValidationCacheAsync(licenseId, cancellationToken);
     }
 
+    public async Task InvalidateValidationCacheAsync(
+        string serviceProductId,
+        string lookupHash,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(lookupHash))
+            return;
+
+        try
+        {
+            await cache.RemoveAsync(ValidationCacheKey(serviceProductId, lookupHash), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to invalidate validation cache for service {ServiceProductId}",
+                serviceProductId);
+        }
+    }
+
     public async Task ClearCustomerDenyAsync(string customerId, CancellationToken cancellationToken = default)
     {
         try
@@ -170,8 +191,9 @@ public class RedisLicenseDenyListService(
 
             if (license?.LicenseKeyLookupHash is not null)
             {
-                await cache.RemoveAsync(
-                    ValidationCacheKey(license.ServiceProductId, license.LicenseKeyLookupHash),
+                await InvalidateValidationCacheAsync(
+                    license.ServiceProductId,
+                    license.LicenseKeyLookupHash,
                     cancellationToken);
             }
         }

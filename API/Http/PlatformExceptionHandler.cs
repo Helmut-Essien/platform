@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Platform.Api.Services;
 
 namespace Platform.Api.Http;
@@ -15,15 +16,20 @@ public sealed class PlatformExceptionHandler(ILogger<PlatformExceptionHandler> l
         {
             NotFoundException => (StatusCodes.Status404NotFound, "Not Found"),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
+            DbUpdateConcurrencyException => (StatusCodes.Status409Conflict, "Conflict"),
             InvalidOperationException => (StatusCodes.Status400BadRequest, "Bad Request"),
             ArgumentException => (StatusCodes.Status400BadRequest, "Bad Request"),
             _ => (StatusCodes.Status500InternalServerError, "Server Error")
         };
 
+        var detail = exception is DbUpdateConcurrencyException
+            ? "The record was updated by someone else. Refresh and try again."
+            : exception.Message;
+
         if (status >= StatusCodes.Status500InternalServerError)
             logger.LogError(exception, "Unhandled exception");
         else
-            logger.LogInformation(exception, "Request failed with {StatusCode}: {Message}", status, exception.Message);
+            logger.LogInformation(exception, "Request failed with {StatusCode}: {Message}", status, detail);
 
         if (status >= StatusCodes.Status500InternalServerError)
         {
@@ -46,9 +52,9 @@ public sealed class PlatformExceptionHandler(ILogger<PlatformExceptionHandler> l
         await httpContext.Response.WriteAsJsonAsync(
             new
             {
-                message = exception.Message,
+                message = detail,
                 title,
-                detail = exception.Message,
+                detail,
                 status
             },
             cancellationToken);

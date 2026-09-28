@@ -52,9 +52,17 @@ public class LicenseConfiguration : IEntityTypeConfiguration<License>
         builder.Property(l => l.UpdatedAt)
             .IsRequired();
 
+        builder.Property(l => l.Version)
+            .IsConcurrencyToken()
+            .HasColumnType("bigint");
+
         builder.HasIndex(l => l.CustomerId);
         builder.HasIndex(l => l.ServiceProductId);
         builder.HasIndex(l => new { l.CustomerId, l.ServiceProductId });
+        builder.HasIndex(l => new { l.CustomerId, l.ServiceProductId })
+            .IsUnique()
+            .HasFilter("\"Status\" <> 'Revoked'")
+            .HasDatabaseName("IX_Licenses_OneOpenPerCustomerService");
 
         builder.HasOne(l => l.Customer)
             .WithMany(c => c.Licenses)

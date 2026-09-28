@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Data;
 using Platform.Api.Entities;
+using Platform.Api.Helpers;
 using Platform.Api.Security;
 using Platform.Shared.Dtos.IntegrationKeys;
 using Platform.Shared.Enums;
@@ -60,7 +61,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
 
                 // Audit before commit so a transient failure cannot retry after key rotation committed.
                 await auditLog.WriteAsync(AuditAction.IntegrationKeyCreated, performedBy, null, null, null,
-                    $$"""{"serviceProductId":"{{serviceProductId}}","integrationKeyId":"{{entity.Id}}"}""",
+                    AuditJson.Serialize(new { serviceProductId, integrationKeyId = entity.Id }),
                     ipAddress, ct);
 
                 if (transaction is not null)
@@ -104,7 +105,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
         await db.SaveChangesAsync(cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.IntegrationKeyRevoked, performedBy, null, null, null,
-            $$"""{"integrationKeyId":"{{id}}"}""", ipAddress, cancellationToken);
+            AuditJson.Serialize(new { integrationKeyId = id }), ipAddress, cancellationToken);
 
         return ToDto(key);
     }

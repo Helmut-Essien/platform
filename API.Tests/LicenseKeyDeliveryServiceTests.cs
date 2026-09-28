@@ -58,7 +58,7 @@ public class LicenseKeyDeliveryServiceTests
 
         Assert.NotNull(license.LicenseKeyHash);
         Assert.NotNull(license.LicenseKeyLookupHash);
-        Assert.NotNull(license.LicenseKeySentAt);
+        Assert.Null(license.LicenseKeySentAt);
         Assert.DoesNotContain("HOSTEL-", license.LicenseKeyHash);
         Assert.DoesNotContain("HOSTEL-", license.LicenseKeyLookupHash);
     }

@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Platform.Api.Configuration;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Helpers;
@@ -14,9 +16,13 @@ public class BillingService(
     IAuditLogService auditLog,
     IEmailOutboxService outbox,
     EmailTemplateService templates,
-    ILicenseDenyListService denyList) : IBillingService
+    ILicenseDenyListService denyList,
+    IOptions<LifecycleSettings>? lifecycle = null) : IBillingService
 {
-    private const int MaxNumberGenerationAttempts = 3;
+    private const int MaxNumberGenerationAttempts = 8;
+    private const int InvoiceNumberLockKey = 71021001;
+    private const int ReceiptNumberLockKey = 71021002;
+    private readonly LifecycleSettings _lifecycle = lifecycle?.Value ?? new LifecycleSettings();
 
     public Task<InvoiceDto> CreateInvoiceAsync(
         CreateInvoiceRequest request,
@@ -40,10 +46,21 @@ public class BillingService(
 
             if (license.CustomerId != request.CustomerId)
                 throw new InvalidOperationException("License does not belong to the customer.");
+
+            if (request.ServiceProductId is not null
+                && request.ServiceProductId != license.ServiceProductId)
+                throw new InvalidOperationException("Invoice service does not match the license.");
         }
+
+        var requestedStatus = request.SendImmediately ? InvoiceStatus.Sent : request.Status;
+        if (requestedStatus is not (InvoiceStatus.Draft or InvoiceStatus.Sent))
+            throw new InvalidOperationException("Invoices can only be created as Draft or Sent.");
 
         var now = DateTime.UtcNow;
         var total = request.Subtotal + request.TaxAmount;
+        var status = total == 0 && requestedStatus == InvoiceStatus.Sent
+            ? InvoiceStatus.Paid
+            : requestedStatus;
 
         var invoice = new Invoice
         {
@@ -51,7 +68,7 @@ public class BillingService(
             LicenseId = request.LicenseId,
             ServiceProductId = request.ServiceProductId,
             InvoiceNumber = string.Empty,
-            Status = request.SendImmediately ? InvoiceStatus.Sent : request.Status,
+            Status = status,
             IssueDate = now,
             DueDate = DateTimeNormalizer.ToUtc(request.DueDate),
             Currency = request.Currency.ToUpperInvariant(),
@@ -67,7 +84,7 @@ public class BillingService(
 
         await SaveNewInvoiceAsync(invoice, ct);
 
-        var action = request.Status == InvoiceStatus.Sent ? AuditAction.InvoiceSent : AuditAction.InvoiceCreated;
+        var action = requestedStatus == InvoiceStatus.Sent ? AuditAction.InvoiceSent : AuditAction.InvoiceCreated;
         await auditLog.WriteAsync(action, performedBy, request.CustomerId, request.LicenseId, invoice.Id,
             AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, total }), ipAddress, ct);
 
@@ -77,7 +94,7 @@ public class BillingService(
                 request.LicenseId, invoice.Id, null, ipAddress, ct);
         }
 
-        if (invoice.Status == InvoiceStatus.Sent)
+        if (requestedStatus == InvoiceStatus.Sent)
             QueueInvoiceEmail(customer, invoice);
 
         await db.SaveChangesAsync(ct);
@@ -137,7 +154,7 @@ public class BillingService(
             throw new InvalidOperationException($"Cannot send an invoice in status {invoice.Status}.");
 
         if (invoice.Status == InvoiceStatus.Draft)
-            invoice.Status = InvoiceStatus.Sent;
+            invoice.Status = invoice.TotalAmount == 0 ? InvoiceStatus.Paid : InvoiceStatus.Sent;
         invoice.UpdatedAt = DateTime.UtcNow;
         QueueInvoiceEmail(invoice.Customer, invoice);
         await db.SaveChangesAsync(cancellationToken);
@@ -266,6 +283,8 @@ public class BillingService(
         {
             if (existingByKey.Kind != PaymentTransactionKind.Payment || existingByKey.Receipt is null)
                 throw new ConflictException("Idempotency key was already used for a different payment operation.");
+            if (!PaymentPayloadMatches(existingByKey, request.AmountPaid, request.PaymentMethod, paymentReference))
+                throw new ConflictException("Idempotency key was reused with a different payment payload.");
             if (transaction is not null)
                 await transaction.CommitAsync(ct);
             return MapReceipt(existingByKey.Receipt);
@@ -310,6 +329,8 @@ public class BillingService(
             Status = ReceiptStatus.Posted,
             CreatedAt = now
         };
+
+        await LockDocumentNumberAsync(ReceiptNumberLockKey, ct);
 
         PaymentTransaction? payment = null;
         for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
@@ -364,6 +385,8 @@ public class BillingService(
                         ct);
                 if (raced?.Receipt is not null)
                 {
+                    if (!PaymentPayloadMatches(raced, request.AmountPaid, request.PaymentMethod, paymentReference))
+                        throw new ConflictException("Idempotency key was reused with a different payment payload.");
                     if (transaction is not null)
                         await transaction.RollbackAsync(ct);
                     return MapReceipt(raced.Receipt);
@@ -530,9 +553,14 @@ public class BillingService(
             }),
             ipAddress, ct);
 
+        var licenseIdToDeny = await TrySuspendLicenseAfterReversalAsync(invoice, ct);
+
         await db.SaveChangesAsync(ct);
         if (transaction is not null)
             await transaction.CommitAsync(ct);
+
+        if (licenseIdToDeny is not null)
+            await denyList.DenyLicenseAsync(licenseIdToDeny, ct);
 
         return MapReceipt(receipt);
         }, cancellationToken);
@@ -566,16 +594,19 @@ public class BillingService(
             || license.Customer.IsSuspended)
             return null;
 
-        var hasBlockingOverdue = await db.Invoices
+        var otherInvoices = await db.Invoices
             .IgnoreQueryFilters()
-            .AnyAsync(
-                i => i.LicenseId == license.Id
-                    && i.Id != invoice.Id
-                    && (i.Status == InvoiceStatus.Overdue
-                        || (i.Status == InvoiceStatus.PartiallyPaid
-                            && i.DueDate.HasValue
-                            && i.DueDate < DateTime.UtcNow)),
-                cancellationToken);
+            .Where(i => i.LicenseId == license.Id
+                && i.Id != invoice.Id
+                && i.TotalAmount > 0
+                && (i.Status == InvoiceStatus.Overdue
+                    || i.Status == InvoiceStatus.PartiallyPaid
+                    || i.Status == InvoiceStatus.Sent))
+            .Select(i => new { i.Status, i.DueDate })
+            .ToListAsync(cancellationToken);
+        var hasBlockingOverdue = otherInvoices.Any(i =>
+            i.Status == InvoiceStatus.Overdue
+            || DateTimeNormalizer.IsPastDue(i.DueDate, DateTime.UtcNow));
         if (hasBlockingOverdue)
             return null;
 
@@ -608,6 +639,57 @@ public class BillingService(
         return license.Id;
     }
 
+    private async Task<string?> TrySuspendLicenseAfterReversalAsync(Invoice invoice, CancellationToken cancellationToken)
+    {
+        if (!_lifecycle.AutoSuspendOnOverdue)
+            return null;
+        if (invoice.LicenseId is null || invoice.TotalAmount <= 0)
+            return null;
+        if (GetAmountDue(invoice) <= 0)
+            return null;
+        if (!DateTimeNormalizer.IsPastDue(invoice.DueDate, DateTime.UtcNow)
+            && invoice.Status != InvoiceStatus.Overdue)
+            return null;
+
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .Include(l => l.Customer)
+            .Include(l => l.ServiceProduct)
+            .FirstOrDefaultAsync(l => l.Id == invoice.LicenseId, cancellationToken);
+        if (license is null
+            || license.Status != LicenseStatus.Active
+            || license.Customer.IsSuspended)
+            return null;
+
+        license.Status = LicenseStatus.Suspended;
+        license.AutoSuspendedForOverdueInvoiceId = invoice.Id;
+        license.UpdatedAt = DateTime.UtcNow;
+
+        var notice = templates.StatusNotice(
+            license.Customer,
+            license.ServiceProduct,
+            EmailDeliveryKind.Suspended,
+            "Access was suspended because a linked invoice is overdue.");
+        outbox.Enqueue(
+            EmailDeliveryKind.Suspended,
+            CustomerContactResolver.Technical(license.Customer),
+            notice.Subject,
+            notice.Html,
+            license.CustomerId,
+            license.Id);
+
+        await auditLog.WriteAsync(
+            AuditAction.LicenseAutoSuspendedOverdue,
+            "system:payment-reversed",
+            license.CustomerId,
+            license.Id,
+            invoice.Id,
+            AuditJson.Serialize(new { invoiceId = invoice.Id }),
+            cancellationToken: cancellationToken);
+
+        return license.Id;
+    }
+
     private static void RecalculateInvoiceStatus(Invoice invoice)
     {
         var netPaid = GetNetPaid(invoice);
@@ -623,7 +705,7 @@ public class BillingService(
             return;
         }
 
-        if (invoice.DueDate.HasValue && invoice.DueDate.Value < DateTime.UtcNow)
+        if (DateTimeNormalizer.IsPastDue(invoice.DueDate, DateTime.UtcNow))
             invoice.Status = InvoiceStatus.Overdue;
         else
             invoice.Status = InvoiceStatus.Sent;
@@ -649,6 +731,15 @@ public class BillingService(
 
     private static decimal GetAmountDue(Invoice invoice) =>
         Math.Max(0, invoice.TotalAmount - GetNetPaid(invoice));
+
+    private static bool PaymentPayloadMatches(
+        PaymentTransaction existing,
+        decimal amount,
+        PaymentMethod method,
+        string? paymentReference) =>
+        existing.Amount == amount
+        && existing.PaymentMethod == method
+        && string.Equals(existing.PaymentReference, paymentReference, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsReversed(Invoice invoice, PaymentTransaction payment) =>
         invoice.PaymentTransactions.Any(t =>
@@ -685,8 +776,20 @@ public class BillingService(
             || message.Contains("IX_Receipts_ReceiptNumber", StringComparison.OrdinalIgnoreCase);
     }
 
+    private async Task LockDocumentNumberAsync(int key, CancellationToken cancellationToken)
+    {
+        if (!db.Database.IsRelational())
+            return;
+
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock({key})",
+            cancellationToken);
+    }
+
     private async Task SaveNewInvoiceAsync(Invoice invoice, CancellationToken cancellationToken)
     {
+        await LockDocumentNumberAsync(InvoiceNumberLockKey, cancellationToken);
+
         for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
         {
             invoice.InvoiceNumber = await GenerateInvoiceNumberAsync(cancellationToken);

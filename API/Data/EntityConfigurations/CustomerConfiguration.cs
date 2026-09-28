@@ -39,6 +39,7 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(c => c.CreatedAt)
             .IsRequired();
 
-        builder.HasIndex(c => c.ContactEmail);
+        builder.HasIndex(c => c.ContactEmail)
+            .IsUnique();
     }
 }

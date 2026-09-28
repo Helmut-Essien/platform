@@ -138,31 +138,32 @@
                         }
                         <div class="cell-right" @onclick:stopPropagation="true">
                             <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
-                                @if (KeyWasSent(context.Item))
+                                @if (CanRotateKey(context.Item))
                                 {
                                     <MudMenuItem OnClick="@(() => RotateKeyAsync(context.Item))">
                                         <MudIcon Icon="@Icons.Material.Filled.Mail" Size="Size.Small" Class="mr-2" />
                                         Rotate &amp; Email Key
                                     </MudMenuItem>
                                 }
-                                @if (license.Status is LicenseStatus.Pending or LicenseStatus.Suspended or LicenseStatus.Expired)
+                                @if (license.Status is LicenseStatus.Pending or LicenseStatus.Suspended)
                                 {
                                     <MudMenuItem OnClick="@(() => ActivateAsync(license))">Activate</MudMenuItem>
                                 }
+                                @if (license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired)
+                                {
+                                    <MudMenuItem OnClick="@(() => RenewAsync(license))">Renew</MudMenuItem>
+                                }
+                                @if (license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired)
+                                {
+                                    <MudMenuItem OnClick="@(() => EditAsync(license))">Edit</MudMenuItem>
+                                }
                                 @if (license.Status == LicenseStatus.Active)
                                 {
-                                    <MudMenuItem OnClick="@(() => RenewAsync(license))">Renew</MudMenuItem>
-                                    <MudMenuItem OnClick="@(() => EditAsync(license))">Edit</MudMenuItem>
                                     <MudMenuItem OnClick="@(() => SuspendAsync(license.Id))">Suspend</MudMenuItem>
-                                    <MudMenuItem OnClick="@(() => RevokeAsync(license.Id))">Revoke</MudMenuItem>
                                 }
-                                @if (license.Status == LicenseStatus.Suspended)
+                                @if (license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired)
                                 {
                                     <MudMenuItem OnClick="@(() => RevokeAsync(license.Id))">Revoke</MudMenuItem>
-                                }
-                                @if (license.Status is LicenseStatus.Expired)
-                                {
-                                    <MudMenuItem OnClick="@(() => RenewAsync(license))">Renew</MudMenuItem>
                                 }
                             </MudMenu>
                         </div>
@@ -464,10 +465,10 @@
 
     private async Task BulkRotateKeysAsync()
     {
-        var resendable = _selected.Where(KeyWasSent).ToList();
+        var resendable = _selected.Where(CanRotateKey).ToList();
         if (resendable.Count == 0)
         {
-            Snackbar.Add("No licenses with previously sent keys selected.", Severity.Warning);
+            Snackbar.Add("No licenses with a key to rotate were selected.", Severity.Warning);
             return;
         }
 
@@ -502,7 +503,7 @@
 
     private async Task BulkRenewAsync()
     {
-        var renewable = _selected.Where(l => l.Status is LicenseStatus.Active or LicenseStatus.Expired).ToList();
+        var renewable = _selected.Where(l => l.Status is LicenseStatus.Active or LicenseStatus.Expired or LicenseStatus.Suspended).ToList();
         if (renewable.Count == 0)
         {
             Snackbar.Add("No renewable licenses selected.", Severity.Warning);
@@ -554,6 +555,10 @@
     }
 
     private static bool KeyWasSent(LicenseDto license) => license.LicenseKeySentAt.HasValue;
+
+    private static bool CanRotateKey(LicenseDto license) =>
+        license.LicenseKeySentAt.HasValue
+        || license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired;
 
     private static string FormatCustomerRef(LicenseDto license)
     {

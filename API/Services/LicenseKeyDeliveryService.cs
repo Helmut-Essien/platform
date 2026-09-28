@@ -13,10 +13,19 @@ public class LicenseKeyDeliveryService(
     AppDbContext db,
     IEmailOutboxService outbox,
     EmailPayloadProtector protector,
-    EmailTemplateService templates) : ILicenseKeyDeliveryService
+    EmailTemplateService templates,
+    ILicenseDenyListService? denyList = null) : ILicenseKeyDeliveryService
 {
     public async Task DeliverNewKeyAsync(License license, bool isRenewal, CancellationToken cancellationToken = default)
     {
+        if (denyList is not null && !string.IsNullOrEmpty(license.LicenseKeyLookupHash))
+        {
+            await denyList.InvalidateValidationCacheAsync(
+                license.ServiceProductId,
+                license.LicenseKeyLookupHash,
+                cancellationToken);
+        }
+
         var serviceProduct = license.ServiceProduct
             ?? await db.ServiceProducts.AsNoTracking()
                 .FirstOrDefaultAsync(s => s.Id == license.ServiceProductId, cancellationToken)
@@ -30,7 +39,6 @@ public class LicenseKeyDeliveryService(
         var plainKey = GenerateLicenseKey(serviceProduct.Code);
         license.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey);
         license.LicenseKeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey);
-        license.LicenseKeySentAt = DateTime.UtcNow;
         license.UpdatedAt = DateTime.UtcNow;
 
         var template = templates.LicenseKey(customer, serviceProduct, license, "{{LICENSE_KEY}}", isRenewal);
