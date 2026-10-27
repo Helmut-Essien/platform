@@ -248,6 +248,8 @@ namespace Platform.Api.Data.Migrations
                     b.HasIndex("ContactEmail")
                         .IsUnique();
 
+                    b.HasIndex("CreatedAt");
+
                     b.ToTable("Customers", (string)null);
                 });
 
@@ -324,6 +326,8 @@ namespace Platform.Api.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
 
                     b.HasIndex("CustomerId");
 
@@ -455,11 +459,15 @@ namespace Platform.Api.Data.Migrations
                     b.HasIndex("InvoiceNumber")
                         .IsUnique();
 
+                    b.HasIndex("IssueDate");
+
                     b.HasIndex("LicenseId");
 
                     b.HasIndex("ServiceProductId");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("Status", "DueDate");
 
                     b.ToTable("Invoices", (string)null);
                 });
@@ -567,6 +575,8 @@ namespace Platform.Api.Data.Migrations
 
                     b.HasIndex("AutoSuspendedForOverdueInvoiceId");
 
+                    b.HasIndex("CreatedAt");
+
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("ServiceProductId");
@@ -577,6 +587,8 @@ namespace Platform.Api.Data.Migrations
                         .HasFilter("\"Status\" <> 'Revoked'");
 
                     b.HasIndex("ServiceProductId", "LicenseKeyLookupHash");
+
+                    b.HasIndex("Status", "ExpiresAt");
 
                     b.ToTable("Licenses", (string)null);
                 });

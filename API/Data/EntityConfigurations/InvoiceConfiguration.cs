@@ -72,6 +72,9 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.HasIndex(i => i.CustomerId);
         builder.HasIndex(i => i.LicenseId);
         builder.HasIndex(i => i.Status);
+        // P4: list ordering, and the overdue scan (status + due date)
+        builder.HasIndex(i => i.IssueDate);
+        builder.HasIndex(i => new { i.Status, i.DueDate });
 
         builder.HasOne(i => i.Customer)
             .WithMany(c => c.Invoices)

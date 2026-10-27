@@ -25,6 +25,7 @@ public class EmailOutboxMessageConfiguration : IEntityTypeConfiguration<EmailOut
         builder.Property(x => x.ProviderMessageId).HasMaxLength(500);
 
         builder.HasIndex(x => new { x.Status, x.NextAttemptAt });
+        builder.HasIndex(x => x.CreatedAt); // P4: delivery list ordering
         builder.HasIndex(x => x.CustomerId);
         builder.HasIndex(x => x.LicenseId);
         builder.HasIndex(x => x.InvoiceId);
