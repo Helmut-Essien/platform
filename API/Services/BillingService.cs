@@ -290,11 +290,6 @@ public class BillingService(
         var query = db.Invoices
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Include(i => i.Customer)
-            .Include(i => i.ServiceProduct)
-            .Include(i => i.Receipts)
-            .ThenInclude(r => r.PaymentTransaction)
-            .Include(i => i.PaymentTransactions)
             .AsQueryable();
 
         if (customerId is not null)
@@ -337,11 +332,29 @@ public class BillingService(
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 
-        var invoices = await ordered
+        // P3: page over ids only (no joins/includes), then load the full graph for just that page.
+        var pageIds = await ordered
+            .Select(i => i.Id)
             .Skip(skip)
             .Take(normalizedPageSize)
-            .AsSplitQuery()
             .ToListAsync(cancellationToken);
+
+        var loaded = pageIds.Count == 0
+            ? []
+            : await db.Invoices
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(i => i.Customer)
+                .Include(i => i.ServiceProduct)
+                .Include(i => i.Receipts)
+                .ThenInclude(r => r.PaymentTransaction)
+                .Include(i => i.PaymentTransactions)
+                .Where(i => pageIds.Contains(i.Id))
+                .AsSplitQuery()
+                .ToListAsync(cancellationToken);
+
+        var byId = loaded.ToDictionary(i => i.Id);
+        var invoices = pageIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
 
         return new PagedResult<InvoiceDto>
         {
