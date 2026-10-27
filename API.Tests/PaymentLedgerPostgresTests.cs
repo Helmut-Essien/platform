@@ -139,6 +139,59 @@ public class PaymentLedgerPostgresTests
         Assert.True(net <= 100m);
     }
 
+    [Fact]
+    public async Task ConcurrentVoidAndPayment_CannotBothSucceed()
+    {
+        // B6: VoidInvoice takes the same row lock as RecordReceipt.
+        await using var db = await CreateMigratedContextAsync();
+        if (db is null)
+            return;
+
+        var customer = new Customer { Name = "Void Race Co", ContactEmail = "voidrace@test.com" };
+        db.Customers.Add(customer);
+        await db.SaveChangesAsync();
+        var invoice = await CreateBillingService(db).CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = 100m,
+            TaxAmount = 0m
+        }, "admin@test.com");
+
+        async Task<bool> TryAsync(Func<BillingService, Task> action)
+        {
+            await using var scoped = await CreateMigratedContextAsync(ensureCreated: false);
+            if (scoped is null)
+                return false;
+            try
+            {
+                await action(CreateBillingService(scoped));
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        var results = await Task.WhenAll(
+            TryAsync(b => b.VoidInvoiceAsync(invoice.Id, "admin@test.com")),
+            TryAsync(b => b.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = $"void-race-{Guid.NewGuid():N}",
+                AmountPaid = 100m,
+                PaymentMethod = PaymentMethod.Cash
+            }, "admin@test.com")));
+
+        Assert.True(results.Count(r => r) <= 1, "A voided invoice must not also receive a payment.");
+
+        await using var verify = await CreateMigratedContextAsync(ensureCreated: false);
+        var stored = await verify!.Invoices.IgnoreQueryFilters().AsNoTracking().FirstAsync(i => i.Id == invoice.Id);
+        var paid = await verify.PaymentTransactions.AnyAsync(t => t.InvoiceId == invoice.Id);
+        Assert.False(stored.Status == InvoiceStatus.Void && paid);
+    }
+
     private static async Task<AppDbContext?> CreateMigratedContextAsync(bool ensureCreated = true)
     {
         try

@@ -52,6 +52,9 @@ public class BillingService(
                 throw new InvalidOperationException("Invoice service does not match the license.");
         }
 
+        EnsureValidMoney(request.Subtotal, "Subtotal");
+        EnsureValidMoney(request.TaxAmount, "Tax amount");
+
         var requestedStatus = request.SendImmediately ? InvoiceStatus.Sent : request.Status;
         if (requestedStatus is not (InvoiceStatus.Draft or InvoiceStatus.Sent))
             throw new InvalidOperationException("Invoices can only be created as Draft or Sent.");
@@ -356,6 +359,11 @@ public class BillingService(
         CancellationToken cancellationToken = default) =>
         RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
+        // B6: serialise with RecordReceipt/ReverseReceipt (which lock the same row) so a payment
+        // recorded concurrently cannot slip in between the "no payments" check and the status change.
+        // The invoice is loaded only after the lock is held, so the checks see committed payments.
+        await LockInvoiceRowAsync(id, ct);
+
         var invoice = await db.Invoices
             .IgnoreQueryFilters()
             .Include(i => i.Receipts)
@@ -399,6 +407,7 @@ public class BillingService(
     {
         if (request.AmountPaid <= 0)
             throw new InvalidOperationException("Amount paid must be greater than zero.");
+        EnsureValidMoney(request.AmountPaid, "Amount paid");
 
         var idempotencyKey = NormalizeRequired(request.IdempotencyKey, "Idempotency key");
         var paymentReference = NormalizeOptional(request.PaymentReference);
@@ -864,6 +873,20 @@ public class BillingService(
             .Sum(r => r.AmountPaid);
     }
 
+    private const decimal MaxMoneyAmount = 9_999_999_999_999m;
+
+    /// <summary>
+    /// B7: money columns are numeric(18,2). Reject sub-cent precision instead of letting the DB round it
+    /// (which made the in-memory balance checks and the stored amounts disagree).
+    /// </summary>
+    internal static void EnsureValidMoney(decimal amount, string label)
+    {
+        if (amount < 0 || amount > MaxMoneyAmount)
+            throw new InvalidOperationException($"{label} is out of range.");
+        if (decimal.Round(amount, 2) != amount)
+            throw new InvalidOperationException($"{label} cannot have more than 2 decimal places.");
+    }
+
     private static decimal GetAmountDue(Invoice invoice) =>
         Math.Max(0, invoice.TotalAmount - GetNetPaid(invoice));
 
@@ -872,7 +895,7 @@ public class BillingService(
         decimal amount,
         PaymentMethod method,
         string? paymentReference) =>
-        existing.Amount == amount
+        existing.Amount == decimal.Round(amount, 2)
         && existing.PaymentMethod == method
         && string.Equals(existing.PaymentReference, paymentReference, StringComparison.OrdinalIgnoreCase);
 

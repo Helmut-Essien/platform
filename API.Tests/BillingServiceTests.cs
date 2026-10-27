@@ -669,6 +669,88 @@ public class BillingServiceTests
         Assert.Equal(0, none.TotalCount);
     }
 
+    [Fact]
+    public async Task VoidInvoiceAsync_RejectsInvoiceWithPostedPayment()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+        await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "void-guard",
+            AmountPaid = 10m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.VoidInvoiceAsync(invoice.Id, "admin@example.com"));
+
+        Assert.Equal(InvoiceStatus.PartiallyPaid, (await db.Invoices.AsNoTracking().FirstAsync(i => i.Id == invoice.Id)).Status);
+    }
+
+    [Theory]
+    [InlineData("10.005")]
+    [InlineData("0.001")]
+    [InlineData("20000000000000")]
+    public async Task RecordReceiptAsync_RejectsSubCentAndOutOfRangeAmounts(string amount)
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "precision",
+                AmountPaid = decimal.Parse(amount, System.Globalization.CultureInfo.InvariantCulture),
+                PaymentMethod = PaymentMethod.Cash
+            }, performedBy: "admin@example.com"));
+
+        Assert.Empty(db.PaymentTransactions);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_AcceptsTwoDecimalAmountsAndReplaysIdempotently()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50.10m);
+        var request = new RecordReceiptRequest
+        {
+            IdempotencyKey = "cents",
+            AmountPaid = 20.10m,
+            PaymentMethod = PaymentMethod.Cash
+        };
+
+        var first = await service.RecordReceiptAsync(invoice.Id, request, performedBy: "admin@example.com");
+        var replay = await service.RecordReceiptAsync(invoice.Id, request, performedBy: "admin@example.com");
+
+        Assert.Equal(first.Id, replay.Id);
+        Assert.Equal(30m, (await service.GetInvoiceAsync(invoice.Id))!.AmountDue);
+    }
+
+    [Theory]
+    [InlineData("100.001", "0")]
+    [InlineData("100", "0.005")]
+    public async Task CreateInvoiceAsync_RejectsSubCentSubtotalOrTax(string subtotal, string tax)
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = decimal.Parse(subtotal, System.Globalization.CultureInfo.InvariantCulture),
+            TaxAmount = decimal.Parse(tax, System.Globalization.CultureInfo.InvariantCulture)
+        }, performedBy: "admin@example.com"));
+    }
+
     private static async Task<InvoiceDto> CreateSentInvoiceAsync(
         BillingService service,
         string customerId,
