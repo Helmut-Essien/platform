@@ -79,6 +79,73 @@ public class OverdueInvoiceLifecycleWorkerTests
         Assert.Equal(invoice.Id, licenses.AutoSuspendedInvoiceIds[license.Id]);
     }
 
+    [Fact]
+    public async Task TryMarkOverdueAsync_DoesNotOverwritePaidInvoice()
+    {
+        // B5: a payment that lands between the candidate scan and the update must win.
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var invoice = NewInvoice(customer.Id, product.Id, "INV-2026-00010", InvoiceStatus.Paid, DateTime.UtcNow.AddDays(-3));
+        db.Invoices.Add(invoice);
+        await db.SaveChangesAsync();
+
+        var changed = await OverdueInvoiceLifecycleWorker.TryMarkOverdueAsync(
+            db, invoice.Id, DateTime.UtcNow, CancellationToken.None);
+
+        Assert.False(changed);
+        Assert.Equal(InvoiceStatus.Paid, (await db.Invoices.IgnoreQueryFilters().AsNoTracking().FirstAsync(i => i.Id == invoice.Id)).Status);
+    }
+
+    [Fact]
+    public async Task TryMarkOverdueAsync_SkipsVoidAndNotYetDueInvoices()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var voided = NewInvoice(customer.Id, product.Id, "INV-2026-00011", InvoiceStatus.Void, DateTime.UtcNow.AddDays(-3));
+        var notDue = NewInvoice(customer.Id, product.Id, "INV-2026-00012", InvoiceStatus.Sent, DateTime.UtcNow.AddDays(3));
+        db.Invoices.AddRange(voided, notDue);
+        await db.SaveChangesAsync();
+
+        Assert.False(await OverdueInvoiceLifecycleWorker.TryMarkOverdueAsync(db, voided.Id, DateTime.UtcNow, CancellationToken.None));
+        Assert.False(await OverdueInvoiceLifecycleWorker.TryMarkOverdueAsync(db, notDue.Id, DateTime.UtcNow, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ProcessAsync_DoesNotReSuspendLicenseForAlreadyOverdueInvoice()
+    {
+        // E8: an admin-restored license must not be re-suspended every cycle.
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var license = await SeedLicenseAsync(db, customer.Id, product.Id, LicenseStatus.Active);
+        var invoice = NewInvoice(customer.Id, product.Id, "INV-2026-00013", InvoiceStatus.Overdue, DateTime.UtcNow.AddDays(-10));
+        invoice.LicenseId = license.Id;
+        db.Invoices.Add(invoice);
+        await db.SaveChangesAsync();
+
+        var licenses = new TrackingLicenseService();
+        var worker = CreateWorker(db, licenses, autoSuspend: true);
+        await worker.ProcessAsync(CancellationToken.None);
+        await worker.ProcessAsync(CancellationToken.None);
+
+        Assert.Empty(licenses.SuspendedIds);
+    }
+
+    private static Invoice NewInvoice(string customerId, string productId, string number, InvoiceStatus status, DateTime due) => new()
+    {
+        CustomerId = customerId,
+        ServiceProductId = productId,
+        InvoiceNumber = number,
+        Status = status,
+        Currency = "USD",
+        Subtotal = 100m,
+        TaxAmount = 0m,
+        TotalAmount = 100m,
+        DueDate = due
+    };
+
     private static OverdueInvoiceLifecycleWorker CreateWorker(
         AppDbContext db,
         ILicenseService licenseService,
