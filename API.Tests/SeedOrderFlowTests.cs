@@ -26,9 +26,10 @@ public class SeedOrderFlowTests
         Assert.Equal("OrderFlow", product.Name);
 
         var key = await db.IntegrationKeys.SingleAsync(k => k.ServiceProductId == product.Id && k.IsActive);
-        Assert.True(BCrypt.Net.BCrypt.Verify(
+        Assert.True(KeyHasher.Verify(
             SeedData.DevIntegrationKeys[SeedData.OrderFlowServiceCode],
-            key.KeyHash));
+            key.KeyHash,
+            out _));
 
         var license = await db.Licenses.IgnoreQueryFilters()
             .SingleAsync(l => l.ServiceProductId == product.Id);
@@ -37,7 +38,7 @@ public class SeedOrderFlowTests
         Assert.Equal(
             KeyLookupHasher.ComputeSha256Hex(SeedData.OrderFlowDevLicenseKey),
             license.LicenseKeyLookupHash);
-        Assert.True(BCrypt.Net.BCrypt.Verify(SeedData.OrderFlowDevLicenseKey, license.LicenseKeyHash));
+        Assert.True(KeyHasher.Verify(SeedData.OrderFlowDevLicenseKey, license.LicenseKeyHash, out _));
     }
 
     [Fact]

@@ -90,7 +90,7 @@ public static class SeedData
             return new IntegrationKey
             {
                 ServiceProductId = p.Id,
-                KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
+                KeyHash = KeyHasher.Hash(plainKey),
                 KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey),
                 IsActive = true,
                 CreatedAt = now
@@ -164,7 +164,7 @@ public static class SeedData
             db.IntegrationKeys.Add(new IntegrationKey
             {
                 ServiceProductId = product.Id,
-                KeyHash = BCrypt.Net.BCrypt.HashPassword(plainIntegrationKey),
+                KeyHash = KeyHasher.Hash(plainIntegrationKey),
                 KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainIntegrationKey),
                 IsActive = true,
                 CreatedAt = now
@@ -219,7 +219,7 @@ public static class SeedData
             ServiceProductId = product.Id,
             Status = LicenseStatus.Active,
             PlanName = "Growth",
-            LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword(OrderFlowDevLicenseKey),
+            LicenseKeyHash = KeyHasher.Hash(OrderFlowDevLicenseKey),
             LicenseKeyLookupHash = licenseLookup,
             LicenseKeySentAt = now,
             ExpiresAt = now.AddYears(1),

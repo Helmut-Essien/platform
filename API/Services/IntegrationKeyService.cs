@@ -50,7 +50,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
                 var entity = new IntegrationKey
                 {
                     ServiceProductId = serviceProductId,
-                    KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
+                    KeyHash = KeyHasher.Hash(plainKey),
                     KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey),
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow

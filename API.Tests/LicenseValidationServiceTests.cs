@@ -97,7 +97,7 @@ public class LicenseValidationServiceTests
             new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
         Assert.True(first.IsValid);
 
-        // Break the BCrypt hash but keep the lookup hash. A cache miss would fail
+        // Break the key hash but keep the lookup hash. A cache miss would fail
         // verification; a hit still skips BCrypt and returns the current plan.
         fixture.License.PlanName = "Changed";
         fixture.License.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword("HOSTEL-OTHER-KEY1");
