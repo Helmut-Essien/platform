@@ -148,6 +148,111 @@ public class LicenseServiceLifecycleTests
         Assert.DoesNotContain(license.Id, denyList.DeniedLicenseIds);
     }
 
+    private static async Task<(AppDbContext Db, LicenseService Service, FakeDenyListService Deny, License License, string OriginalHash)>
+        SeedSuspendedLicenseAsync()
+    {
+        var db = CreateDbContext();
+        var (_, _, license) = await SeedPendingLicenseAsync(db);
+        var deny = new FakeDenyListService();
+        var service = CreateLicenseService(db, denyList: deny);
+        await service.ActivateAsync(
+            license.Id,
+            new ActivateLicenseRequest { EmailLicenseKey = true, CreateInvoice = false, Currency = "USD" },
+            performedBy: "admin@example.com");
+        await service.SuspendAsync(license.Id, performedBy: "admin@example.com");
+        var stored = await db.Licenses.IgnoreQueryFilters().AsNoTracking().FirstAsync(l => l.Id == license.Id);
+        return (db, service, deny, license, stored.LicenseKeyHash!);
+    }
+
+    [Fact]
+    public async Task ActivateAsync_OnSuspendedLicense_WithDefaultFlags_DoesNotRotateKeyOrInvoice()
+    {
+        // B4: default request flags (email key + create invoice) must not apply when restoring.
+        var (db, service, deny, license, originalHash) = await SeedSuspendedLicenseAsync();
+        await using var _ = db;
+        var keyEmailsBefore = db.EmailOutboxMessages.Count(m => m.Kind == EmailDeliveryKind.LicenseKey);
+
+        // StubBillingService throws if an invoice is attempted.
+        var result = await service.ActivateAsync(license.Id, new ActivateLicenseRequest(), performedBy: "admin@example.com");
+
+        Assert.Equal(LicenseStatus.Active, result.Status);
+        var stored = await db.Licenses.IgnoreQueryFilters().AsNoTracking().FirstAsync(l => l.Id == license.Id);
+        Assert.Equal(originalHash, stored.LicenseKeyHash);
+        Assert.Equal(keyEmailsBefore, db.EmailOutboxMessages.Count(m => m.Kind == EmailDeliveryKind.LicenseKey));
+        Assert.DoesNotContain(license.Id, deny.DeniedLicenseIds);
+    }
+
+    [Fact]
+    public async Task ReactivateAsync_RestoresSuspendedLicenseWithoutKeyOrBilling()
+    {
+        var (db, service, deny, license, originalHash) = await SeedSuspendedLicenseAsync();
+        await using var _ = db;
+        var outboxBefore = db.EmailOutboxMessages.Count();
+
+        var result = await service.ReactivateAsync(license.Id, performedBy: "admin@example.com");
+
+        Assert.Equal(LicenseStatus.Active, result.Status);
+        var stored = await db.Licenses.IgnoreQueryFilters().AsNoTracking().FirstAsync(l => l.Id == license.Id);
+        Assert.Equal(originalHash, stored.LicenseKeyHash);
+        Assert.Null(stored.AutoSuspendedForOverdueInvoiceId);
+        Assert.Equal(outboxBefore, db.EmailOutboxMessages.Count());
+        Assert.DoesNotContain(license.Id, deny.DeniedLicenseIds);
+    }
+
+    [Fact]
+    public async Task ReactivateAsync_RejectsNonSuspendedLicense()
+    {
+        await using var db = CreateDbContext();
+        var (_, _, license) = await SeedPendingLicenseAsync(db);
+        var service = CreateLicenseService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ReactivateAsync(license.Id, performedBy: "admin@example.com"));
+    }
+
+    [Fact]
+    public async Task RenewAsync_OnSuspendedLicense_ExtendsExpiryButKeepsItSuspended()
+    {
+        // B8: renewal must not silently lift a suspension.
+        var (db, service, deny, license, _) = await SeedSuspendedLicenseAsync();
+        await using var _ = db;
+        var newExpiry = DateTime.UtcNow.AddDays(90);
+
+        var result = await service.RenewAsync(
+            license.Id,
+            new RenewLicenseRequest { ExpiresAt = newExpiry, CreateInvoice = false, EmailLicenseKey = true },
+            performedBy: "admin@example.com");
+
+        Assert.Equal(LicenseStatus.Suspended, result.Status);
+        Assert.Contains(license.Id, deny.DeniedLicenseIds);
+        var stored = await db.Licenses.IgnoreQueryFilters().AsNoTracking().FirstAsync(l => l.Id == license.Id);
+        Assert.Equal(LicenseStatus.Suspended, stored.Status);
+        Assert.NotNull(stored.ExpiresAt);
+        Assert.DoesNotContain(db.EmailOutboxMessages, m => m.Kind == EmailDeliveryKind.RenewalConfirmation);
+    }
+
+    [Fact]
+    public async Task RenewAsync_OnExpiredLicense_ReactivatesIt()
+    {
+        await using var db = CreateDbContext();
+        var (_, _, license) = await SeedPendingLicenseAsync(db);
+        var service = CreateLicenseService(db);
+        await service.ActivateAsync(
+            license.Id,
+            new ActivateLicenseRequest { EmailLicenseKey = true, CreateInvoice = false, Currency = "USD" },
+            performedBy: "admin@example.com");
+        var tracked = await db.Licenses.IgnoreQueryFilters().FirstAsync(l => l.Id == license.Id);
+        tracked.Status = LicenseStatus.Expired;
+        await db.SaveChangesAsync();
+
+        var result = await service.RenewAsync(
+            license.Id,
+            new RenewLicenseRequest { ExpiresAt = DateTime.UtcNow.AddDays(30), CreateInvoice = false },
+            performedBy: "admin@example.com");
+
+        Assert.Equal(LicenseStatus.Active, result.Status);
+    }
+
     [Fact]
     public async Task ExpireDueLicensesAsync_MarksPastExpiryAndDenies()
     {

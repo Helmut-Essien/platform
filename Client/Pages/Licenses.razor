@@ -145,9 +145,13 @@
                                         Rotate &amp; Email Key
                                     </MudMenuItem>
                                 }
-                                @if (license.Status is LicenseStatus.Pending or LicenseStatus.Suspended)
+                                @if (license.Status is LicenseStatus.Pending)
                                 {
                                     <MudMenuItem OnClick="@(() => ActivateAsync(license))">Activate</MudMenuItem>
+                                }
+                                @if (license.Status is LicenseStatus.Suspended)
+                                {
+                                    <MudMenuItem OnClick="@(() => ReactivateAsync(license.Id))">Reactivate</MudMenuItem>
                                 }
                                 @if (license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired)
                                 {
@@ -421,6 +425,30 @@
         }
 
         Snackbar.Add("License suspended.", Severity.Success);
+        await ReloadGrid();
+    }
+
+    private async Task ReactivateAsync(string id)
+    {
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Reactivate License", new DialogParameters
+        {
+            ["Title"] = "Reactivate License",
+            ["Message"] = "This restores access immediately. The license key is not changed and no invoice is created. Continue?",
+            ["ConfirmText"] = "Reactivate",
+            ["IsDestructive"] = false
+        }, PlatformDialogOptions.Confirm);
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false)
+            return;
+
+        var apiResult = await Api.ReactivateLicenseAsync(id);
+        if (!apiResult.IsSuccess)
+        {
+            Snackbar.Add(apiResult.ErrorMessage ?? "Reactivate failed.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("License reactivated.", Severity.Success);
         await ReloadGrid();
     }
 

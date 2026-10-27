@@ -256,6 +256,8 @@ public class OverdueInvoiceLifecycleWorkerTests
             throw new NotSupportedException();
         public Task<LicenseDto> ActivateAsync(string id, ActivateLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+        public Task<LicenseDto> ReactivateAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
         public Task<LicenseDto> RenewAsync(string id, RenewLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<LicenseDto> ResendKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>

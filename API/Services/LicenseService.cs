@@ -188,11 +188,18 @@ public class LicenseService(
         if (DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
             throw new InvalidOperationException("License expiry is in the past. Renew the license before activating.");
 
+        // B4: a license that already has a key (Suspended/Expired) is being restored, not issued.
+        // The request flags default to "email key + create invoice", so they are ignored here;
+        // use Rotate Key / Renew for those actions explicitly.
+        var restoring = license.Status != LicenseStatus.Pending && !string.IsNullOrEmpty(license.LicenseKeyHash);
+        var emailKey = request.EmailLicenseKey && !restoring;
+        var createInvoice = request.CreateInvoice && !restoring;
+
         license.Status = LicenseStatus.Active;
         license.AutoSuspendedForOverdueInvoiceId = null;
         license.UpdatedAt = now;
 
-        if (request.EmailLicenseKey)
+        if (emailKey)
             await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: false, ct);
         else if (string.IsNullOrEmpty(license.LicenseKeyHash))
             throw new InvalidOperationException("A new license must be delivered by email when first activated.");
@@ -200,9 +207,9 @@ public class LicenseService(
         await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseActivated, performedBy, license.CustomerId, license.Id,
-            null, AuditJson.Serialize(new { licenseKeyQueued = request.EmailLicenseKey }), ipAddress, ct);
+            null, AuditJson.Serialize(new { licenseKeyQueued = emailKey, restored = restoring }), ipAddress, ct);
 
-        if (request.CreateInvoice)
+        if (createInvoice)
         {
             await billing.CreateInvoiceForLicenseAsync(
                 license, request.Subtotal, request.TaxAmount, request.Currency,
@@ -217,6 +224,45 @@ public class LicenseService(
             await transaction.CommitAsync(ct);
         await denyList.ClearLicenseDenyAsync(license.Id, ct);
         return result;
+        }, cancellationToken);
+
+    public Task<LicenseDto> ReactivateAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+            var license = await db.Licenses
+                .Include(l => l.Customer)
+                .Include(l => l.ServiceProduct)
+                .FirstOrDefaultAsync(l => l.Id == id, ct)
+                ?? throw new NotFoundException("License not found.");
+
+            if (license.Customer.IsSuspended)
+                throw new InvalidOperationException("Customer is suspended.");
+
+            if (license.Status != LicenseStatus.Suspended)
+                throw new InvalidOperationException($"Only suspended licenses can be reactivated (current status {license.Status}).");
+
+            var now = DateTime.UtcNow;
+            if (DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
+                throw new InvalidOperationException("License expiry is in the past. Renew the license first.");
+
+            license.Status = LicenseStatus.Active;
+            license.AutoSuspendedForOverdueInvoiceId = null;
+            license.UpdatedAt = now;
+            await db.SaveChangesAsync(ct);
+
+            await auditLog.WriteAsync(AuditAction.LicenseReactivated, performedBy, license.CustomerId, license.Id,
+                null, null, ipAddress, ct);
+
+            var result = await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, ct)
+                ?? throw new InvalidOperationException("Failed to load license.");
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            await denyList.ClearLicenseDenyAsync(license.Id, ct);
+            return result;
         }, cancellationToken);
 
     public Task<LicenseDto> RenewAsync(
@@ -244,8 +290,14 @@ public class LicenseService(
         if (!renewedExpiry.HasValue || DateTimeNormalizer.IsPastExpiry(renewedExpiry, now))
             throw new InvalidOperationException("Renewal expiry must be in the future.");
 
-        license.Status = LicenseStatus.Active;
-        license.AutoSuspendedForOverdueInvoiceId = null;
+        // B8: renewing extends the term; it must not silently lift an admin/overdue suspension.
+        // Suspended licenses stay Suspended until explicitly reactivated.
+        var stillSuspended = license.Status == LicenseStatus.Suspended;
+        if (!stillSuspended)
+        {
+            license.Status = LicenseStatus.Active;
+            license.AutoSuspendedForOverdueInvoiceId = null;
+        }
         license.ExpiresAt = renewedExpiry;
         license.UpdatedAt = now;
 
@@ -255,7 +307,7 @@ public class LicenseService(
                 throw new InvalidOperationException("Rotated keys must be emailed to the technical contact.");
             await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: true, ct);
         }
-        else if (request.EmailLicenseKey)
+        else if (request.EmailLicenseKey && !stillSuspended)
         {
             var renewal = templates.Renewal(license.Customer, license.ServiceProduct, license);
             outbox.Enqueue(
@@ -290,7 +342,8 @@ public class LicenseService(
             ?? throw new InvalidOperationException("Failed to load license.");
         if (transaction is not null)
             await transaction.CommitAsync(ct);
-        await denyList.ClearLicenseDenyAsync(license.Id, ct);
+        if (!stillSuspended)
+            await denyList.ClearLicenseDenyAsync(license.Id, ct);
         return result;
         }, cancellationToken);
 

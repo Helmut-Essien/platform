@@ -177,6 +177,12 @@ public class PlatformApiClient(HttpClient http)
         return await ToApiResultAsync<LicenseDto>(response, ct);
     }
 
+    public async Task<ApiResult<LicenseDto>> ReactivateLicenseAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/licenses/{id}/reactivate", null, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
+
     public async Task<ApiResult<LicenseDto>> SuspendLicenseAsync(string id, CancellationToken ct = default)
     {
         var response = await http.PostAsync($"api/licenses/{id}/suspend", null, ct);

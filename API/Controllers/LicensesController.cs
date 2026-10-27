@@ -104,6 +104,18 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         return Ok(license);
     }
 
+    [HttpPost("{id}/reactivate")]
+    public async Task<ActionResult<LicenseDto>> Reactivate(string id, CancellationToken cancellationToken)
+    {
+        var license = await licenses.ReactivateAsync(
+                id,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+
+        return Ok(license);
+    }
+
     [HttpPost("{id}/suspend")]
     public async Task<ActionResult<LicenseDto>> Suspend(string id, CancellationToken cancellationToken)
     {
