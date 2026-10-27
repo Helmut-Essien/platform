@@ -751,6 +751,126 @@ public class BillingServiceTests
         }, performedBy: "admin@example.com"));
     }
 
+    [Theory]
+    [InlineData("US")]
+    [InlineData("US1")]
+    [InlineData("US$")]
+    [InlineData("")]
+    public async Task CreateInvoiceAsync_RejectsMalformedCurrency(string currency)
+    {
+        // E11
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = currency,
+            Subtotal = 10m
+        }, performedBy: "admin@example.com"));
+    }
+
+    [Fact]
+    public async Task CreateInvoiceAsync_NormalizesCurrencyCase()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = " ghs ",
+            Subtotal = 10m
+        }, performedBy: "admin@example.com");
+
+        Assert.Equal("GHS", invoice.Currency);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_RejectsFuturePaymentDate()
+    {
+        // E10
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "future",
+                AmountPaid = 10m,
+                PaymentMethod = PaymentMethod.Cash,
+                PaidAt = DateTime.UtcNow.AddDays(10)
+            }, performedBy: "admin@example.com"));
+
+        var receipt = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "past",
+            AmountPaid = 10m,
+            PaymentMethod = PaymentMethod.Cash,
+            PaidAt = DateTime.UtcNow.AddDays(-3)
+        }, performedBy: "admin@example.com");
+        Assert.True(receipt.PaidAt < DateTime.UtcNow.AddDays(-2));
+    }
+
+    [Fact]
+    public async Task SendInvoiceAsync_RefusesFirstSendOfDraftForSuspendedCustomer()
+    {
+        // E12
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var draft = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Draft,
+            Currency = "USD",
+            Subtotal = 25m
+        }, performedBy: "admin@example.com");
+
+        customer.IsSuspended = true;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SendInvoiceAsync(draft.Id, performedBy: "admin@example.com"));
+        Assert.Equal(InvoiceStatus.Draft, (await db.Invoices.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task DocumentNumbers_FollowTheHighestExistingNumberEvenWithGaps()
+    {
+        // P10
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var year = DateTime.UtcNow.Year;
+        db.Invoices.Add(new Invoice
+        {
+            CustomerId = customer.Id,
+            InvoiceNumber = $"INV-{year}-00007",
+            Status = InvoiceStatus.Draft,
+            Currency = "USD"
+        });
+        await db.SaveChangesAsync();
+
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 10m);
+
+        Assert.Equal($"INV-{year}-00008", invoice.InvoiceNumber);
+    }
+
+    [Theory]
+    [InlineData(null, "INV-2026-00001")]
+    [InlineData("INV-2026-00009", "INV-2026-00010")]
+    [InlineData("INV-2026-99999", "INV-2026-100000")]
+    [InlineData("garbage", "INV-2026-00001")]
+    public void NextDocumentNumber_IncrementsLastNumber(string? last, string expected) =>
+        Assert.Equal(expected, BillingService.NextDocumentNumber("INV-2026-", last));
+
     private static async Task<InvoiceDto> CreateSentInvoiceAsync(
         BillingService service,
         string customerId,

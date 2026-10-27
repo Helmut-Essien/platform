@@ -19,7 +19,7 @@ public class CreateInvoiceRequest
     public DateTime? DueDate { get; set; }
 
     [Required(ErrorMessage = "Currency is required")]
-    [MaxLength(3, ErrorMessage = "Currency must be 3 characters or less")]
+    [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter code such as GHS or USD")]
     public required string Currency { get; set; }
 
     [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Subtotal must be zero or greater")]

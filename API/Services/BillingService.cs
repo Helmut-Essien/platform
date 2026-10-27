@@ -54,6 +54,7 @@ public class BillingService(
 
         EnsureValidMoney(request.Subtotal, "Subtotal");
         EnsureValidMoney(request.TaxAmount, "Tax amount");
+        var currency = NormalizeCurrency(request.Currency); // E11
 
         var requestedStatus = request.SendImmediately ? InvoiceStatus.Sent : request.Status;
         if (requestedStatus is not (InvoiceStatus.Draft or InvoiceStatus.Sent))
@@ -74,7 +75,7 @@ public class BillingService(
             Status = status,
             IssueDate = now,
             DueDate = DateTimeNormalizer.ToUtc(request.DueDate),
-            Currency = request.Currency.ToUpperInvariant(),
+            Currency = currency,
             Subtotal = request.Subtotal,
             TaxAmount = request.TaxAmount,
             TotalAmount = total,
@@ -155,6 +156,11 @@ public class BillingService(
 
         if (invoice.Status is InvoiceStatus.Void or InvoiceStatus.Paid)
             throw new InvalidOperationException($"Cannot send an invoice in status {invoice.Status}.");
+
+        // E12: creating an invoice for a suspended customer is refused, so is first-sending a draft to one.
+        // Re-sending an already issued invoice (e.g. an overdue reminder) stays allowed.
+        if (invoice.Status == InvoiceStatus.Draft && invoice.Customer.IsSuspended)
+            throw new InvalidOperationException("Cannot send an invoice for a suspended customer.");
 
         if (invoice.Status == InvoiceStatus.Draft)
             invoice.Status = invoice.TotalAmount == 0 ? InvoiceStatus.Paid : InvoiceStatus.Sent;
@@ -474,12 +480,17 @@ public class BillingService(
         }
 
         var now = DateTime.UtcNow;
+        // E10: a payment date more than a day ahead (allows for client time zones) is a data-entry error.
+        var paidAt = DateTimeNormalizer.ToUtc(request.PaidAt) ?? now;
+        if (paidAt > now.AddDays(1))
+            throw new InvalidOperationException("Payment date cannot be in the future.");
+
         var receipt = new Receipt
         {
             InvoiceId = invoiceId,
             ReceiptNumber = string.Empty,
             AmountPaid = request.AmountPaid,
-            PaidAt = DateTimeNormalizer.ToUtc(request.PaidAt) ?? now,
+            PaidAt = paidAt,
             PaymentMethod = request.PaymentMethod,
             PaymentReference = paymentReference,
             Notes = NormalizeOptional(request.Notes),
@@ -892,6 +903,32 @@ public class BillingService(
     /// B7: money columns are numeric(18,2). Reject sub-cent precision instead of letting the DB round it
     /// (which made the in-memory balance checks and the stored amounts disagree).
     /// </summary>
+    /// <summary>E11: ISO-4217 style code, three ASCII letters, upper-cased.</summary>
+    internal static string NormalizeCurrency(string? currency)
+    {
+        var normalized = currency?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (normalized.Length != 3 || !normalized.All(c => c is >= 'A' and <= 'Z'))
+            throw new InvalidOperationException("Currency must be a 3-letter code such as GHS or USD.");
+        return normalized;
+    }
+
+    /// <summary>
+    /// P10/E-numbering: next sequential document number from the highest existing number with this prefix,
+    /// so a gap in the sequence can never make the next number collide (the old COUNT+1 could).
+    /// </summary>
+    internal static string NextDocumentNumber(string prefix, string? lastNumber)
+    {
+        var next = 1L;
+        if (lastNumber is not null
+            && lastNumber.StartsWith(prefix, StringComparison.Ordinal)
+            && long.TryParse(lastNumber.AsSpan(prefix.Length), out var last))
+        {
+            next = last + 1;
+        }
+
+        return $"{prefix}{next:D5}";
+    }
+
     internal static void EnsureValidMoney(decimal amount, string label)
     {
         if (amount < 0 || amount > MaxMoneyAmount)
@@ -984,22 +1021,33 @@ public class BillingService(
     {
         var year = DateTime.UtcNow.Year;
         var prefix = $"INV-{year}-";
-        var count = await db.Invoices
+        // Length first, then value: "100000" must sort after "99999".
+        var last = await db.Invoices
             .IgnoreQueryFilters()
-            .CountAsync(i => i.InvoiceNumber.StartsWith(prefix), cancellationToken);
+            .AsNoTracking()
+            .Where(i => i.InvoiceNumber.StartsWith(prefix))
+            .Select(i => i.InvoiceNumber)
+            .OrderByDescending(n => n.Length)
+            .ThenByDescending(n => n)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        return $"{prefix}{(count + 1):D5}";
+        return NextDocumentNumber(prefix, last);
     }
 
     private async Task<string> GenerateReceiptNumberAsync(CancellationToken cancellationToken)
     {
         var year = DateTime.UtcNow.Year;
         var prefix = $"RCP-{year}-";
-        var count = await db.Receipts
+        var last = await db.Receipts
             .IgnoreQueryFilters()
-            .CountAsync(r => r.ReceiptNumber.StartsWith(prefix), cancellationToken);
+            .AsNoTracking()
+            .Where(r => r.ReceiptNumber.StartsWith(prefix))
+            .Select(r => r.ReceiptNumber)
+            .OrderByDescending(n => n.Length)
+            .ThenByDescending(n => n)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        return $"{prefix}{(count + 1):D5}";
+        return NextDocumentNumber(prefix, last);
     }
 
     private void QueueInvoiceEmail(Customer customer, Invoice invoice)
