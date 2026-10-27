@@ -1,5 +1,6 @@
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Licenses;
+using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
 
@@ -13,6 +14,9 @@ public interface ILicenseService
         int page = 1,
         int pageSize = 25,
         int? expiringWithinDays = null,
+        string? serviceProductId = null,
+        LicenseStatus? status = null,
+        string? search = null,
         CancellationToken cancellationToken = default);
 
     Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default);

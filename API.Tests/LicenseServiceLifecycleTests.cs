@@ -165,6 +165,26 @@ public class LicenseServiceLifecycleTests
     }
 
     [Fact]
+    public async Task ListAsync_FiltersByStatusProductAndSearchOnTheServer()
+    {
+        // B2: filters are applied before paging, so totals and pages are correct.
+        var (db, service, _, license, _) = await SeedSuspendedLicenseAsync();
+        await using var _ = db;
+        var stored = await db.Licenses.IgnoreQueryFilters().Include(l => l.Customer).FirstAsync(l => l.Id == license.Id);
+
+        var suspended = await service.ListAsync(status: LicenseStatus.Suspended);
+        Assert.Equal(license.Id, Assert.Single(suspended.Items).Id);
+        Assert.Equal(1, suspended.TotalCount);
+
+        Assert.Empty((await service.ListAsync(status: LicenseStatus.Active)).Items);
+        Assert.Single((await service.ListAsync(serviceProductId: stored.ServiceProductId)).Items);
+        Assert.Empty((await service.ListAsync(serviceProductId: "missing")).Items);
+        Assert.Single((await service.ListAsync(search: stored.Customer.Name.ToUpperInvariant())).Items);
+        Assert.Single((await service.ListAsync(search: stored.PlanName.ToLowerInvariant())).Items);
+        Assert.Empty((await service.ListAsync(search: "no-such-text")).Items);
+    }
+
+    [Fact]
     public async Task ActivateAsync_OnSuspendedLicense_WithDefaultFlags_DoesNotRotateKeyOrInvoice()
     {
         // B4: default request flags (email key + create invoice) must not apply when restoring.
@@ -423,7 +443,14 @@ public class LicenseServiceLifecycleTests
             int page = 1,
             int pageSize = 25,
             bool unpaidOnly = false,
+            InvoiceStatus? status = null,
+            string? search = null,
+            DateTime? issuedFrom = null,
+            DateTime? issuedTo = null,
             CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<InvoiceStatsDto> GetInvoiceStatsAsync(CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<InvoiceDto> VoidInvoiceAsync(

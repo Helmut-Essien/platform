@@ -106,6 +106,9 @@ public class LicenseService(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         int? expiringWithinDays = null,
+        string? serviceProductId = null,
+        LicenseStatus? status = null,
+        string? search = null,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -130,7 +133,23 @@ public class LicenseService(
                 && l.ExpiresAt.Value <= threshold);
         }
 
-        var ordered = query.OrderByDescending(l => l.CreatedAt);
+        if (!string.IsNullOrEmpty(serviceProductId))
+            query = query.Where(l => l.ServiceProductId == serviceProductId);
+
+        if (status is not null)
+            query = query.Where(l => l.Status == status);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(l =>
+                l.Customer.Name.ToLower().Contains(term)
+                || l.PlanName.ToLower().Contains(term)
+                || (l.ServiceProduct != null && l.ServiceProduct.Code.ToLower().Contains(term)));
+        }
+
+        // Id tiebreaker keeps paging stable for licenses created in the same instant.
+        var ordered = query.OrderByDescending(l => l.CreatedAt).ThenByDescending(l => l.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 

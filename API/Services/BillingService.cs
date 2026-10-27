@@ -165,11 +165,121 @@ public class BillingService(
             ?? throw new InvalidOperationException("Failed to load invoice.");
     }
 
+    public async Task<InvoiceStatsDto> GetInvoiceStatsAsync(CancellationToken cancellationToken = default)
+    {
+        var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var rows = new Dictionary<string, InvoiceCurrencyStatsDto>(StringComparer.OrdinalIgnoreCase);
+
+        InvoiceCurrencyStatsDto Row(string currency)
+        {
+            var key = currency.ToUpperInvariant();
+            if (!rows.TryGetValue(key, out var row))
+                rows[key] = row = new InvoiceCurrencyStatsDto { Currency = key };
+            return row;
+        }
+
+        // Net collected per currency: payments minus reversals (matches GetNetPaid).
+        var netByCurrency = await db.PaymentTransactions
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .GroupBy(t => t.Invoice.Currency)
+            .Select(g => new
+            {
+                Currency = g.Key,
+                Net = g.Sum(t => t.Kind == PaymentTransactionKind.Payment ? t.Amount : -t.Amount)
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var r in netByCurrency)
+            Row(r.Currency).TotalRevenue += r.Net;
+
+        var monthByCurrency = await db.PaymentTransactions
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(t => t.CreatedAt >= monthStart)
+            .GroupBy(t => t.Invoice.Currency)
+            .Select(g => new
+            {
+                Currency = g.Key,
+                Net = g.Sum(t => t.Kind == PaymentTransactionKind.Payment ? t.Amount : -t.Amount),
+                Count = g.Count(t => t.Kind == PaymentTransactionKind.Payment)
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var r in monthByCurrency)
+        {
+            var row = Row(r.Currency);
+            row.PaidThisMonth += r.Net;
+            row.PaidThisMonthCount += r.Count;
+        }
+
+        // Legacy receipts that predate payment transactions (see GetNetPaid fallback).
+        var legacy = await db.Receipts
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(r => r.Status == ReceiptStatus.Posted && !r.Invoice.PaymentTransactions.Any())
+            .Select(r => new { r.Invoice.Currency, r.AmountPaid, r.PaidAt })
+            .ToListAsync(cancellationToken);
+        foreach (var r in legacy)
+        {
+            var row = Row(r.Currency);
+            row.TotalRevenue += r.AmountPaid;
+            if (r.PaidAt >= monthStart)
+            {
+                row.PaidThisMonth += r.AmountPaid;
+                row.PaidThisMonthCount++;
+            }
+        }
+
+        // Outstanding = remaining balance of unpaid invoices (per-invoice floor at zero, like AmountDue).
+        var unpaid = await db.Invoices
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(i => i.Status == InvoiceStatus.Sent
+                || i.Status == InvoiceStatus.PartiallyPaid
+                || i.Status == InvoiceStatus.Overdue)
+            .Select(i => new
+            {
+                i.Id,
+                i.Currency,
+                i.Status,
+                i.TotalAmount,
+                TxNet = i.PaymentTransactions.Sum(t => t.Kind == PaymentTransactionKind.Payment ? t.Amount : -t.Amount),
+                HasTx = i.PaymentTransactions.Any(),
+                ReceiptNet = i.Receipts.Where(r => r.Status == ReceiptStatus.Posted).Sum(r => (decimal?)r.AmountPaid) ?? 0m
+            })
+            .ToListAsync(cancellationToken);
+
+        var unpaidCount = 0;
+        var overdueCount = 0;
+        foreach (var i in unpaid)
+        {
+            var paid = i.HasTx ? i.TxNet : i.ReceiptNet;
+            var row = Row(i.Currency);
+            row.Outstanding += Math.Max(0m, i.TotalAmount - paid);
+            unpaidCount++;
+            if (i.Status == InvoiceStatus.Overdue)
+            {
+                row.OverdueCount++;
+                overdueCount++;
+            }
+        }
+
+        return new InvoiceStatsDto
+        {
+            Currencies = rows.Values.OrderBy(r => r.Currency, StringComparer.Ordinal).ToList(),
+            UnpaidCount = unpaidCount,
+            OverdueCount = overdueCount
+        };
+    }
+
     public async Task<PagedResult<InvoiceDto>> ListInvoicesAsync(
         string? customerId = null,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         bool unpaidOnly = false,
+        InvoiceStatus? status = null,
+        string? search = null,
+        DateTime? issuedFrom = null,
+        DateTime? issuedTo = null,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -187,6 +297,9 @@ public class BillingService(
         if (customerId is not null)
             query = query.Where(i => i.CustomerId == customerId);
 
+        if (status is not null)
+            query = query.Where(i => i.Status == status);
+
         if (unpaidOnly)
         {
             query = query.Where(i =>
@@ -195,7 +308,29 @@ public class BillingService(
                 || i.Status == InvoiceStatus.Overdue);
         }
 
-        var ordered = query.OrderByDescending(i => i.IssueDate);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(i =>
+                i.Customer.Name.ToLower().Contains(term)
+                || i.InvoiceNumber.ToLower().Contains(term));
+        }
+
+        // Inclusive calendar-day range on IssueDate (UTC).
+        if (issuedFrom is not null)
+        {
+            var from = DateTime.SpecifyKind(issuedFrom.Value.Date, DateTimeKind.Utc);
+            query = query.Where(i => i.IssueDate >= from);
+        }
+
+        if (issuedTo is not null)
+        {
+            var toExclusive = DateTime.SpecifyKind(issuedTo.Value.Date.AddDays(1), DateTimeKind.Utc);
+            query = query.Where(i => i.IssueDate < toExclusive);
+        }
+
+        // Id tiebreaker keeps paging stable when many invoices share an IssueDate.
+        var ordered = query.OrderByDescending(i => i.IssueDate).ThenByDescending(i => i.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 

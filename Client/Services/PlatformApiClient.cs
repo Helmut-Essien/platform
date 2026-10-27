@@ -127,6 +127,9 @@ public class PlatformApiClient(HttpClient http)
         int page = 1,
         int pageSize = 25,
         int? expiringWithinDays = null,
+        string? serviceProductId = null,
+        LicenseStatus? status = null,
+        string? search = null,
         CancellationToken ct = default)
     {
         var url = $"api/licenses?page={page}&pageSize={pageSize}";
@@ -134,6 +137,12 @@ public class PlatformApiClient(HttpClient http)
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
         if (expiringWithinDays is > 0)
             url += $"&expiringWithinDays={expiringWithinDays.Value}";
+        if (!string.IsNullOrEmpty(serviceProductId))
+            url += $"&serviceProductId={Uri.EscapeDataString(serviceProductId)}";
+        if (status is not null)
+            url += $"&status={status}";
+        if (!string.IsNullOrWhiteSpace(search))
+            url += $"&search={Uri.EscapeDataString(search.Trim())}";
 
         return await http.GetFromJsonAsync<PagedResult<LicenseDto>>(url, ct)
             ?? new PagedResult<LicenseDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
@@ -209,6 +218,10 @@ public class PlatformApiClient(HttpClient http)
         int page = 1,
         int pageSize = 25,
         bool unpaidOnly = false,
+        InvoiceStatus? status = null,
+        string? search = null,
+        DateTime? issuedFrom = null,
+        DateTime? issuedTo = null,
         CancellationToken ct = default)
     {
         var url = $"api/invoices?page={page}&pageSize={pageSize}";
@@ -216,10 +229,48 @@ public class PlatformApiClient(HttpClient http)
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
         if (unpaidOnly)
             url += "&unpaidOnly=true";
+        if (status is not null)
+            url += $"&status={status}";
+        if (!string.IsNullOrWhiteSpace(search))
+            url += $"&search={Uri.EscapeDataString(search.Trim())}";
+        if (issuedFrom is not null)
+            url += $"&issuedFrom={issuedFrom.Value:yyyy-MM-dd}";
+        if (issuedTo is not null)
+            url += $"&issuedTo={issuedTo.Value:yyyy-MM-dd}";
 
         return await http.GetFromJsonAsync<PagedResult<InvoiceDto>>(url, ct)
             ?? new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
+
+    /// <summary>Server-side invoice aggregates (per currency) over all invoices, not just one page.</summary>
+    public async Task<InvoiceStatsDto?> GetInvoiceStatsAsync(CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<InvoiceStatsDto>("api/invoices/stats", ct);
+
+    /// <summary>The API caps page size at 100, so larger lookups must walk the pages.</summary>
+    public const int MaxPageSize = 100;
+
+    /// <summary>
+    /// Reads every page of a paged endpoint (up to <paramref name="maxItems"/>), for lookups such as
+    /// customer pickers where the API's page-size cap would otherwise silently truncate the list.
+    /// </summary>
+    public static async Task<List<T>> ReadAllPagesAsync<T>(
+        Func<int, int, Task<PagedResult<T>>> fetchPage,
+        int maxItems = 5000)
+    {
+        var all = new List<T>();
+        for (var page = 1; all.Count < maxItems; page++)
+        {
+            var result = await fetchPage(page, MaxPageSize);
+            all.AddRange(result.Items);
+            if (result.Items.Count == 0 || all.Count >= result.TotalCount)
+                break;
+        }
+
+        return all;
+    }
+
+    public Task<List<CustomerDto>> GetAllCustomersAsync(CancellationToken ct = default) =>
+        ReadAllPagesAsync((page, size) => GetCustomersPagedAsync(page, size, ct: ct));
 
     public async Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken ct = default) =>
         await http.GetFromJsonAsync<InvoiceDto>($"api/invoices/{id}", ct);

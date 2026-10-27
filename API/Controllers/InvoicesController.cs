@@ -5,6 +5,7 @@ using Platform.Api.Http;
 using Platform.Api.Services;
 using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
+using Platform.Shared.Enums;
 
 namespace Platform.Api.Controllers;
 
@@ -19,11 +20,21 @@ public class InvoicesController(IBillingService billing) : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         [FromQuery] bool unpaidOnly = false,
+        [FromQuery] InvoiceStatus? status = null,
+        [FromQuery] string? search = null,
+        [FromQuery] DateTime? issuedFrom = null,
+        [FromQuery] DateTime? issuedTo = null,
         CancellationToken cancellationToken = default)
     {
-        var invoices = await billing.ListInvoicesAsync(customerId, page, pageSize, unpaidOnly, cancellationToken);
+        var invoices = await billing.ListInvoicesAsync(
+            customerId, page, pageSize, unpaidOnly, status, search, issuedFrom, issuedTo, cancellationToken);
         return Ok(invoices);
     }
+
+    /// <summary>Server-side aggregates for the invoices page (per currency, over all invoices).</summary>
+    [HttpGet("stats")]
+    public async Task<ActionResult<InvoiceStatsDto>> Stats(CancellationToken cancellationToken) =>
+        Ok(await billing.GetInvoiceStatsAsync(cancellationToken));
 
     [HttpGet("{id}")]
     public async Task<ActionResult<InvoiceDto>> Get(string id, CancellationToken cancellationToken)

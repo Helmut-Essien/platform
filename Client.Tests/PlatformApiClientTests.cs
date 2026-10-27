@@ -45,6 +45,48 @@ public class PlatformApiClientTests
     }
 
     [Fact]
+    public async Task GetInvoicesPagedAsync_SendsServerSideFilters()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = 1, PageSize = 25 }));
+        var client = CreateClient(handler);
+
+        await client.GetInvoicesPagedAsync(
+            status: InvoiceStatus.Overdue,
+            search: " Acme & Co ",
+            issuedFrom: new DateTime(2026, 3, 1),
+            issuedTo: new DateTime(2026, 3, 31));
+
+        var query = handler.LastRequest!.RequestUri!.PathAndQuery;
+        Assert.Contains("status=Overdue", query);
+        Assert.Contains("search=Acme%20%26%20Co", query);
+        Assert.Contains("issuedFrom=2026-03-01", query);
+        Assert.Contains("issuedTo=2026-03-31", query);
+    }
+
+    [Fact]
+    public async Task ReadAllPagesAsync_WalksEveryPageUsingTheApiPageSizeCap()
+    {
+        var requested = new List<(int Page, int Size)>();
+        var all = Enumerable.Range(1, 230).ToList();
+
+        var result = await PlatformApiClient.ReadAllPagesAsync<int>((page, size) =>
+        {
+            requested.Add((page, size));
+            return Task.FromResult(new PagedResult<int>
+            {
+                Items = all.Skip((page - 1) * size).Take(size).ToList(),
+                TotalCount = all.Count,
+                Page = page,
+                PageSize = size
+            });
+        });
+
+        Assert.Equal(all, result);
+        Assert.Equal([(1, 100), (2, 100), (3, 100)], requested);
+    }
+
+    [Fact]
     public async Task ForgotPasswordAsync_PostsToForgotPasswordEndpoint()
     {
         var handler = new CapturingHttpMessageHandler(_ =>
