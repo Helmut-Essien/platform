@@ -12,6 +12,10 @@ public interface IAuditLogService
         int limit = 100,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Adds an audit entry and calls SaveChanges on the shared context, so any other pending changes are
+    /// persisted in the same unit of work (one round trip, atomic with the audited change).
+    /// </summary>
     Task WriteAsync(
         AuditAction action,
         string performedBy,
