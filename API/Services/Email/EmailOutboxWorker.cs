@@ -18,6 +18,7 @@ public class EmailOutboxWorker(
     {
         var delay = TimeSpan.FromSeconds(Math.Max(2, settings.Value.Outbox.PollIntervalSeconds));
         List<string>? inFlightBatch = null;
+        var lastPurge = DateTime.MinValue;
 
         while (true)
         {
@@ -59,6 +60,19 @@ public class EmailOutboxWorker(
 
             if (stoppingToken.IsCancellationRequested)
                 break;
+
+            if (DateTime.UtcNow - lastPurge >= TimeSpan.FromHours(1))
+            {
+                lastPurge = DateTime.UtcNow;
+                try
+                {
+                    await PurgeAsync(stoppingToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning(ex, "Email outbox retention purge failed.");
+                }
+            }
 
             await Task.Delay(delay, stoppingToken);
         }
@@ -131,7 +145,12 @@ public class EmailOutboxWorker(
         }, cancellationToken);
     }
 
-    private async Task SendAsync(string id, CancellationToken cancellationToken)
+    // Backoff doubles from 2 minutes and is capped so a provider outage of several hours
+    // does not exhaust the attempts of every queued message (B3).
+    internal static TimeSpan ComputeBackoff(int attemptCount) =>
+        TimeSpan.FromMinutes(Math.Min(Math.Pow(2, Math.Max(1, attemptCount)), 360));
+
+    internal async Task SendAsync(string id, CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -141,6 +160,10 @@ public class EmailOutboxWorker(
         var invoiceBrand = scope.ServiceProvider.GetRequiredService<IInvoiceBrandService>();
         var message = await db.EmailOutboxMessages.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (message is null)
+            return;
+
+        // Only messages this worker claimed may be sent (a manual retry or another worker may have changed it).
+        if (message.Status != EmailDeliveryStatus.Sending)
             return;
 
         message.AttemptCount++;
@@ -164,6 +187,14 @@ public class EmailOutboxWorker(
                     .Include(x => x.ServiceProduct)
                     .FirstOrDefaultAsync(x => x.Id == message.InvoiceId, cancellationToken)
                     ?? throw new InvalidOperationException("Invoice for email delivery no longer exists.");
+
+                // E4: an invoice voided after it was queued must not be sent to the customer.
+                if (invoice.Status == InvoiceStatus.Void)
+                {
+                    await CancelAsync(db, message, "Invoice was voided before the email was sent.", cancellationToken);
+                    return;
+                }
+
                 var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
                 var paymentOptions = InvoiceBrandService.DeserializePaymentOptions(profile.PaymentOptionsJson)
                     .Select(x => new InvoicePaymentOption(x.Method, x.Details))
@@ -176,62 +207,176 @@ public class EmailOutboxWorker(
             }
 
             await sender.SendAsync(message.ToEmail, message.Subject, body, attachments, cancellationToken);
-            var sentAt = DateTime.UtcNow;
-            message.Status = EmailDeliveryStatus.Sent;
-            message.SentAt = sentAt;
-            message.UpdatedAt = sentAt;
-            message.LastError = null;
-            message.EncryptedPayload = null;
-            message.HtmlBody = message.HtmlBody
-                .Replace("{{LICENSE_KEY}}", "[delivered]", StringComparison.Ordinal)
-                .Replace("{{RESET_LINK}}", "[delivered]", StringComparison.Ordinal);
-            db.AuditLogs.Add(new Platform.Api.Entities.AuditLog
-            {
-                Action = AuditAction.EmailDeliverySent,
-                PerformedBy = "system:email-outbox",
-                CustomerId = message.CustomerId,
-                LicenseId = message.LicenseId,
-                InvoiceId = message.InvoiceId,
-                DetailsJson = AuditJson.Serialize(new { deliveryId = message.Id, kind = message.Kind.ToString() })
-            });
-            await db.SaveChangesAsync(cancellationToken);
-            await MarkLicenseKeyDeliveredAsync(db, message, sentAt, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var maxAttempts = Math.Max(1, settings.Value.Outbox.MaxAttempts);
-            message.Status = message.AttemptCount >= maxAttempts
-                ? EmailDeliveryStatus.DeadLetter
-                : EmailDeliveryStatus.Failed;
-            message.NextAttemptAt = message.Status == EmailDeliveryStatus.DeadLetter
-                ? null
-                : DateTime.UtcNow.AddMinutes(Math.Pow(2, message.AttemptCount));
-            message.LastError = Sanitize(ex.Message);
-            message.UpdatedAt = DateTime.UtcNow;
-            if (message.Status == EmailDeliveryStatus.DeadLetter)
+            await RecordFailureAsync(db, message, ex, cancellationToken);
+            return;
+        }
+
+        // The email has been handed to the provider. From here on a bookkeeping failure must NOT
+        // be recorded as a send failure, or the customer would receive the email again (E2).
+        await RecordSentAsync(db, message, cancellationToken);
+    }
+
+    private async Task CancelAsync(
+        AppDbContext db,
+        Platform.Api.Entities.EmailOutboxMessage message,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        message.Status = EmailDeliveryStatus.Cancelled;
+        message.NextAttemptAt = null;
+        message.LastError = reason;
+        message.UpdatedAt = DateTime.UtcNow;
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Failed to record cancellation of email delivery {DeliveryId}.", message.Id);
+        }
+    }
+
+    private async Task RecordSentAsync(
+        AppDbContext db,
+        Platform.Api.Entities.EmailOutboxMessage message,
+        CancellationToken cancellationToken)
+    {
+        var sentAt = DateTime.UtcNow;
+        var id = message.Id;
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            try
             {
+                if (attempt > 1)
+                {
+                    db.ChangeTracker.Clear();
+                    message = await db.EmailOutboxMessages.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+                        ?? throw new InvalidOperationException("Outbox message disappeared.");
+                    message.AttemptCount++;
+                }
+
+                message.Status = EmailDeliveryStatus.Sent;
+                message.SentAt = sentAt;
+                message.UpdatedAt = sentAt;
+                message.NextAttemptAt = null;
+                message.LastError = null;
                 message.EncryptedPayload = null;
                 message.HtmlBody = message.HtmlBody
-                    .Replace("{{LICENSE_KEY}}", "[redacted]", StringComparison.Ordinal)
-                    .Replace("{{RESET_LINK}}", "[redacted]", StringComparison.Ordinal);
-            }
-            db.AuditLogs.Add(new Platform.Api.Entities.AuditLog
-            {
-                Action = AuditAction.EmailDeliveryFailed,
-                PerformedBy = "system:email-outbox",
-                CustomerId = message.CustomerId,
-                LicenseId = message.LicenseId,
-                InvoiceId = message.InvoiceId,
-                DetailsJson = AuditJson.Serialize(new
+                    .Replace("{{LICENSE_KEY}}", "[delivered]", StringComparison.Ordinal)
+                    .Replace("{{RESET_LINK}}", "[delivered]", StringComparison.Ordinal);
+                db.AuditLogs.Add(new Platform.Api.Entities.AuditLog
                 {
-                    deliveryId = message.Id,
-                    kind = message.Kind.ToString(),
-                    attempt = message.AttemptCount
-                })
-            });
-            await db.SaveChangesAsync(cancellationToken);
-            logger.LogWarning(ex, "Email delivery {DeliveryId} failed on attempt {Attempt}.", id, message.AttemptCount);
+                    Action = AuditAction.EmailDeliverySent,
+                    PerformedBy = "system:email-outbox",
+                    CustomerId = message.CustomerId,
+                    LicenseId = message.LicenseId,
+                    InvoiceId = message.InvoiceId,
+                    DetailsJson = AuditJson.Serialize(new { deliveryId = message.Id, kind = message.Kind.ToString() })
+                });
+                await db.SaveChangesAsync(cancellationToken);
+                await MarkLicenseKeyDeliveredAsync(db, message, sentAt, cancellationToken);
+                return;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(
+                    ex,
+                    "Email delivery {DeliveryId} was sent but could not be marked Sent (attempt {Attempt}).",
+                    id,
+                    attempt);
+            }
         }
+
+        // Still unrecorded: the message stays in 'Sending' and is reclaimed as stale after 10 minutes,
+        // which can produce one duplicate email. The database is unavailable, so there is nothing safer to do.
+    }
+
+    private async Task RecordFailureAsync(
+        AppDbContext db,
+        Platform.Api.Entities.EmailOutboxMessage message,
+        Exception ex,
+        CancellationToken cancellationToken)
+    {
+        var maxAttempts = Math.Max(1, settings.Value.Outbox.MaxAttempts);
+        message.Status = message.AttemptCount >= maxAttempts
+            ? EmailDeliveryStatus.DeadLetter
+            : EmailDeliveryStatus.Failed;
+        message.NextAttemptAt = message.Status == EmailDeliveryStatus.DeadLetter
+            ? null
+            : DateTime.UtcNow.Add(ComputeBackoff(message.AttemptCount));
+        message.LastError = Sanitize(ex.Message);
+        message.UpdatedAt = DateTime.UtcNow;
+        // B3: the encrypted payload and placeholders are kept on DeadLetter so a provider outage
+        // does not permanently destroy license-key / password-reset emails. They are purged by
+        // PurgeAsync after Outbox.DeadLetterPayloadRetentionDays.
+        db.AuditLogs.Add(new Platform.Api.Entities.AuditLog
+        {
+            Action = AuditAction.EmailDeliveryFailed,
+            PerformedBy = "system:email-outbox",
+            CustomerId = message.CustomerId,
+            LicenseId = message.LicenseId,
+            InvoiceId = message.InvoiceId,
+            DetailsJson = AuditJson.Serialize(new
+            {
+                deliveryId = message.Id,
+                kind = message.Kind.ToString(),
+                attempt = message.AttemptCount
+            })
+        });
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogWarning(ex, "Email delivery {DeliveryId} failed on attempt {Attempt}.", message.Id, message.AttemptCount);
+        }
+        catch (Exception saveEx) when (saveEx is not OperationCanceledException)
+        {
+            // E2: do not abort the rest of the claimed batch; the message is reclaimed as stale later.
+            logger.LogError(saveEx, "Failed to record failure for email delivery {DeliveryId}.", message.Id);
+        }
+    }
+
+    /// <summary>
+    /// Retention (P12/B3): redacts sensitive payloads of dead-lettered messages after the retention
+    /// window and deletes old Sent/Cancelled rows so the outbox table does not grow forever.
+    /// </summary>
+    internal async Task PurgeAsync(CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = DateTime.UtcNow;
+        var outbox = settings.Value.Outbox;
+
+        var payloadCutoff = now.AddDays(-Math.Max(1, outbox.DeadLetterPayloadRetentionDays));
+        var staleDead = await db.EmailOutboxMessages
+            .Where(m => m.Status == EmailDeliveryStatus.DeadLetter
+                && m.UpdatedAt <= payloadCutoff
+                && m.EncryptedPayload != null)
+            .Take(200)
+            .ToListAsync(cancellationToken);
+        foreach (var message in staleDead)
+        {
+            message.EncryptedPayload = null;
+            message.HtmlBody = message.HtmlBody
+                .Replace("{{LICENSE_KEY}}", "[redacted]", StringComparison.Ordinal)
+                .Replace("{{RESET_LINK}}", "[redacted]", StringComparison.Ordinal);
+            message.UpdatedAt = now;
+        }
+
+        var retentionCutoff = now.AddDays(-Math.Max(7, outbox.SentRetentionDays));
+        var old = await db.EmailOutboxMessages
+            .Where(m => (m.Status == EmailDeliveryStatus.Sent || m.Status == EmailDeliveryStatus.Cancelled)
+                && m.UpdatedAt <= retentionCutoff)
+            .OrderBy(m => m.UpdatedAt)
+            .Take(500)
+            .ToListAsync(cancellationToken);
+        db.EmailOutboxMessages.RemoveRange(old);
+
+        if (staleDead.Count > 0 || old.Count > 0)
+            await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task MarkLicenseKeyDeliveredAsync(

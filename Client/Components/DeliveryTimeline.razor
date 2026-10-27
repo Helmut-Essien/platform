@@ -93,6 +93,7 @@
         EmailDeliveryStatus.Sent => Color.Success,
         EmailDeliveryStatus.Failed or EmailDeliveryStatus.DeadLetter => Color.Error,
         EmailDeliveryStatus.Sending => Color.Info,
+        EmailDeliveryStatus.Cancelled => Color.Default,
         _ => Color.Warning
     };
 }

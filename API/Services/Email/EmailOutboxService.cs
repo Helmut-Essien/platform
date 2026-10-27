@@ -76,6 +76,7 @@ public class EmailOutboxService(AppDbContext db) : IEmailOutboxService
         }
 
         message.Status = EmailDeliveryStatus.Pending;
+        message.AttemptCount = 0; // E3: a manual retry gets a full backoff schedule again
         message.NextAttemptAt = DateTime.UtcNow;
         message.LastError = null;
         message.UpdatedAt = DateTime.UtcNow;

@@ -34,6 +34,12 @@ public class EmailOutboxSettings
 {
     public int PollIntervalSeconds { get; set; } = 10;
     public int BatchSize { get; set; } = 20;
-    public int MaxAttempts { get; set; } = 5;
+    public int MaxAttempts { get; set; } = 10;
+
+    /// <summary>Dead-lettered messages keep their encrypted payload (so they can be retried) this many days.</summary>
+    public int DeadLetterPayloadRetentionDays { get; set; } = 14;
+
+    /// <summary>Sent and cancelled outbox rows older than this many days (minimum 7) are deleted.</summary>
+    public int SentRetentionDays { get; set; } = 90;
     public string? EncryptionKey { get; set; }
 }
