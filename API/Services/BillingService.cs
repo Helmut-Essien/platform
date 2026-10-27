@@ -314,7 +314,7 @@ public class BillingService(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
+            var term = SearchHelper.Normalize(search).ToLower();
             query = query.Where(i =>
                 i.Customer.Name.ToLower().Contains(term)
                 || i.InvoiceNumber.ToLower().Contains(term));
@@ -503,7 +503,7 @@ public class BillingService(
         PaymentTransaction? payment = null;
         for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
         {
-            receipt.ReceiptNumber = await GenerateReceiptNumberAsync(ct);
+            receipt.ReceiptNumber = await GenerateReceiptNumberAsync(attempt, ct);
             if (attempt == 0)
             {
                 db.Receipts.Add(receipt);
@@ -899,10 +899,6 @@ public class BillingService(
 
     private const decimal MaxMoneyAmount = 9_999_999_999_999m;
 
-    /// <summary>
-    /// B7: money columns are numeric(18,2). Reject sub-cent precision instead of letting the DB round it
-    /// (which made the in-memory balance checks and the stored amounts disagree).
-    /// </summary>
     /// <summary>E11: ISO-4217 style code, three ASCII letters, upper-cased.</summary>
     internal static string NormalizeCurrency(string? currency)
     {
@@ -916,19 +912,29 @@ public class BillingService(
     /// P10/E-numbering: next sequential document number from the highest existing number with this prefix,
     /// so a gap in the sequence can never make the next number collide (the old COUNT+1 could).
     /// </summary>
-    internal static string NextDocumentNumber(string prefix, string? lastNumber)
+    internal static string NextDocumentNumber(string prefix, string? lastNumber, int skip = 0)
     {
         var next = 1L;
+        // NumberStyles.None: digits only, so a malformed suffix ("-5", " 7", "+3", "1e3") is ignored
+        // instead of producing a negative or odd number. 15 digits keeps last + 1 far from overflow.
         if (lastNumber is not null
             && lastNumber.StartsWith(prefix, StringComparison.Ordinal)
-            && long.TryParse(lastNumber.AsSpan(prefix.Length), out var last))
+            && lastNumber.Length - prefix.Length is > 0 and <= 15
+            && long.TryParse(lastNumber.AsSpan(prefix.Length), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var last))
         {
             next = last + 1;
         }
 
-        return $"{prefix}{next:D5}";
+        // 'skip' lets a retry after a unique violation move past a number the max-based lookup cannot
+        // see (e.g. a malformed or non-numeric row that sorts above the numeric ones).
+        return $"{prefix}{next + Math.Max(0, skip):D5}";
     }
 
+    /// <summary>
+    /// B7: money columns are numeric(18,2). Reject sub-cent precision instead of letting the DB round it
+    /// (which made the in-memory balance checks and the stored amounts disagree).
+    /// </summary>
     internal static void EnsureValidMoney(decimal amount, string label)
     {
         if (amount < 0 || amount > MaxMoneyAmount)
@@ -1000,7 +1006,7 @@ public class BillingService(
 
         for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
         {
-            invoice.InvoiceNumber = await GenerateInvoiceNumberAsync(cancellationToken);
+            invoice.InvoiceNumber = await GenerateInvoiceNumberAsync(attempt, cancellationToken);
             db.Invoices.Add(invoice);
 
             try
@@ -1017,7 +1023,7 @@ public class BillingService(
         }
     }
 
-    private async Task<string> GenerateInvoiceNumberAsync(CancellationToken cancellationToken)
+    private async Task<string> GenerateInvoiceNumberAsync(int skip, CancellationToken cancellationToken)
     {
         var year = DateTime.UtcNow.Year;
         var prefix = $"INV-{year}-";
@@ -1031,10 +1037,10 @@ public class BillingService(
             .ThenByDescending(n => n)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return NextDocumentNumber(prefix, last);
+        return NextDocumentNumber(prefix, last, skip);
     }
 
-    private async Task<string> GenerateReceiptNumberAsync(CancellationToken cancellationToken)
+    private async Task<string> GenerateReceiptNumberAsync(int skip, CancellationToken cancellationToken)
     {
         var year = DateTime.UtcNow.Year;
         var prefix = $"RCP-{year}-";
@@ -1047,7 +1053,7 @@ public class BillingService(
             .ThenByDescending(n => n)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return NextDocumentNumber(prefix, last);
+        return NextDocumentNumber(prefix, last, skip);
     }
 
     private void QueueInvoiceEmail(Customer customer, Invoice invoice)

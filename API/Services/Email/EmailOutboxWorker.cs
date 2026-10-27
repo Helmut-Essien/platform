@@ -78,7 +78,7 @@ public class EmailOutboxWorker(
         }
     }
 
-    private async Task<List<string>> ClaimBatchAsync(CancellationToken cancellationToken)
+    internal async Task<List<string>> ClaimBatchAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -301,7 +301,7 @@ public class EmailOutboxWorker(
         CancellationToken cancellationToken)
     {
         var maxAttempts = Math.Max(1, settings.Value.Outbox.MaxAttempts);
-        message.Status = message.AttemptCount >= maxAttempts
+        message.Status = message.AttemptCount >= maxAttempts || ex is PermanentEmailFailureException
             ? EmailDeliveryStatus.DeadLetter
             : EmailDeliveryStatus.Failed;
         message.NextAttemptAt = message.Status == EmailDeliveryStatus.DeadLetter
@@ -343,6 +343,9 @@ public class EmailOutboxWorker(
     /// Retention (P12/B3): redacts sensitive payloads of dead-lettered messages after the retention
     /// window and deletes old Sent/Cancelled rows so the outbox table does not grow forever.
     /// </summary>
+    private const int PurgeChunkSize = 500;
+    private const int MaxPurgeChunks = 40;
+
     internal async Task PurgeAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
@@ -367,15 +370,39 @@ public class EmailOutboxWorker(
         }
 
         var retentionCutoff = now.AddDays(-Math.Max(7, outbox.SentRetentionDays));
-        var old = await db.EmailOutboxMessages
-            .Where(m => (m.Status == EmailDeliveryStatus.Sent || m.Status == EmailDeliveryStatus.Cancelled)
-                && m.UpdatedAt <= retentionCutoff)
-            .OrderBy(m => m.UpdatedAt)
-            .Take(500)
-            .ToListAsync(cancellationToken);
-        db.EmailOutboxMessages.RemoveRange(old);
+        var deleted = 0;
+        if (db.Database.IsRelational())
+        {
+            // Chunked set-based deletes: a large backlog is cleared in one pass without loading rows.
+            for (var chunk = 0; chunk < MaxPurgeChunks; chunk++)
+            {
+                var ids = db.EmailOutboxMessages
+                    .Where(m => (m.Status == EmailDeliveryStatus.Sent || m.Status == EmailDeliveryStatus.Cancelled)
+                        && m.UpdatedAt <= retentionCutoff)
+                    .OrderBy(m => m.UpdatedAt)
+                    .Select(m => m.Id)
+                    .Take(PurgeChunkSize);
+                var n = await db.EmailOutboxMessages
+                    .Where(m => ids.Contains(m.Id))
+                    .ExecuteDeleteAsync(cancellationToken);
+                deleted += n;
+                if (n < PurgeChunkSize)
+                    break;
+            }
+        }
+        else
+        {
+            var old = await db.EmailOutboxMessages
+                .Where(m => (m.Status == EmailDeliveryStatus.Sent || m.Status == EmailDeliveryStatus.Cancelled)
+                    && m.UpdatedAt <= retentionCutoff)
+                .OrderBy(m => m.UpdatedAt)
+                .Take(PurgeChunkSize)
+                .ToListAsync(cancellationToken);
+            db.EmailOutboxMessages.RemoveRange(old);
+            deleted = old.Count;
+        }
 
-        if (staleDead.Count > 0 || old.Count > 0)
+        if (staleDead.Count > 0 || (deleted > 0 && !db.Database.IsRelational()))
             await db.SaveChangesAsync(cancellationToken);
     }
 

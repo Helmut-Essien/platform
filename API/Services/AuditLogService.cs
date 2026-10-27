@@ -75,7 +75,7 @@ public class AuditLogService(AppDbContext db) : IAuditLogService, IAuditLogQuery
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
+            var term = SearchHelper.Normalize(search).ToLower();
             // Action names are matched the way the UI shows them (LICENSE_ISSUED / "license issued").
             var squashed = term.Replace("_", "").Replace(" ", "");
             var matchingActions = Enum.GetValues<AuditAction>()

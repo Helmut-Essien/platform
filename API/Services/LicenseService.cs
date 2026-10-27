@@ -141,7 +141,7 @@ public class LicenseService(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
+            var term = SearchHelper.Normalize(search).ToLower();
             query = query.Where(l =>
                 l.Customer.Name.ToLower().Contains(term)
                 || l.PlanName.ToLower().Contains(term)
