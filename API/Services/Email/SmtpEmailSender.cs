@@ -43,7 +43,14 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
             Body = htmlBody,
             IsBodyHtml = true
         };
-        message.To.Add(toEmail);
+        try
+        {
+            message.To.Add(toEmail);
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
+        {
+            throw new PermanentEmailFailureException($"Recipient address '{toEmail}' is not a valid email address.", ex);
+        }
 
         var streams = new List<MemoryStream>();
         try

@@ -17,6 +17,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
             .ToListAsync(cancellationToken);
 
         var licenseCounts = await db.Licenses
+            .IgnoreQueryFilters()
             .AsNoTracking()
             .GroupBy(l => l.ServiceProductId)
             .Select(g => new { ServiceProductId = g.Key, Count = g.Count() })
@@ -37,7 +38,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         if (product is null)
             return null;
 
-        var licenseCount = await db.Licenses.CountAsync(l => l.ServiceProductId == id, cancellationToken);
+        var licenseCount = await db.Licenses.IgnoreQueryFilters().CountAsync(l => l.ServiceProductId == id, cancellationToken);
         var hasKey = await db.IntegrationKeys.AnyAsync(k => k.ServiceProductId == id && k.IsActive, cancellationToken);
         return MapProduct(product, licenseCount, hasKey);
     }
@@ -62,7 +63,15 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         };
 
         db.ServiceProducts.Add(product);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
+        {
+            // Two admins creating the same code at once: the unique index wins, report it like the pre-check does.
+            throw new InvalidOperationException($"Service product code '{code}' already exists.", ex);
+        }
 
         await auditLog.WriteAsync(AuditAction.ServiceProductCreated, performedBy, null, null, null,
             AuditJson.Serialize(new { serviceProductId = product.Id, code }), ipAddress, cancellationToken);
@@ -89,7 +98,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         await auditLog.WriteAsync(AuditAction.ServiceProductUpdated, performedBy, null, null, null,
             AuditJson.Serialize(new { serviceProductId = id, code = product.Code }), ipAddress, cancellationToken);
 
-        var licenseCount = await db.Licenses.CountAsync(l => l.ServiceProductId == id, cancellationToken);
+        var licenseCount = await db.Licenses.IgnoreQueryFilters().CountAsync(l => l.ServiceProductId == id, cancellationToken);
         var hasKey = await db.IntegrationKeys.AnyAsync(k => k.ServiceProductId == id && k.IsActive, cancellationToken);
         return MapProduct(product, licenseCount, hasKey);
     }
@@ -126,7 +135,15 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         db.IntegrationKeys.RemoveRange(revokedKeys);
 
         db.ServiceProducts.Remove(product);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            // A license/invoice was created for this product after the checks above (foreign key restrict).
+            throw new InvalidOperationException("Cannot delete a service product that was just used by a license or invoice.", ex);
+        }
 
         await auditLog.WriteAsync(AuditAction.ServiceProductDeleted, performedBy, null, null, null,
             AuditJson.Serialize(new { serviceProductId = id, code = product.Code }), ipAddress, cancellationToken);

@@ -39,7 +39,7 @@ public class EmailTemplateService
             : "Store this key securely. For security reasons we cannot retrieve it later — if it is lost, contact us and we will issue a replacement.";
         var html = Wrap(
             customer.Name,
-            subject,
+            WebUtility.HtmlEncode(subject),
             lead,
             $"""
             <p style="margin:0 0 8px;color:#55604e;font-size:14px;">Your license key</p>

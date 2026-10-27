@@ -24,7 +24,7 @@ public class EmailOutboxService(AppDbContext db) : IEmailOutboxService
         {
             Kind = kind,
             ToEmail = toEmail.Trim().ToLowerInvariant(),
-            Subject = subject,
+            Subject = SanitizeSubject(subject),
             HtmlBody = htmlBody,
             CustomerId = customerId,
             LicenseId = licenseId,
@@ -36,6 +36,22 @@ public class EmailOutboxService(AppDbContext db) : IEmailOutboxService
         db.EmailOutboxMessages.Add(message);
         return message;
     }
+
+    /// <summary>
+    /// Subjects are built from admin-entered names. Control characters (CR/LF would be rejected by the mail
+    /// stack as header injection) are flattened to spaces and the length is capped to the column size,
+    /// so one odd product name can never make every email for it fail or roll back the business save.
+    /// </summary>
+    internal static string SanitizeSubject(string? subject)
+    {
+        var chars = (subject ?? string.Empty).Select(c => char.IsControl(c) ? ' ' : c).ToArray();
+        var flat = string.Join(' ', new string(chars).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (flat.Length > MaxSubjectLength)
+            flat = flat[..(MaxSubjectLength - 1)] + "…";
+        return flat.Length == 0 ? "(no subject)" : flat;
+    }
+
+    private const int MaxSubjectLength = 500;
 
     public async Task<IReadOnlyList<EmailDeliveryDto>> ListAsync(
         string? customerId = null,

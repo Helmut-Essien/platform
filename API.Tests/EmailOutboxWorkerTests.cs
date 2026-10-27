@@ -93,6 +93,22 @@ public class EmailOutboxWorkerTests
     }
 
     [Fact]
+    public async Task SendAsync_PermanentFailure_IsDeadLetteredWithoutRetries()
+    {
+        await using var h = CreateHarness(maxAttempts: 10);
+        h.Sender.FailPermanently = true;
+        var message = await h.QueueAsync(EmailDeliveryKind.RenewalConfirmation, payload: false);
+
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+
+        h.Db.ChangeTracker.Clear();
+        var stored = await h.Db.EmailOutboxMessages.FirstAsync(m => m.Id == message.Id);
+        Assert.Equal(EmailDeliveryStatus.DeadLetter, stored.Status);
+        Assert.Null(stored.NextAttemptAt);
+        Assert.Equal(1, stored.AttemptCount);
+    }
+
+    [Fact]
     public async Task SendAsync_VoidedInvoice_IsCancelledAndNotSent()
     {
         // E4
@@ -234,6 +250,7 @@ public class EmailOutboxWorkerTests
     private sealed class RecordingSender : IEmailSender
     {
         public bool Fail { get; set; }
+        public bool FailPermanently { get; set; }
         public List<(string To, string Subject, string Body)> Sent { get; } = [];
 
         public Task SendAsync(
@@ -243,6 +260,8 @@ public class EmailOutboxWorkerTests
             IReadOnlyList<EmailAttachment>? attachments = null,
             CancellationToken cancellationToken = default)
         {
+            if (FailPermanently)
+                throw new PermanentEmailFailureException("recipient rejected");
             if (Fail)
                 throw new InvalidOperationException("provider down");
             Sent.Add((toEmail, subject, htmlBody));
