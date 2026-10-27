@@ -244,8 +244,16 @@
         if (string.IsNullOrEmpty(_responseJson))
             return;
 
-        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _responseJson);
-        Snackbar.Add("Response copied.", Severity.Success);
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", _responseJson);
+            Snackbar.Add("Response copied.", Severity.Success);
+        }
+        catch (JSException)
+        {
+            // Clipboard blocked (insecure context or permission denied).
+            Snackbar.Add("Could not copy to the clipboard. Select the text and copy it manually.", Severity.Warning);
+        }
     }
 
     private void ClearResponse()

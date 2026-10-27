@@ -51,7 +51,7 @@ else
         <div class="invoice-detail-actions">
             @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
             {
-                <button type="button" class="btn-primary-cta" @onclick="SendInvoiceAsync">
+                <button type="button" class="btn-primary-cta" @onclick="() => RunExclusiveAsync(SendInvoiceAsyncCore)" disabled="@_busy">
                     <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" />
                     @(_invoice.Status == InvoiceStatus.Draft ? "Send invoice" : "Send again")
                 </button>
@@ -60,7 +60,7 @@ else
             {
                 @if (_invoice.AmountDue > 0)
                 {
-                    <button type="button" class="btn-primary-cta" @onclick="RecordPaymentAsync">
+                    <button type="button" class="btn-primary-cta" @onclick="() => RunExclusiveAsync(RecordPaymentAsyncCore)" disabled="@_busy">
                         <MudIcon Icon="@Icons.Material.Filled.Payments" Size="Size.Small" />
                         Record payment
                     </button>
@@ -69,7 +69,7 @@ else
             @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue
                  || (_invoice.Status == InvoiceStatus.PartiallyPaid && _invoice.AmountPaid == 0))
             {
-                <button type="button" class="btn-invoice-void" @onclick="VoidAsync">
+                <button type="button" class="btn-invoice-void" @onclick="() => RunExclusiveAsync(VoidAsyncCore)" disabled="@_busy">
                     <MudIcon Icon="@Icons.Material.Filled.Block" Size="Size.Small" />
                     Void
                 </button>
@@ -157,7 +157,7 @@ else
                 @if (_invoice.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue
                      && _invoice.AmountDue > 0)
                 {
-                    <button type="button" class="btn-primary-cta" @onclick="RecordPaymentAsync">
+                    <button type="button" class="btn-primary-cta" @onclick="() => RunExclusiveAsync(RecordPaymentAsyncCore)" disabled="@_busy">
                         <MudIcon Icon="@Icons.Material.Filled.Payments" Size="Size.Small" />
                         Record payment
                     </button>
@@ -192,7 +192,7 @@ else
                                 <td class="cell-right">
                                     @if (receipt.Status == ReceiptStatus.Posted)
                                     {
-                                        <button type="button" class="btn-receipt-reverse" @onclick="() => ReversePaymentAsync(receipt)">
+                                        <button type="button" class="btn-receipt-reverse" @onclick="() => RunExclusiveAsync(() => ReversePaymentAsync(receipt))" disabled="@_busy">
                                             Reverse
                                         </button>
                                     }
@@ -232,15 +232,47 @@ else
             await LoadAsync();
     }
 
+    private bool _busy;
+    private int _loadVersion;
+
     private async Task LoadAsync()
     {
-        _loading = true;
-        _invoice = await Api.GetInvoiceAsync(Id);
+        var requestedId = Id;
+        var version = ++_loadVersion;
+        // Keep showing the current invoice while refreshing after an action; a different invoice shows the skeleton.
+        if (_invoice?.Id != requestedId)
+            _loading = true;
+
+        var invoice = await Api.GetInvoiceAsync(requestedId);
+        if (version != _loadVersion)
+            return; // a newer navigation/refresh superseded this response
+
+        // A transient failure while refreshing must not turn an invoice we already have into "not found".
+        if (invoice is not null || _invoice?.Id != requestedId)
+            _invoice = invoice;
+
         _loading = false;
         _loaded = true;
     }
 
-    private async Task RecordPaymentAsync()
+    /// <summary>Runs one action at a time so a double click cannot send/void/record twice.</summary>
+    private async Task RunExclusiveAsync(Func<Task> action)
+    {
+        if (_busy)
+            return;
+
+        _busy = true;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RecordPaymentAsyncCore()
     {
         if (_invoice is null)
             return;
@@ -289,7 +321,7 @@ else
         await LoadAsync();
     }
 
-    private async Task SendInvoiceAsync()
+    private async Task SendInvoiceAsyncCore()
     {
         if (_invoice is null)
             return;
@@ -301,7 +333,7 @@ else
             await LoadAsync();
     }
 
-    private async Task VoidAsync()
+    private async Task VoidAsyncCore()
     {
         if (_invoice is null)
             return;
