@@ -21,4 +21,10 @@ public class AuditLogDto
     public string? IpAddress { get; set; }
 
     public DateTime Timestamp { get; set; }
+
+    /// <summary>Resolved server-side so clients need no customer lookup list.</summary>
+    public string? CustomerName { get; set; }
+
+    /// <summary>"Customer / SERVICE" label for <see cref="LicenseId"/>.</summary>
+    public string? LicenseLabel { get; set; }
 }

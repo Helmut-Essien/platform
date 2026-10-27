@@ -357,6 +357,35 @@ public class PlatformApiClient(HttpClient http)
         return await http.GetFromJsonAsync<List<AuditLogDto>>(url, ct) ?? [];
     }
 
+    public async Task<PagedResult<AuditLogDto>> GetAuditLogsPagedAsync(
+        int page = 1,
+        int pageSize = 25,
+        string? customerId = null,
+        string? licenseId = null,
+        string? invoiceId = null,
+        AuditAction? action = null,
+        string? search = null,
+        CancellationToken ct = default)
+    {
+        var url = $"api/audit-logs/paged?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrEmpty(customerId))
+            url += $"&customerId={Uri.EscapeDataString(customerId)}";
+        if (!string.IsNullOrEmpty(licenseId))
+            url += $"&licenseId={Uri.EscapeDataString(licenseId)}";
+        if (!string.IsNullOrEmpty(invoiceId))
+            url += $"&invoiceId={Uri.EscapeDataString(invoiceId)}";
+        if (action is not null)
+            url += $"&action={action}";
+        if (!string.IsNullOrWhiteSpace(search))
+            url += $"&search={Uri.EscapeDataString(search.Trim())}";
+
+        return await http.GetFromJsonAsync<PagedResult<AuditLogDto>>(url, ct)
+            ?? new PagedResult<AuditLogDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
+    }
+
+    public async Task<AuditLogStatsDto?> GetAuditLogStatsAsync(CancellationToken ct = default) =>
+        await http.GetFromJsonAsync<AuditLogStatsDto>("api/audit-logs/stats", ct);
+
     public async Task<ApiResult<ValidateLicenseResponse>> ValidateLicenseAsync(
         string integrationKey,
         ValidateLicenseRequest request,
