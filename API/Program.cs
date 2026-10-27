@@ -110,6 +110,7 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IAuditLogQueryService>(sp => (AuditLogService)sp.GetRequiredService<IAuditLogService>());
 builder.Services.AddScoped<IBillingService, BillingService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IServiceProductService, ServiceProductService>();

@@ -12,6 +12,8 @@ namespace Platform.Api.Services;
 
 public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) : IIntegrationKeyService
 {
+    private const int MaxListedKeys = 500;
+
     public async Task<IReadOnlyList<IntegrationKeyDto>> ListAsync(
         string? serviceProductId = null,
         CancellationToken cancellationToken = default)
@@ -21,7 +23,8 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
         if (serviceProductId is not null)
             query = query.Where(k => k.ServiceProductId == serviceProductId);
 
-        var keys = await query.OrderByDescending(k => k.CreatedAt).ToListAsync(cancellationToken);
+        // Rotations keep revoked keys forever; the newest 500 is plenty for the admin screen.
+        var keys = await query.OrderByDescending(k => k.CreatedAt).Take(MaxListedKeys).ToListAsync(cancellationToken);
         return keys.Select(k => ToDto(k)).ToList();
     }
 
@@ -50,7 +53,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
                 var entity = new IntegrationKey
                 {
                     ServiceProductId = serviceProductId,
-                    KeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey),
+                    KeyHash = KeyHasher.Hash(plainKey),
                     KeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey),
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow

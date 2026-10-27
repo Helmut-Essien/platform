@@ -11,7 +11,7 @@
             <h1 class="page-title">Settings</h1>
             <p class="page-subtitle">Configure invoice letterhead used on emailed PDF invoices.</p>
         </div>
-        <button type="button" class="btn-primary-cta" disabled="@(_saving || _loading)" @onclick="SaveAsync">
+        <button type="button" class="btn-primary-cta" disabled="@(_saving || _loading || _loadFailed)" @onclick="SaveAsync">
             @if (_saving)
             {
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
@@ -174,6 +174,7 @@
 
     private bool _loading = true;
     private bool _saving;
+    private bool _loadFailed;
     private string _companyName = "";
     private string? _addressLine1;
     private string? _addressLine2;
@@ -195,6 +196,8 @@
             var brand = await Api.GetInvoiceBrandAsync();
             if (brand is null)
             {
+                // Saving a blank form over the real letterhead would wipe it, so Save stays disabled.
+                _loadFailed = true;
                 Snackbar.Add("Could not load letterhead settings.", Severity.Error);
                 return;
             }
@@ -220,6 +223,7 @@
         }
         catch (Exception ex)
         {
+            _loadFailed = true;
             Snackbar.Add($"Failed to load settings: {ex.Message}", Severity.Error);
         }
         finally
@@ -264,10 +268,20 @@
             return;
         }
 
-        await using var stream = file.OpenReadStream(maxBytes);
-        using var ms = new MemoryStream();
-        await stream.CopyToAsync(ms);
-        var bytes = ms.ToArray();
+        byte[] bytes;
+        try
+        {
+            await using var stream = file.OpenReadStream(maxBytes);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            bytes = ms.ToArray();
+        }
+        catch (IOException)
+        {
+            // File removed/changed after selection, or larger than declared.
+            Snackbar.Add("Could not read that file. Please choose it again.", Severity.Warning);
+            return;
+        }
 
         _pendingLogoBase64 = Convert.ToBase64String(bytes);
         _pendingLogoContentType = contentType == "image/jpg" ? "image/jpeg" : contentType;

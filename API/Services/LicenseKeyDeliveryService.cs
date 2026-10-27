@@ -37,7 +37,7 @@ public class LicenseKeyDeliveryService(
             ?? throw new NotFoundException("Customer not found.");
 
         var plainKey = GenerateLicenseKey(serviceProduct.Code);
-        license.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword(plainKey);
+        license.LicenseKeyHash = KeyHasher.Hash(plainKey);
         license.LicenseKeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey);
         license.UpdatedAt = DateTime.UtcNow;
 

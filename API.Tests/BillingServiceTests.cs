@@ -579,6 +579,298 @@ public class BillingServiceTests
         Assert.Empty(denyList.ClearedLicenseIds);
     }
 
+    [Fact]
+    public async Task GetInvoiceStatsAsync_AggregatesAllInvoicesPerCurrency()
+    {
+        // B1/E7: aggregates must cover every invoice (not one page) and never mix currencies.
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        var usdPaid = await CreateSentInvoiceAsync(service, customer.Id, 100m);
+        await service.RecordReceiptAsync(usdPaid.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "stats-1",
+            AmountPaid = 100m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+        var usdPartial = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+        await service.RecordReceiptAsync(usdPartial.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "stats-2",
+            AmountPaid = 20m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+        // Well over one page of unpaid invoices.
+        for (var i = 0; i < 120; i++)
+            await CreateSentInvoiceAsync(service, customer.Id, 1m);
+        await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "EUR",
+            Subtotal = 40m
+        }, performedBy: "admin@example.com");
+        var overdue = await db.Invoices.FirstAsync(i => i.Id == usdPartial.Id);
+        // PartiallyPaid invoice counts as unpaid; mark one other invoice overdue.
+        var other = await db.Invoices.Where(i => i.Status == InvoiceStatus.Sent && i.Currency == "USD").FirstAsync();
+        other.Status = InvoiceStatus.Overdue;
+        await db.SaveChangesAsync();
+
+        var stats = await service.GetInvoiceStatsAsync();
+
+        var usd = Assert.Single(stats.Currencies, c => c.Currency == "USD");
+        var eur = Assert.Single(stats.Currencies, c => c.Currency == "EUR");
+        Assert.Equal(120m, usd.TotalRevenue);
+        Assert.Equal(30m + 120m, usd.Outstanding);
+        Assert.Equal(120m, usd.PaidThisMonth);
+        Assert.Equal(2, usd.PaidThisMonthCount);
+        Assert.Equal(1, usd.OverdueCount);
+        Assert.Equal(0m, eur.TotalRevenue);
+        Assert.Equal(40m, eur.Outstanding);
+        Assert.Equal(122, stats.UnpaidCount);
+        Assert.Equal(1, stats.OverdueCount);
+        Assert.NotNull(overdue);
+    }
+
+    [Fact]
+    public async Task ListInvoicesAsync_FiltersByStatusSearchAndIssueDateOnTheServer()
+    {
+        await using var db = CreateDbContext();
+        var acme = await SeedCustomerAsync(db);
+        var globex = new Customer { Name = "Globex", ContactEmail = "g@globex.test" };
+        db.Customers.Add(globex);
+        await db.SaveChangesAsync();
+        var service = CreateBillingService(db);
+
+        var a = await CreateSentInvoiceAsync(service, acme.Id, 10m);
+        var b = await CreateSentInvoiceAsync(service, globex.Id, 20m);
+        var c = await CreateSentInvoiceAsync(service, globex.Id, 30m);
+        (await db.Invoices.FirstAsync(i => i.Id == c.Id)).Status = InvoiceStatus.Overdue;
+        (await db.Invoices.FirstAsync(i => i.Id == a.Id)).IssueDate = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        var bySearch = await service.ListInvoicesAsync(search: "glob");
+        Assert.Equal(2, bySearch.TotalCount);
+
+        var byStatus = await service.ListInvoicesAsync(status: InvoiceStatus.Overdue);
+        Assert.Equal(c.Id, Assert.Single(byStatus.Items).Id);
+
+        var byNumber = await service.ListInvoicesAsync(search: b.InvoiceNumber.ToLowerInvariant());
+        Assert.Equal(b.Id, Assert.Single(byNumber.Items).Id);
+
+        // Inclusive calendar-day bounds.
+        var january = await service.ListInvoicesAsync(
+            issuedFrom: new DateTime(2026, 1, 15), issuedTo: new DateTime(2026, 1, 15));
+        Assert.Equal(a.Id, Assert.Single(january.Items).Id);
+
+        var none = await service.ListInvoicesAsync(issuedTo: new DateTime(2026, 1, 14));
+        Assert.Empty(none.Items);
+        Assert.Equal(0, none.TotalCount);
+    }
+
+    [Fact]
+    public async Task VoidInvoiceAsync_RejectsInvoiceWithPostedPayment()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+        await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "void-guard",
+            AmountPaid = 10m,
+            PaymentMethod = PaymentMethod.Cash
+        }, performedBy: "admin@example.com");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.VoidInvoiceAsync(invoice.Id, "admin@example.com"));
+
+        Assert.Equal(InvoiceStatus.PartiallyPaid, (await db.Invoices.AsNoTracking().FirstAsync(i => i.Id == invoice.Id)).Status);
+    }
+
+    [Theory]
+    [InlineData("10.005")]
+    [InlineData("0.001")]
+    [InlineData("20000000000000")]
+    public async Task RecordReceiptAsync_RejectsSubCentAndOutOfRangeAmounts(string amount)
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "precision",
+                AmountPaid = decimal.Parse(amount, System.Globalization.CultureInfo.InvariantCulture),
+                PaymentMethod = PaymentMethod.Cash
+            }, performedBy: "admin@example.com"));
+
+        Assert.Empty(db.PaymentTransactions);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_AcceptsTwoDecimalAmountsAndReplaysIdempotently()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50.10m);
+        var request = new RecordReceiptRequest
+        {
+            IdempotencyKey = "cents",
+            AmountPaid = 20.10m,
+            PaymentMethod = PaymentMethod.Cash
+        };
+
+        var first = await service.RecordReceiptAsync(invoice.Id, request, performedBy: "admin@example.com");
+        var replay = await service.RecordReceiptAsync(invoice.Id, request, performedBy: "admin@example.com");
+
+        Assert.Equal(first.Id, replay.Id);
+        Assert.Equal(30m, (await service.GetInvoiceAsync(invoice.Id))!.AmountDue);
+    }
+
+    [Theory]
+    [InlineData("100.001", "0")]
+    [InlineData("100", "0.005")]
+    public async Task CreateInvoiceAsync_RejectsSubCentSubtotalOrTax(string subtotal, string tax)
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = "USD",
+            Subtotal = decimal.Parse(subtotal, System.Globalization.CultureInfo.InvariantCulture),
+            TaxAmount = decimal.Parse(tax, System.Globalization.CultureInfo.InvariantCulture)
+        }, performedBy: "admin@example.com"));
+    }
+
+    [Theory]
+    [InlineData("US")]
+    [InlineData("US1")]
+    [InlineData("US$")]
+    [InlineData("")]
+    public async Task CreateInvoiceAsync_RejectsMalformedCurrency(string currency)
+    {
+        // E11
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = currency,
+            Subtotal = 10m
+        }, performedBy: "admin@example.com"));
+    }
+
+    [Fact]
+    public async Task CreateInvoiceAsync_NormalizesCurrencyCase()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+
+        var invoice = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Sent,
+            Currency = " ghs ",
+            Subtotal = 10m
+        }, performedBy: "admin@example.com");
+
+        Assert.Equal("GHS", invoice.Currency);
+    }
+
+    [Fact]
+    public async Task RecordReceiptAsync_RejectsFuturePaymentDate()
+    {
+        // E10
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 50m);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+            {
+                IdempotencyKey = "future",
+                AmountPaid = 10m,
+                PaymentMethod = PaymentMethod.Cash,
+                PaidAt = DateTime.UtcNow.AddDays(10)
+            }, performedBy: "admin@example.com"));
+
+        var receipt = await service.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "past",
+            AmountPaid = 10m,
+            PaymentMethod = PaymentMethod.Cash,
+            PaidAt = DateTime.UtcNow.AddDays(-3)
+        }, performedBy: "admin@example.com");
+        Assert.True(receipt.PaidAt < DateTime.UtcNow.AddDays(-2));
+    }
+
+    [Fact]
+    public async Task SendInvoiceAsync_RefusesFirstSendOfDraftForSuspendedCustomer()
+    {
+        // E12
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var draft = await service.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = customer.Id,
+            Status = InvoiceStatus.Draft,
+            Currency = "USD",
+            Subtotal = 25m
+        }, performedBy: "admin@example.com");
+
+        customer.IsSuspended = true;
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SendInvoiceAsync(draft.Id, performedBy: "admin@example.com"));
+        Assert.Equal(InvoiceStatus.Draft, (await db.Invoices.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task DocumentNumbers_FollowTheHighestExistingNumberEvenWithGaps()
+    {
+        // P10
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        var year = DateTime.UtcNow.Year;
+        db.Invoices.Add(new Invoice
+        {
+            CustomerId = customer.Id,
+            InvoiceNumber = $"INV-{year}-00007",
+            Status = InvoiceStatus.Draft,
+            Currency = "USD"
+        });
+        await db.SaveChangesAsync();
+
+        var invoice = await CreateSentInvoiceAsync(service, customer.Id, 10m);
+
+        Assert.Equal($"INV-{year}-00008", invoice.InvoiceNumber);
+    }
+
+    [Theory]
+    [InlineData(null, "INV-2026-00001")]
+    [InlineData("INV-2026-00009", "INV-2026-00010")]
+    [InlineData("INV-2026-99999", "INV-2026-100000")]
+    [InlineData("garbage", "INV-2026-00001")]
+    public void NextDocumentNumber_IncrementsLastNumber(string? last, string expected) =>
+        Assert.Equal(expected, BillingService.NextDocumentNumber("INV-2026-", last));
+
     private static async Task<InvoiceDto> CreateSentInvoiceAsync(
         BillingService service,
         string customerId,

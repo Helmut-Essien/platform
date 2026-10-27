@@ -224,15 +224,26 @@
         if (dialogResult?.Canceled is not false)
             return;
 
-        var result = await Api.RevokeIntegrationKeyAsync(id);
-        if (!result.IsSuccess)
-        {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to revoke key.", Severity.Error);
+        if (_busy)
             return;
-        }
 
-        Snackbar.Add("Integration key revoked.", Severity.Success);
-        await ReloadKeysAsync();
+        _busy = true;
+        try
+        {
+            var result = await Api.RevokeIntegrationKeyAsync(id);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Failed to revoke key.", Severity.Error);
+                return;
+            }
+
+            Snackbar.Add("Integration key revoked.", Severity.Success);
+            await ReloadKeysAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task RotateFromCardAsync(IntegrationKeyDto key)

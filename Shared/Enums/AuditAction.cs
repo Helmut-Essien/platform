@@ -30,5 +30,6 @@ public enum AuditAction
     EmailDeliveryRetried,
     LicenseAutoSuspendedOverdue,
     LicenseAutoReactivatedPaid,
-    LicenseExpired
+    LicenseExpired,
+    LicenseReactivated
 }

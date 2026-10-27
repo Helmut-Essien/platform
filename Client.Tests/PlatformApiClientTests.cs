@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Platform.Client.Services;
+using Platform.Shared.Dtos.Audit;
 using Platform.Shared.Dtos.Auth;
 using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
@@ -42,6 +43,67 @@ public class PlatformApiClientTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.Equal("HOSTEL-ABCD-1234", body!.LicenseKey);
         Assert.Equal("HOSTEL", body.ServiceCode);
+    }
+
+    [Fact]
+    public async Task GetAuditLogsPagedAsync_SendsServerSideFilters()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new PagedResult<AuditLogDto> { Items = [], TotalCount = 0, Page = 2, PageSize = 50 }));
+        var client = CreateClient(handler);
+
+        await client.GetAuditLogsPagedAsync(
+            page: 2, pageSize: 50, customerId: "c1", action: AuditAction.InvoiceVoided, search: " a&b ");
+
+        var query = handler.LastRequest!.RequestUri!.PathAndQuery;
+        Assert.StartsWith("/api/audit-logs/paged?", query);
+        Assert.Contains("page=2", query);
+        Assert.Contains("pageSize=50", query);
+        Assert.Contains("customerId=c1", query);
+        Assert.Contains("action=InvoiceVoided", query);
+        Assert.Contains("search=a%26b", query);
+    }
+
+    [Fact]
+    public async Task GetInvoicesPagedAsync_SendsServerSideFilters()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = 1, PageSize = 25 }));
+        var client = CreateClient(handler);
+
+        await client.GetInvoicesPagedAsync(
+            status: InvoiceStatus.Overdue,
+            search: " Acme & Co ",
+            issuedFrom: new DateTime(2026, 3, 1),
+            issuedTo: new DateTime(2026, 3, 31));
+
+        var query = handler.LastRequest!.RequestUri!.PathAndQuery;
+        Assert.Contains("status=Overdue", query);
+        Assert.Contains("search=Acme%20%26%20Co", query);
+        Assert.Contains("issuedFrom=2026-03-01", query);
+        Assert.Contains("issuedTo=2026-03-31", query);
+    }
+
+    [Fact]
+    public async Task ReadAllPagesAsync_WalksEveryPageUsingTheApiPageSizeCap()
+    {
+        var requested = new List<(int Page, int Size)>();
+        var all = Enumerable.Range(1, 230).ToList();
+
+        var result = await PlatformApiClient.ReadAllPagesAsync<int>((page, size) =>
+        {
+            requested.Add((page, size));
+            return Task.FromResult(new PagedResult<int>
+            {
+                Items = all.Skip((page - 1) * size).Take(size).ToList(),
+                TotalCount = all.Count,
+                Page = page,
+                PageSize = size
+            });
+        });
+
+        Assert.Equal(all, result);
+        Assert.Equal([(1, 100), (2, 100), (3, 100)], requested);
     }
 
     [Fact]

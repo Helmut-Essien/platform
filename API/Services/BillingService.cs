@@ -52,6 +52,10 @@ public class BillingService(
                 throw new InvalidOperationException("Invoice service does not match the license.");
         }
 
+        EnsureValidMoney(request.Subtotal, "Subtotal");
+        EnsureValidMoney(request.TaxAmount, "Tax amount");
+        var currency = NormalizeCurrency(request.Currency); // E11
+
         var requestedStatus = request.SendImmediately ? InvoiceStatus.Sent : request.Status;
         if (requestedStatus is not (InvoiceStatus.Draft or InvoiceStatus.Sent))
             throw new InvalidOperationException("Invoices can only be created as Draft or Sent.");
@@ -71,7 +75,7 @@ public class BillingService(
             Status = status,
             IssueDate = now,
             DueDate = DateTimeNormalizer.ToUtc(request.DueDate),
-            Currency = request.Currency.ToUpperInvariant(),
+            Currency = currency,
             Subtotal = request.Subtotal,
             TaxAmount = request.TaxAmount,
             TotalAmount = total,
@@ -153,6 +157,11 @@ public class BillingService(
         if (invoice.Status is InvoiceStatus.Void or InvoiceStatus.Paid)
             throw new InvalidOperationException($"Cannot send an invoice in status {invoice.Status}.");
 
+        // E12: creating an invoice for a suspended customer is refused, so is first-sending a draft to one.
+        // Re-sending an already issued invoice (e.g. an overdue reminder) stays allowed.
+        if (invoice.Status == InvoiceStatus.Draft && invoice.Customer.IsSuspended)
+            throw new InvalidOperationException("Cannot send an invoice for a suspended customer.");
+
         if (invoice.Status == InvoiceStatus.Draft)
             invoice.Status = invoice.TotalAmount == 0 ? InvoiceStatus.Paid : InvoiceStatus.Sent;
         invoice.UpdatedAt = DateTime.UtcNow;
@@ -165,11 +174,121 @@ public class BillingService(
             ?? throw new InvalidOperationException("Failed to load invoice.");
     }
 
+    public async Task<InvoiceStatsDto> GetInvoiceStatsAsync(CancellationToken cancellationToken = default)
+    {
+        var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var rows = new Dictionary<string, InvoiceCurrencyStatsDto>(StringComparer.OrdinalIgnoreCase);
+
+        InvoiceCurrencyStatsDto Row(string currency)
+        {
+            var key = currency.ToUpperInvariant();
+            if (!rows.TryGetValue(key, out var row))
+                rows[key] = row = new InvoiceCurrencyStatsDto { Currency = key };
+            return row;
+        }
+
+        // Net collected per currency: payments minus reversals (matches GetNetPaid).
+        var netByCurrency = await db.PaymentTransactions
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .GroupBy(t => t.Invoice.Currency)
+            .Select(g => new
+            {
+                Currency = g.Key,
+                Net = g.Sum(t => t.Kind == PaymentTransactionKind.Payment ? t.Amount : -t.Amount)
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var r in netByCurrency)
+            Row(r.Currency).TotalRevenue += r.Net;
+
+        var monthByCurrency = await db.PaymentTransactions
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(t => t.CreatedAt >= monthStart)
+            .GroupBy(t => t.Invoice.Currency)
+            .Select(g => new
+            {
+                Currency = g.Key,
+                Net = g.Sum(t => t.Kind == PaymentTransactionKind.Payment ? t.Amount : -t.Amount),
+                Count = g.Count(t => t.Kind == PaymentTransactionKind.Payment)
+            })
+            .ToListAsync(cancellationToken);
+        foreach (var r in monthByCurrency)
+        {
+            var row = Row(r.Currency);
+            row.PaidThisMonth += r.Net;
+            row.PaidThisMonthCount += r.Count;
+        }
+
+        // Legacy receipts that predate payment transactions (see GetNetPaid fallback).
+        var legacy = await db.Receipts
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(r => r.Status == ReceiptStatus.Posted && !r.Invoice.PaymentTransactions.Any())
+            .Select(r => new { r.Invoice.Currency, r.AmountPaid, r.PaidAt })
+            .ToListAsync(cancellationToken);
+        foreach (var r in legacy)
+        {
+            var row = Row(r.Currency);
+            row.TotalRevenue += r.AmountPaid;
+            if (r.PaidAt >= monthStart)
+            {
+                row.PaidThisMonth += r.AmountPaid;
+                row.PaidThisMonthCount++;
+            }
+        }
+
+        // Outstanding = remaining balance of unpaid invoices (per-invoice floor at zero, like AmountDue).
+        var unpaid = await db.Invoices
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(i => i.Status == InvoiceStatus.Sent
+                || i.Status == InvoiceStatus.PartiallyPaid
+                || i.Status == InvoiceStatus.Overdue)
+            .Select(i => new
+            {
+                i.Id,
+                i.Currency,
+                i.Status,
+                i.TotalAmount,
+                TxNet = i.PaymentTransactions.Sum(t => t.Kind == PaymentTransactionKind.Payment ? t.Amount : -t.Amount),
+                HasTx = i.PaymentTransactions.Any(),
+                ReceiptNet = i.Receipts.Where(r => r.Status == ReceiptStatus.Posted).Sum(r => (decimal?)r.AmountPaid) ?? 0m
+            })
+            .ToListAsync(cancellationToken);
+
+        var unpaidCount = 0;
+        var overdueCount = 0;
+        foreach (var i in unpaid)
+        {
+            var paid = i.HasTx ? i.TxNet : i.ReceiptNet;
+            var row = Row(i.Currency);
+            row.Outstanding += Math.Max(0m, i.TotalAmount - paid);
+            unpaidCount++;
+            if (i.Status == InvoiceStatus.Overdue)
+            {
+                row.OverdueCount++;
+                overdueCount++;
+            }
+        }
+
+        return new InvoiceStatsDto
+        {
+            Currencies = rows.Values.OrderBy(r => r.Currency, StringComparer.Ordinal).ToList(),
+            UnpaidCount = unpaidCount,
+            OverdueCount = overdueCount
+        };
+    }
+
     public async Task<PagedResult<InvoiceDto>> ListInvoicesAsync(
         string? customerId = null,
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         bool unpaidOnly = false,
+        InvoiceStatus? status = null,
+        string? search = null,
+        DateTime? issuedFrom = null,
+        DateTime? issuedTo = null,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -177,15 +296,13 @@ public class BillingService(
         var query = db.Invoices
             .IgnoreQueryFilters()
             .AsNoTracking()
-            .Include(i => i.Customer)
-            .Include(i => i.ServiceProduct)
-            .Include(i => i.Receipts)
-            .ThenInclude(r => r.PaymentTransaction)
-            .Include(i => i.PaymentTransactions)
             .AsQueryable();
 
         if (customerId is not null)
             query = query.Where(i => i.CustomerId == customerId);
+
+        if (status is not null)
+            query = query.Where(i => i.Status == status);
 
         if (unpaidOnly)
         {
@@ -195,15 +312,55 @@ public class BillingService(
                 || i.Status == InvoiceStatus.Overdue);
         }
 
-        var ordered = query.OrderByDescending(i => i.IssueDate);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = SearchHelper.Normalize(search).ToLower();
+            query = query.Where(i =>
+                i.Customer.Name.ToLower().Contains(term)
+                || i.InvoiceNumber.ToLower().Contains(term));
+        }
+
+        // Inclusive calendar-day range on IssueDate (UTC).
+        if (issuedFrom is not null)
+        {
+            var from = DateTime.SpecifyKind(issuedFrom.Value.Date, DateTimeKind.Utc);
+            query = query.Where(i => i.IssueDate >= from);
+        }
+
+        if (issuedTo is not null)
+        {
+            var toExclusive = DateTime.SpecifyKind(issuedTo.Value.Date.AddDays(1), DateTimeKind.Utc);
+            query = query.Where(i => i.IssueDate < toExclusive);
+        }
+
+        // Id tiebreaker keeps paging stable when many invoices share an IssueDate.
+        var ordered = query.OrderByDescending(i => i.IssueDate).ThenByDescending(i => i.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 
-        var invoices = await ordered
+        // P3: page over ids only (no joins/includes), then load the full graph for just that page.
+        var pageIds = await ordered
+            .Select(i => i.Id)
             .Skip(skip)
             .Take(normalizedPageSize)
-            .AsSplitQuery()
             .ToListAsync(cancellationToken);
+
+        var loaded = pageIds.Count == 0
+            ? []
+            : await db.Invoices
+                .IgnoreQueryFilters()
+                .AsNoTracking()
+                .Include(i => i.Customer)
+                .Include(i => i.ServiceProduct)
+                .Include(i => i.Receipts)
+                .ThenInclude(r => r.PaymentTransaction)
+                .Include(i => i.PaymentTransactions)
+                .Where(i => pageIds.Contains(i.Id))
+                .AsSplitQuery()
+                .ToListAsync(cancellationToken);
+
+        var byId = loaded.ToDictionary(i => i.Id);
+        var invoices = pageIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
 
         return new PagedResult<InvoiceDto>
         {
@@ -221,6 +378,11 @@ public class BillingService(
         CancellationToken cancellationToken = default) =>
         RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
+        // B6: serialise with RecordReceipt/ReverseReceipt (which lock the same row) so a payment
+        // recorded concurrently cannot slip in between the "no payments" check and the status change.
+        // The invoice is loaded only after the lock is held, so the checks see committed payments.
+        await LockInvoiceRowAsync(id, ct);
+
         var invoice = await db.Invoices
             .IgnoreQueryFilters()
             .Include(i => i.Receipts)
@@ -264,6 +426,7 @@ public class BillingService(
     {
         if (request.AmountPaid <= 0)
             throw new InvalidOperationException("Amount paid must be greater than zero.");
+        EnsureValidMoney(request.AmountPaid, "Amount paid");
 
         var idempotencyKey = NormalizeRequired(request.IdempotencyKey, "Idempotency key");
         var paymentReference = NormalizeOptional(request.PaymentReference);
@@ -317,12 +480,17 @@ public class BillingService(
         }
 
         var now = DateTime.UtcNow;
+        // E10: a payment date more than a day ahead (allows for client time zones) is a data-entry error.
+        var paidAt = DateTimeNormalizer.ToUtc(request.PaidAt) ?? now;
+        if (paidAt > now.AddDays(1))
+            throw new InvalidOperationException("Payment date cannot be in the future.");
+
         var receipt = new Receipt
         {
             InvoiceId = invoiceId,
             ReceiptNumber = string.Empty,
             AmountPaid = request.AmountPaid,
-            PaidAt = DateTimeNormalizer.ToUtc(request.PaidAt) ?? now,
+            PaidAt = paidAt,
             PaymentMethod = request.PaymentMethod,
             PaymentReference = paymentReference,
             Notes = NormalizeOptional(request.Notes),
@@ -335,7 +503,7 @@ public class BillingService(
         PaymentTransaction? payment = null;
         for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
         {
-            receipt.ReceiptNumber = await GenerateReceiptNumberAsync(ct);
+            receipt.ReceiptNumber = await GenerateReceiptNumberAsync(attempt, ct);
             if (attempt == 0)
             {
                 db.Receipts.Add(receipt);
@@ -729,6 +897,52 @@ public class BillingService(
             .Sum(r => r.AmountPaid);
     }
 
+    private const decimal MaxMoneyAmount = 9_999_999_999_999m;
+
+    /// <summary>E11: ISO-4217 style code, three ASCII letters, upper-cased.</summary>
+    internal static string NormalizeCurrency(string? currency)
+    {
+        var normalized = currency?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (normalized.Length != 3 || !normalized.All(c => c is >= 'A' and <= 'Z'))
+            throw new InvalidOperationException("Currency must be a 3-letter code such as GHS or USD.");
+        return normalized;
+    }
+
+    /// <summary>
+    /// P10/E-numbering: next sequential document number from the highest existing number with this prefix,
+    /// so a gap in the sequence can never make the next number collide (the old COUNT+1 could).
+    /// </summary>
+    internal static string NextDocumentNumber(string prefix, string? lastNumber, int skip = 0)
+    {
+        var next = 1L;
+        // NumberStyles.None: digits only, so a malformed suffix ("-5", " 7", "+3", "1e3") is ignored
+        // instead of producing a negative or odd number. 15 digits keeps last + 1 far from overflow.
+        if (lastNumber is not null
+            && lastNumber.StartsWith(prefix, StringComparison.Ordinal)
+            && lastNumber.Length - prefix.Length is > 0 and <= 15
+            && long.TryParse(lastNumber.AsSpan(prefix.Length), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var last))
+        {
+            next = last + 1;
+        }
+
+        // 'skip' lets a retry after a unique violation move past a number the max-based lookup cannot
+        // see (e.g. a malformed or non-numeric row that sorts above the numeric ones).
+        return $"{prefix}{next + Math.Max(0, skip):D5}";
+    }
+
+    /// <summary>
+    /// B7: money columns are numeric(18,2). Reject sub-cent precision instead of letting the DB round it
+    /// (which made the in-memory balance checks and the stored amounts disagree).
+    /// </summary>
+    internal static void EnsureValidMoney(decimal amount, string label)
+    {
+        if (amount < 0 || amount > MaxMoneyAmount)
+            throw new InvalidOperationException($"{label} is out of range.");
+        if (decimal.Round(amount, 2) != amount)
+            throw new InvalidOperationException($"{label} cannot have more than 2 decimal places.");
+    }
+
     private static decimal GetAmountDue(Invoice invoice) =>
         Math.Max(0, invoice.TotalAmount - GetNetPaid(invoice));
 
@@ -737,7 +951,7 @@ public class BillingService(
         decimal amount,
         PaymentMethod method,
         string? paymentReference) =>
-        existing.Amount == amount
+        existing.Amount == decimal.Round(amount, 2)
         && existing.PaymentMethod == method
         && string.Equals(existing.PaymentReference, paymentReference, StringComparison.OrdinalIgnoreCase);
 
@@ -792,7 +1006,7 @@ public class BillingService(
 
         for (var attempt = 0; attempt < MaxNumberGenerationAttempts; attempt++)
         {
-            invoice.InvoiceNumber = await GenerateInvoiceNumberAsync(cancellationToken);
+            invoice.InvoiceNumber = await GenerateInvoiceNumberAsync(attempt, cancellationToken);
             db.Invoices.Add(invoice);
 
             try
@@ -809,26 +1023,37 @@ public class BillingService(
         }
     }
 
-    private async Task<string> GenerateInvoiceNumberAsync(CancellationToken cancellationToken)
+    private async Task<string> GenerateInvoiceNumberAsync(int skip, CancellationToken cancellationToken)
     {
         var year = DateTime.UtcNow.Year;
         var prefix = $"INV-{year}-";
-        var count = await db.Invoices
+        // Length first, then value: "100000" must sort after "99999".
+        var last = await db.Invoices
             .IgnoreQueryFilters()
-            .CountAsync(i => i.InvoiceNumber.StartsWith(prefix), cancellationToken);
+            .AsNoTracking()
+            .Where(i => i.InvoiceNumber.StartsWith(prefix))
+            .Select(i => i.InvoiceNumber)
+            .OrderByDescending(n => n.Length)
+            .ThenByDescending(n => n)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        return $"{prefix}{(count + 1):D5}";
+        return NextDocumentNumber(prefix, last, skip);
     }
 
-    private async Task<string> GenerateReceiptNumberAsync(CancellationToken cancellationToken)
+    private async Task<string> GenerateReceiptNumberAsync(int skip, CancellationToken cancellationToken)
     {
         var year = DateTime.UtcNow.Year;
         var prefix = $"RCP-{year}-";
-        var count = await db.Receipts
+        var last = await db.Receipts
             .IgnoreQueryFilters()
-            .CountAsync(r => r.ReceiptNumber.StartsWith(prefix), cancellationToken);
+            .AsNoTracking()
+            .Where(r => r.ReceiptNumber.StartsWith(prefix))
+            .Select(r => r.ReceiptNumber)
+            .OrderByDescending(n => n.Length)
+            .ThenByDescending(n => n)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        return $"{prefix}{(count + 1):D5}";
+        return NextDocumentNumber(prefix, last, skip);
     }
 
     private void QueueInvoiceEmail(Customer customer, Invoice invoice)

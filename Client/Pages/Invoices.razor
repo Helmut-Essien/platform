@@ -24,28 +24,40 @@
         </div>
     </header>
 
-    @if (_statsInvoices.Count > 0)
+    @if (_stats is not null && _stats.Currencies.Count > 0)
     {
         <section class="invoices-stats-grid" aria-label="Invoice statistics">
             <div class="invoices-stat-card">
                 <span class="invoices-stat-label">TOTAL REVENUE</span>
-                <span class="invoices-stat-value">@FormatMoney(TotalRevenue, "USD")</span>
+                <span class="invoices-stat-value">@FormatMoney(PrimaryStats?.TotalRevenue ?? 0, PrimaryCurrency)</span>
+                @if (OtherCurrencyNote(s => s.TotalRevenue) is { } revenueNote)
+                {
+                    <div class="invoices-stat-footnote"><span>@revenueNote</span></div>
+                }
             </div>
             <div class="invoices-stat-card">
                 <span class="invoices-stat-label">OUTSTANDING</span>
-                <span class="invoices-stat-value">@FormatMoney(OutstandingAmount, "USD")</span>
+                <span class="invoices-stat-value">@FormatMoney(PrimaryStats?.Outstanding ?? 0, PrimaryCurrency)</span>
                 <div class="invoices-stat-footnote warning">
                     <MudIcon Icon="@Icons.Material.Filled.Schedule" Size="Size.Small" />
-                    <span>@OverdueCount Overdue Invoices</span>
+                    <span>@_stats.OverdueCount Overdue Invoices</span>
                 </div>
+                @if (OtherCurrencyNote(s => s.Outstanding) is { } outstandingNote)
+                {
+                    <div class="invoices-stat-footnote"><span>@outstandingNote</span></div>
+                }
             </div>
             <div class="invoices-stat-card">
                 <span class="invoices-stat-label">PAID THIS MONTH</span>
-                <span class="invoices-stat-value">@FormatMoney(PaidThisMonth, "USD")</span>
+                <span class="invoices-stat-value">@FormatMoney(PrimaryStats?.PaidThisMonth ?? 0, PrimaryCurrency)</span>
                 <div class="invoices-stat-footnote">
                     <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
-                    <span>@PaidThisMonthCount Transactions</span>
+                    <span>@(PrimaryStats?.PaidThisMonthCount ?? 0) Transactions</span>
                 </div>
+                @if (OtherCurrencyNote(s => s.PaidThisMonth) is { } monthNote)
+                {
+                    <div class="invoices-stat-footnote"><span>@monthNote</span></div>
+                }
             </div>
             <div class="invoices-stat-card">
                 <span class="invoices-stat-label">QUICK FILTER</span>
@@ -195,7 +207,6 @@
     private MudDataGrid<InvoiceDto>? _grid;
     private List<CustomerDto> _customers = [];
     private List<InvoiceDto> _statsInvoices = [];
-    private List<InvoiceDto> _exportRows = [];
     private InvoiceStatus? _statusFilter;
     private string? _customerFilter;
     private string _customerSearch = "";
@@ -204,30 +215,24 @@
 
     [SupplyParameterFromQuery] public string? Filter { get; set; }
 
-    private decimal TotalRevenue => _statsInvoices.Where(i => i.Status == InvoiceStatus.Paid).Sum(i => i.TotalAmount);
-    private decimal OutstandingAmount => _statsInvoices
-        .Where(i => i.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
-        .Sum(i => i.AmountDue);
-    private int OverdueCount => _statsInvoices.Count(i => i.Status == InvoiceStatus.Overdue);
+    // Aggregates come from the server (B1): they cover every invoice, not the first page.
+    // Amounts in different currencies are never summed (E7); the primary currency is USD when present,
+    // otherwise the currency with the most outstanding value, and the others are listed in a footnote.
+    private InvoiceStatsDto? _stats;
 
-    private decimal PaidThisMonth
-    {
-        get
-        {
-            var start = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-            return _statsInvoices
-                .Where(i => i.Status == InvoiceStatus.Paid && i.IssueDate >= start)
-                .Sum(i => i.TotalAmount);
-        }
-    }
+    private InvoiceCurrencyStatsDto? PrimaryStats =>
+        _stats?.Currencies.FirstOrDefault(c => c.Currency.Equals("USD", StringComparison.OrdinalIgnoreCase))
+        ?? _stats?.Currencies.OrderByDescending(c => c.Outstanding + c.TotalRevenue).FirstOrDefault();
 
-    private int PaidThisMonthCount
+    private string PrimaryCurrency => PrimaryStats?.Currency ?? "USD";
+
+    private string? OtherCurrencyNote(Func<InvoiceCurrencyStatsDto, decimal> selector)
     {
-        get
-        {
-            var start = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-            return _statsInvoices.Count(i => i.Status == InvoiceStatus.Paid && i.IssueDate >= start);
-        }
+        var others = _stats?.Currencies
+            .Where(c => PrimaryStats is not null && c != PrimaryStats && selector(c) != 0)
+            .Select(c => FormatMoney(selector(c), c.Currency))
+            .ToList();
+        return others is { Count: > 0 } ? "Also: " + string.Join(", ", others) : null;
     }
 
     protected override async Task OnInitializedAsync()
@@ -235,74 +240,32 @@
         if (string.Equals(Filter, "unpaid", StringComparison.OrdinalIgnoreCase))
             _quickFilter = "unpaid";
 
-        var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 500);
-        var statsTask = Api.GetInvoicesPagedAsync(page: 1, pageSize: 500);
+        var customersTask = Api.GetAllCustomersAsync();
+        var statsTask = Api.GetInvoiceStatsAsync();
         await Task.WhenAll(customersTask, statsTask);
 
-        _customers = customersTask.Result.Items.ToList();
-        _statsInvoices = statsTask.Result.Items.ToList();
+        _customers = customersTask.Result;
+        _stats = statsTask.Result;
     }
 
     private async Task<GridData<InvoiceDto>> LoadServerData(GridState<InvoiceDto> state)
     {
-        var unpaidOnly = _quickFilter == "unpaid" && _statusFilter is null;
-
         var result = await Api.GetInvoicesPagedAsync(
             _customerFilter,
             page: state.Page + 1,
             pageSize: state.PageSize,
-            unpaidOnly: unpaidOnly);
-
-        var items = result.Items.AsEnumerable();
-
-        if (_statusFilter is not null)
-            items = items.Where(i => i.Status == _statusFilter);
-
-        if (!string.IsNullOrWhiteSpace(_customerSearch))
-        {
-            items = items.Where(i =>
-                (i.CustomerName?.Contains(_customerSearch, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
-
-        if (_dateRange?.Start is not null)
-        {
-            var start = _dateRange.Start.Value.Date;
-            items = items.Where(i => i.IssueDate.Date >= start);
-        }
-
-        if (_dateRange?.End is not null)
-        {
-            var end = _dateRange.End.Value.Date;
-            items = items.Where(i => i.IssueDate.Date <= end);
-        }
-
-        if (!unpaidOnly)
-            items = ApplyQuickFilter(items);
-
-        var list = items.ToList();
-        _exportRows = list;
-
-        var unfiltered = _statusFilter is null
-            && string.IsNullOrWhiteSpace(_customerSearch)
-            && _dateRange?.Start is null
-            && _dateRange?.End is null
-            && _quickFilter == "all";
+            unpaidOnly: _statusFilter is null && _quickFilter == "unpaid",
+            status: _statusFilter ?? (_quickFilter == "sent" ? InvoiceStatus.Sent : null),
+            search: _customerSearch,
+            issuedFrom: _dateRange?.Start,
+            issuedTo: _dateRange?.End);
 
         return new GridData<InvoiceDto>
         {
-            Items = list,
-            TotalItems = unfiltered || (unpaidOnly && string.IsNullOrWhiteSpace(_customerSearch) && _dateRange?.Start is null && _dateRange?.End is null)
-                ? result.TotalCount
-                : list.Count
+            Items = result.Items,
+            TotalItems = result.TotalCount
         };
     }
-
-    private IEnumerable<InvoiceDto> ApplyQuickFilter(IEnumerable<InvoiceDto> items) => _quickFilter switch
-    {
-        "unpaid" => items.Where(i => i.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue),
-        "sent" => items.Where(i => i.Status == InvoiceStatus.Sent),
-        _ => items
-    };
 
     private async Task ReloadGrid()
     {
@@ -390,30 +353,52 @@
 
     private async Task ExportCsvAsync()
     {
-        if (_exportRows.Count == 0)
+        // Export every invoice matching the current filters, not just the visible page.
+        var rows = await PlatformApiClient.ReadAllPagesAsync((page, size) => Api.GetInvoicesPagedAsync(
+            _customerFilter,
+            page,
+            size,
+            unpaidOnly: _statusFilter is null && _quickFilter == "unpaid",
+            status: _statusFilter ?? (_quickFilter == "sent" ? InvoiceStatus.Sent : null),
+            search: _customerSearch,
+            issuedFrom: _dateRange?.Start,
+            issuedTo: _dateRange?.End));
+
+        if (rows.Count == 0)
         {
             Snackbar.Add("No invoices to export.", Severity.Info);
             return;
         }
 
-        var csv = "InvoiceNumber,Customer,Total,Paid,Due,Status,IssueDate,Currency\n";
-        foreach (var invoice in _exportRows)
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var csv = new System.Text.StringBuilder("InvoiceNumber,Customer,Total,Paid,Due,Status,IssueDate,Currency\n");
+        foreach (var invoice in rows)
         {
-            csv += $"\"{Escape(invoice.InvoiceNumber)}\",\"{Escape(invoice.CustomerName)}\",{invoice.TotalAmount},{invoice.AmountPaid},{invoice.AmountDue},\"{invoice.Status}\",\"{invoice.IssueDate:yyyy-MM-dd}\",\"{invoice.Currency}\"\n";
+            csv.Append('"').Append(Escape(invoice.InvoiceNumber)).Append("\",\"")
+                .Append(Escape(invoice.CustomerName)).Append("\",")
+                .Append(invoice.TotalAmount.ToString(inv)).Append(',')
+                .Append(invoice.AmountPaid.ToString(inv)).Append(',')
+                .Append(invoice.AmountDue.ToString(inv)).Append(",\"")
+                .Append(invoice.Status).Append("\",\"")
+                .Append(invoice.IssueDate.ToString("yyyy-MM-dd", inv)).Append("\",\"")
+                .Append(Escape(invoice.Currency)).Append("\"\n");
         }
 
-        await JSRuntime.InvokeVoidAsync("platformDownloadText", "invoices.csv", csv);
-        Snackbar.Add("CSV exported.", Severity.Success);
+        await JSRuntime.InvokeVoidAsync("platformDownloadText", "invoices.csv", csv.ToString());
+        Snackbar.Add($"Exported {rows.Count} invoices.", Severity.Success);
     }
 
     private async Task RefreshStatsAsync()
     {
-        var result = await Api.GetInvoicesPagedAsync(page: 1, pageSize: 500);
-        _statsInvoices = result.Items.ToList();
+        _stats = await Api.GetInvoiceStatsAsync();
     }
 
-    private static string Escape(string? value) =>
-        (value ?? "").Replace("\"", "\"\"");
+    // E14: neutralise spreadsheet formula injection (customer names are user-controlled).
+    private static string Escape(string? value)
+    {
+        var text = (value ?? "").Replace("\"", "\"\"");
+        return text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r' ? "'" + text : text;
+    }
 
     private static string FormatMoney(decimal amount, string currency) =>
         currency.Equals("USD", StringComparison.OrdinalIgnoreCase)

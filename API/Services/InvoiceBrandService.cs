@@ -126,9 +126,23 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         if (bytes.Length > MaxLogoBytes)
             throw new InvalidOperationException("Logo must be 2 MB or smaller.");
 
+        if (!LooksLikeImage(bytes, normalizedType))
+            throw new InvalidOperationException("Logo file is not a valid image of the declared type.");
+
         profile.LogoBytes = bytes;
         profile.LogoContentType = normalizedType;
     }
+
+    /// <summary>Checks the file signature so a corrupt or mislabeled upload can never reach the PDF renderer.</summary>
+    internal static bool LooksLikeImage(byte[] bytes, string contentType) => contentType switch
+    {
+        "image/png" => bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47,
+        "image/jpeg" => bytes.Length > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF,
+        "image/webp" => bytes.Length > 12
+            && bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+            && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P',
+        _ => false
+    };
 
     private static string? NormalizeOptional(string? value)
     {

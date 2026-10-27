@@ -39,6 +39,9 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(c => c.CreatedAt)
             .IsRequired();
 
+        // P4: list ordering
+        builder.HasIndex(c => c.CreatedAt);
+
         builder.HasIndex(c => c.ContactEmail)
             .IsUnique();
     }

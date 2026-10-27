@@ -5,6 +5,7 @@ using Platform.Api.Http;
 using Platform.Api.Services;
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Licenses;
+using Platform.Shared.Enums;
 
 namespace Platform.Api.Controllers;
 
@@ -20,6 +21,9 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         [FromQuery] int? expiringWithinDays = null,
+        [FromQuery] string? serviceProductId = null,
+        [FromQuery] LicenseStatus? status = null,
+        [FromQuery] string? search = null,
         CancellationToken cancellationToken = default)
     {
         var result = await licenses.ListAsync(
@@ -28,6 +32,9 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
             page,
             pageSize,
             expiringWithinDays,
+            serviceProductId,
+            status,
+            search,
             cancellationToken);
         return Ok(result);
     }
@@ -97,6 +104,18 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         var license = await licenses.UpdateAsync(
                 id,
                 request,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken);
+
+        return Ok(license);
+    }
+
+    [HttpPost("{id}/reactivate")]
+    public async Task<ActionResult<LicenseDto>> Reactivate(string id, CancellationToken cancellationToken)
+    {
+        var license = await licenses.ReactivateAsync(
+                id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
                 cancellationToken);

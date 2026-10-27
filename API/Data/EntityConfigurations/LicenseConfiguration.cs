@@ -56,6 +56,9 @@ public class LicenseConfiguration : IEntityTypeConfiguration<License>
             .IsConcurrencyToken()
             .HasColumnType("bigint");
 
+        // P4: list ordering, and dashboard/reminder scans by status + expiry
+        builder.HasIndex(l => l.CreatedAt);
+        builder.HasIndex(l => new { l.Status, l.ExpiresAt });
         builder.HasIndex(l => l.CustomerId);
         builder.HasIndex(l => l.ServiceProductId);
         builder.HasIndex(l => new { l.CustomerId, l.ServiceProductId });

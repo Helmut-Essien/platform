@@ -41,8 +41,8 @@
                 </div>
                 <div class="kpi-card-value">@_activeLicenses</div>
                 <div class="kpi-card-foot">
-                    <span class="highlight-primary">In use</span>
-                    <span>right now</span>
+                    <span class="highlight-primary">Status: Active</span>
+                    <span>(excludes suspended customers)</span>
                 </div>
             </article>
 
@@ -161,15 +161,13 @@
     private int _expiringSoon;
     private int _unpaidInvoices;
     private List<AuditLogDto> _recentAudit = [];
-    private Dictionary<string, string> _customerNames = [];
 
     protected override async Task OnInitializedAsync()
     {
         var statsTask = Api.GetDashboardStatsAsync();
         var auditTask = LoadAuditSafeAsync();
-        var customersTask = LoadCustomerNamesSafeAsync();
 
-        await Task.WhenAll(statsTask, auditTask, customersTask);
+        await Task.WhenAll(statsTask, auditTask);
 
         var stats = await statsTask;
         if (stats is not null)
@@ -195,23 +193,8 @@
         }
     }
 
-    private async Task LoadCustomerNamesSafeAsync()
-    {
-        try
-        {
-            var result = await Api.GetCustomersPagedAsync(page: 1, pageSize: 200);
-            _customerNames = result.Items.ToDictionary(c => c.Id, c => c.Name);
-        }
-        catch
-        {
-            _customerNames = [];
-        }
-    }
-
-    private string? GetTargetLabel(AuditLogDto entry) =>
-        entry.CustomerId is not null && _customerNames.TryGetValue(entry.CustomerId, out var name)
-            ? name
-            : null;
+    // Customer names arrive with each audit entry (no separate, size-capped customer lookup).
+    private static string? GetTargetLabel(AuditLogDto entry) => entry.CustomerName;
 
     private static string GetTimelineDotClass(AuditLogDto entry, int index)
     {

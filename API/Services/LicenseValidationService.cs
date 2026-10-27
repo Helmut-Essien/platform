@@ -55,6 +55,7 @@ public class LicenseValidationService(
         // lookup hash will not validate until the key is rotated (backfills hash).
         var licensesQuery = db.Licenses
             .IgnoreQueryFilters()
+            .AsNoTracking()
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
             .Where(l => l.ServiceProductId == serviceProduct.Id
@@ -67,21 +68,25 @@ public class LicenseValidationService(
         var licenses = await licensesQuery.ToListAsync(cancellationToken);
 
         Entities.License? matchedLicense = null;
+        var needsLicenseHashUpgrade = false;
         foreach (var license in licenses)
         {
             if (DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, utcNow))
                 continue;
 
-            if (license.LicenseKeyHash is not null &&
-                BCrypt.Net.BCrypt.Verify(request.LicenseKey, license.LicenseKeyHash))
+            if (KeyHasher.Verify(request.LicenseKey, license.LicenseKeyHash, out var upgrade))
             {
                 matchedLicense = license;
+                needsLicenseHashUpgrade = upgrade;
                 break;
             }
         }
 
         if (matchedLicense is null)
             return Invalid("Invalid license key.");
+
+        if (needsLicenseHashUpgrade)
+            await UpgradeLicenseKeyHashAsync(matchedLicense.Id, lookupHash, matchedLicense.LicenseKeyHash!, request.LicenseKey, cancellationToken);
 
         if (await denyList.IsDeniedAsync(matchedLicense.Id, cancellationToken))
             return Invalid("License is not valid.");
@@ -272,6 +277,7 @@ public class LicenseValidationService(
         var lookupHash = KeyLookupHasher.ComputeSha256Hex(plainIntegrationKey);
 
         IQueryable<Entities.IntegrationKey> query = db.IntegrationKeys
+            .AsNoTracking()
             .Include(k => k.ServiceProduct)
             .Where(k => k.IsActive && k.KeyLookupHash == lookupHash);
 
@@ -282,11 +288,84 @@ public class LicenseValidationService(
 
         foreach (var candidate in candidates)
         {
-            if (BCrypt.Net.BCrypt.Verify(plainIntegrationKey, candidate.KeyHash))
+            if (KeyHasher.Verify(plainIntegrationKey, candidate.KeyHash, out var upgrade))
+            {
+                if (upgrade)
+                    await UpgradeIntegrationKeyHashAsync(candidate.Id, candidate.KeyHash, plainIntegrationKey, cancellationToken);
                 return (candidate, candidate.ServiceProduct);
+            }
         }
 
         return null;
+    }
+
+    // Legacy BCrypt hashes are rewritten once, on first successful use, so later calls are cheap.
+    // The rewrite is a compare-and-set on the old hash (ExecuteUpdate): two concurrent validations of the
+    // same legacy key cannot clobber each other, a concurrent key rotation is never overwritten, and a
+    // license row is not touched through the change tracker (no Version bump that would make an admin
+    // edit in flight fail with a spurious concurrency conflict).
+    private async Task UpgradeIntegrationKeyHashAsync(
+        string integrationKeyId,
+        string oldHash,
+        string plainKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var newHash = KeyHasher.Hash(plainKey);
+            if (db.Database.IsRelational())
+            {
+                await db.IntegrationKeys
+                    .Where(k => k.Id == integrationKeyId && k.KeyHash == oldHash)
+                    .ExecuteUpdateAsync(s => s.SetProperty(k => k.KeyHash, newHash), cancellationToken);
+                return;
+            }
+
+            var entity = await db.IntegrationKeys.FirstOrDefaultAsync(k => k.Id == integrationKeyId, cancellationToken);
+            if (entity is null || entity.KeyHash != oldHash)
+                return;
+            entity.KeyHash = newHash;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to upgrade key hash for integration key {IntegrationKeyId}", integrationKeyId);
+        }
+    }
+
+    private async Task UpgradeLicenseKeyHashAsync(
+        string licenseId,
+        string lookupHash,
+        string oldHash,
+        string plainKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var newHash = KeyHasher.Hash(plainKey);
+            if (db.Database.IsRelational())
+            {
+                await db.Licenses
+                    .IgnoreQueryFilters()
+                    .Where(l => l.Id == licenseId
+                        && l.LicenseKeyLookupHash == lookupHash
+                        && l.LicenseKeyHash == oldHash)
+                    .ExecuteUpdateAsync(s => s.SetProperty(l => l.LicenseKeyHash, newHash), cancellationToken);
+                return;
+            }
+
+            var entity = await db.Licenses
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(l => l.Id == licenseId && l.LicenseKeyLookupHash == lookupHash, cancellationToken);
+            if (entity is null || entity.LicenseKeyHash != oldHash)
+                return;
+            entity.LicenseKeyHash = newHash;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to upgrade key hash for license {LicenseId}", licenseId);
+        }
     }
 
     private static ValidateLicenseResponse Invalid(string message) => new()

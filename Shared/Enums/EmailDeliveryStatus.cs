@@ -6,5 +6,6 @@ public enum EmailDeliveryStatus
     Sending,
     Sent,
     Failed,
-    DeadLetter
+    DeadLetter,
+    Cancelled
 }

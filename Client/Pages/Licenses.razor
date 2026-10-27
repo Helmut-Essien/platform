@@ -145,9 +145,13 @@
                                         Rotate &amp; Email Key
                                     </MudMenuItem>
                                 }
-                                @if (license.Status is LicenseStatus.Pending or LicenseStatus.Suspended)
+                                @if (license.Status is LicenseStatus.Pending)
                                 {
                                     <MudMenuItem OnClick="@(() => ActivateAsync(license))">Activate</MudMenuItem>
+                                }
+                                @if (license.Status is LicenseStatus.Suspended)
+                                {
+                                    <MudMenuItem OnClick="@(() => ReactivateAsync(license.Id))">Reactivate</MudMenuItem>
                                 }
                                 @if (license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired)
                                 {
@@ -229,11 +233,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var customersTask = Api.GetCustomersPagedAsync(page: 1, pageSize: 200);
+        var customersTask = Api.GetAllCustomersAsync();
         var productsTask = Api.GetServiceProductsAsync();
         await Task.WhenAll(customersTask, productsTask);
 
-        _customers = customersTask.Result.Items.ToList();
+        _customers = customersTask.Result;
         _products = (await productsTask).ToList();
 
         if (!string.IsNullOrEmpty(CustomerId))
@@ -251,42 +255,20 @@
 
     private async Task<GridData<LicenseDto>> LoadServerData(GridState<LicenseDto> state)
     {
+        // All filters are applied server-side so paging and totals are correct (B2).
         var result = await Api.GetLicensesPagedAsync(
             _filterCustomerId,
             page: state.Page + 1,
             pageSize: state.PageSize,
-            expiringWithinDays: _filterExpiring ? 30 : null);
-
-        var items = result.Items.AsEnumerable();
-
-        if (!_filterExpiring && !string.IsNullOrEmpty(_filterServiceId))
-            items = items.Where(l => l.ServiceProductId == _filterServiceId);
-
-        if (!_filterExpiring && _filterStatus is not null)
-            items = items.Where(l => l.Status == _filterStatus);
-
-        if (!string.IsNullOrWhiteSpace(_search))
-        {
-            items = items.Where(l =>
-                (l.CustomerName?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (l.ServiceProductCode?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                l.PlanName.Contains(_search, StringComparison.OrdinalIgnoreCase));
-        }
-
-        // When expiring filter is server-side, service/status client filters still apply on the page.
-        if (_filterExpiring && !string.IsNullOrEmpty(_filterServiceId))
-            items = items.Where(l => l.ServiceProductId == _filterServiceId);
-
-        var list = items.ToList();
-        var unfiltered = !_filterExpiring
-            && _filterServiceId is null
-            && _filterStatus is null
-            && string.IsNullOrWhiteSpace(_search);
+            expiringWithinDays: _filterExpiring ? 30 : null,
+            serviceProductId: _filterServiceId,
+            status: _filterExpiring ? null : _filterStatus,
+            search: _search);
 
         return new GridData<LicenseDto>
         {
-            Items = list,
-            TotalItems = unfiltered ? result.TotalCount : (_filterExpiring && _filterServiceId is null && string.IsNullOrWhiteSpace(_search) ? result.TotalCount : list.Count)
+            Items = result.Items,
+            TotalItems = result.TotalCount
         };
     }
 
@@ -421,6 +403,30 @@
         }
 
         Snackbar.Add("License suspended.", Severity.Success);
+        await ReloadGrid();
+    }
+
+    private async Task ReactivateAsync(string id)
+    {
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Reactivate License", new DialogParameters
+        {
+            ["Title"] = "Reactivate License",
+            ["Message"] = "This restores access immediately. The license key is not changed and no invoice is created. Continue?",
+            ["ConfirmText"] = "Reactivate",
+            ["IsDestructive"] = false
+        }, PlatformDialogOptions.Confirm);
+        var dialogResult = await dialog.Result;
+        if (dialogResult?.Canceled is not false)
+            return;
+
+        var apiResult = await Api.ReactivateLicenseAsync(id);
+        if (!apiResult.IsSuccess)
+        {
+            Snackbar.Add(apiResult.ErrorMessage ?? "Reactivate failed.", Severity.Error);
+            return;
+        }
+
+        Snackbar.Add("License reactivated.", Severity.Success);
         await ReloadGrid();
     }
 

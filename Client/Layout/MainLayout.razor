@@ -3,6 +3,8 @@
 @inject TokenStorage TokenStorage
 @inject JwtAuthenticationStateProvider AuthState
 @inject IJSRuntime JS
+@inject ApiFailureNotifier ApiFailures
+@inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
 <a href="#main-content" class="skip-link">Skip to content</a>
@@ -93,6 +95,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ApiFailures.Failed += OnApiFailure;
         _email = await TokenStorage.GetEmailAsync();
     }
 
@@ -171,8 +174,11 @@
         Navigation.NavigateTo("/login");
     }
 
+    private void OnApiFailure(string message) => Snackbar.Add(message, Severity.Warning);
+
     public async ValueTask DisposeAsync()
     {
+        ApiFailures.Failed -= OnApiFailure;
         if (_dotNetRef is not null)
         {
             try

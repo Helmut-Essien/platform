@@ -20,7 +20,13 @@ public interface IBillingService
         int page = 1,
         int pageSize = 25,
         bool unpaidOnly = false,
+        InvoiceStatus? status = null,
+        string? search = null,
+        DateTime? issuedFrom = null,
+        DateTime? issuedTo = null,
         CancellationToken cancellationToken = default);
+
+    Task<InvoiceStatsDto> GetInvoiceStatsAsync(CancellationToken cancellationToken = default);
 
     Task<InvoiceDto> VoidInvoiceAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 

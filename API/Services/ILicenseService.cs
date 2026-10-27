@@ -1,5 +1,6 @@
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Licenses;
+using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
 
@@ -13,6 +14,9 @@ public interface ILicenseService
         int page = 1,
         int pageSize = 25,
         int? expiringWithinDays = null,
+        string? serviceProductId = null,
+        LicenseStatus? status = null,
+        string? search = null,
         CancellationToken cancellationToken = default);
 
     Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default);
@@ -30,6 +34,11 @@ public interface ILicenseService
     Task<LicenseDto> RevokeAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<LicenseDto> ActivateAsync(string id, ActivateLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Restores a Suspended license to Active without touching its key or creating billing (B4).
+    /// </summary>
+    Task<LicenseDto> ReactivateAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<LicenseDto> RenewAsync(string id, RenewLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 

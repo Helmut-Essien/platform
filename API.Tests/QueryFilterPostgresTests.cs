@@ -26,10 +26,13 @@ public class QueryFilterPostgresTests
         if (db is null)
             return;
 
+        // Unique per run: the target database is shared between runs and invoice numbers are unique.
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var invoiceNumber = $"INV-QF-{suffix}";
         var customer = new Customer
         {
             Name = "Suspended Co",
-            ContactEmail = "suspended@test.com",
+            ContactEmail = $"suspended-{suffix}@test.com",
             IsSuspended = true
         };
         db.Customers.Add(customer);
@@ -38,7 +41,7 @@ public class QueryFilterPostgresTests
         db.Invoices.Add(new Invoice
         {
             CustomerId = customer.Id,
-            InvoiceNumber = "INV-QF-001",
+            InvoiceNumber = invoiceNumber,
             Status = InvoiceStatus.Sent,
             IssueDate = DateTime.UtcNow.Date,
             Currency = "USD",
@@ -55,7 +58,7 @@ public class QueryFilterPostgresTests
         var listed = await billing.ListInvoicesAsync(customerId: customer.Id);
 
         Assert.Equal(1, listed.TotalCount);
-        Assert.Equal("INV-QF-001", listed.Items[0].InvoiceNumber);
+        Assert.Equal(invoiceNumber, listed.Items[0].InvoiceNumber);
     }
 
     private static BillingService CreateBillingService(AppDbContext db)

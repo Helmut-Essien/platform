@@ -48,16 +48,17 @@ public class OverdueInvoiceLifecycleWorker(
             logger.LogError(ex, "License expiry transition failed.");
         }
 
+        // Invoices that are already Overdue are excluded (P6): they need no transition, and
+        // re-processing them every cycle would re-suspend licenses an admin deliberately restored (E8).
+        // Auto-suspension therefore only happens in the cycle that moves an invoice to Overdue.
         var invoices = await db.Invoices
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(x => x.DueDate.HasValue
                 && x.TotalAmount > 0
                 && x.DueDate.Value < now
-                && (x.Status == InvoiceStatus.Sent
-                    || x.Status == InvoiceStatus.PartiallyPaid
-                    || x.Status == InvoiceStatus.Overdue))
-            .Select(x => new { x.Id, x.LicenseId, x.CustomerId, x.Status, x.DueDate, x.TotalAmount })
+                && (x.Status == InvoiceStatus.Sent || x.Status == InvoiceStatus.PartiallyPaid))
+            .Select(x => new { x.Id, x.LicenseId, x.CustomerId, x.DueDate })
             .ToListAsync(cancellationToken);
 
         foreach (var invoiceRow in invoices)
@@ -67,25 +68,18 @@ public class OverdueInvoiceLifecycleWorker(
 
             try
             {
-                if (invoiceRow.Status != InvoiceStatus.Overdue)
-                {
-                    var invoice = await db.Invoices
-                        .IgnoreQueryFilters()
-                        .FirstAsync(x => x.Id == invoiceRow.Id, cancellationToken);
-                    if (invoice.TotalAmount <= 0)
-                        continue;
-                    invoice.Status = InvoiceStatus.Overdue;
-                    invoice.UpdatedAt = now;
-                    await db.SaveChangesAsync(cancellationToken);
-                    db.ChangeTracker.Clear();
-                }
+                if (!await TryMarkOverdueAsync(db, invoiceRow.Id, now, cancellationToken))
+                    continue;
 
                 if (!settings.Value.AutoSuspendOnOverdue || invoiceRow.LicenseId is null)
                     continue;
 
                 var license = await db.Licenses
                     .IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(x => x.Id == invoiceRow.LicenseId, cancellationToken);
+                    .AsNoTracking()
+                    .Where(x => x.Id == invoiceRow.LicenseId)
+                    .Select(x => new { x.Status })
+                    .FirstOrDefaultAsync(cancellationToken);
                 if (license is null || license.Status != LicenseStatus.Active)
                     continue;
 
@@ -110,5 +104,49 @@ public class OverdueInvoiceLifecycleWorker(
                 db.ChangeTracker.Clear();
             }
         }
+    }
+
+    /// <summary>
+    /// Moves a Sent/PartiallyPaid invoice to Overdue under the invoice row lock (B5). The status is
+    /// re-checked after the lock is held, so a payment that committed after the candidate scan can no
+    /// longer be overwritten with Overdue. Returns false when the invoice is no longer eligible.
+    /// </summary>
+    internal static async Task<bool> TryMarkOverdueAsync(
+        AppDbContext db,
+        string invoiceId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var changed = await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+            if (db.Database.IsRelational())
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"""SELECT 1 FROM "Invoices" WHERE "Id" = {invoiceId} FOR UPDATE""",
+                    ct);
+            }
+
+            var invoice = await db.Invoices
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(x => x.Id == invoiceId, ct);
+            if (invoice is null
+                || invoice.TotalAmount <= 0
+                || (invoice.Status != InvoiceStatus.Sent && invoice.Status != InvoiceStatus.PartiallyPaid)
+                || !DateTimeNormalizer.IsPastDue(invoice.DueDate, now))
+            {
+                return false;
+            }
+
+            invoice.Status = InvoiceStatus.Overdue;
+            invoice.UpdatedAt = now;
+            await db.SaveChangesAsync(ct);
+
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            return true;
+        }, cancellationToken);
+
+        db.ChangeTracker.Clear();
+        return changed;
     }
 }

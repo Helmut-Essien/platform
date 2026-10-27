@@ -106,6 +106,9 @@ public class LicenseService(
         int page = 1,
         int pageSize = PagingHelper.DefaultPageSize,
         int? expiringWithinDays = null,
+        string? serviceProductId = null,
+        LicenseStatus? status = null,
+        string? search = null,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -130,7 +133,23 @@ public class LicenseService(
                 && l.ExpiresAt.Value <= threshold);
         }
 
-        var ordered = query.OrderByDescending(l => l.CreatedAt);
+        if (!string.IsNullOrEmpty(serviceProductId))
+            query = query.Where(l => l.ServiceProductId == serviceProductId);
+
+        if (status is not null)
+            query = query.Where(l => l.Status == status);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = SearchHelper.Normalize(search).ToLower();
+            query = query.Where(l =>
+                l.Customer.Name.ToLower().Contains(term)
+                || l.PlanName.ToLower().Contains(term)
+                || (l.ServiceProduct != null && l.ServiceProduct.Code.ToLower().Contains(term)));
+        }
+
+        // Id tiebreaker keeps paging stable for licenses created in the same instant.
+        var ordered = query.OrderByDescending(l => l.CreatedAt).ThenByDescending(l => l.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 
@@ -188,11 +207,18 @@ public class LicenseService(
         if (DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
             throw new InvalidOperationException("License expiry is in the past. Renew the license before activating.");
 
+        // B4: a license that already has a key (Suspended/Expired) is being restored, not issued.
+        // The request flags default to "email key + create invoice", so they are ignored here;
+        // use Rotate Key / Renew for those actions explicitly.
+        var restoring = license.Status != LicenseStatus.Pending && !string.IsNullOrEmpty(license.LicenseKeyHash);
+        var emailKey = request.EmailLicenseKey && !restoring;
+        var createInvoice = request.CreateInvoice && !restoring;
+
         license.Status = LicenseStatus.Active;
         license.AutoSuspendedForOverdueInvoiceId = null;
         license.UpdatedAt = now;
 
-        if (request.EmailLicenseKey)
+        if (emailKey)
             await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: false, ct);
         else if (string.IsNullOrEmpty(license.LicenseKeyHash))
             throw new InvalidOperationException("A new license must be delivered by email when first activated.");
@@ -200,9 +226,9 @@ public class LicenseService(
         await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseActivated, performedBy, license.CustomerId, license.Id,
-            null, AuditJson.Serialize(new { licenseKeyQueued = request.EmailLicenseKey }), ipAddress, ct);
+            null, AuditJson.Serialize(new { licenseKeyQueued = emailKey, restored = restoring }), ipAddress, ct);
 
-        if (request.CreateInvoice)
+        if (createInvoice)
         {
             await billing.CreateInvoiceForLicenseAsync(
                 license, request.Subtotal, request.TaxAmount, request.Currency,
@@ -217,6 +243,45 @@ public class LicenseService(
             await transaction.CommitAsync(ct);
         await denyList.ClearLicenseDenyAsync(license.Id, ct);
         return result;
+        }, cancellationToken);
+
+    public Task<LicenseDto> ReactivateAsync(
+        string id,
+        string performedBy,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+            var license = await db.Licenses
+                .Include(l => l.Customer)
+                .Include(l => l.ServiceProduct)
+                .FirstOrDefaultAsync(l => l.Id == id, ct)
+                ?? throw new NotFoundException("License not found.");
+
+            if (license.Customer.IsSuspended)
+                throw new InvalidOperationException("Customer is suspended.");
+
+            if (license.Status != LicenseStatus.Suspended)
+                throw new InvalidOperationException($"Only suspended licenses can be reactivated (current status {license.Status}).");
+
+            var now = DateTime.UtcNow;
+            if (DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
+                throw new InvalidOperationException("License expiry is in the past. Renew the license first.");
+
+            license.Status = LicenseStatus.Active;
+            license.AutoSuspendedForOverdueInvoiceId = null;
+            license.UpdatedAt = now;
+            await db.SaveChangesAsync(ct);
+
+            await auditLog.WriteAsync(AuditAction.LicenseReactivated, performedBy, license.CustomerId, license.Id,
+                null, null, ipAddress, ct);
+
+            var result = await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, ct)
+                ?? throw new InvalidOperationException("Failed to load license.");
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            await denyList.ClearLicenseDenyAsync(license.Id, ct);
+            return result;
         }, cancellationToken);
 
     public Task<LicenseDto> RenewAsync(
@@ -244,8 +309,14 @@ public class LicenseService(
         if (!renewedExpiry.HasValue || DateTimeNormalizer.IsPastExpiry(renewedExpiry, now))
             throw new InvalidOperationException("Renewal expiry must be in the future.");
 
-        license.Status = LicenseStatus.Active;
-        license.AutoSuspendedForOverdueInvoiceId = null;
+        // B8: renewing extends the term; it must not silently lift an admin/overdue suspension.
+        // Suspended licenses stay Suspended until explicitly reactivated.
+        var stillSuspended = license.Status == LicenseStatus.Suspended;
+        if (!stillSuspended)
+        {
+            license.Status = LicenseStatus.Active;
+            license.AutoSuspendedForOverdueInvoiceId = null;
+        }
         license.ExpiresAt = renewedExpiry;
         license.UpdatedAt = now;
 
@@ -255,7 +326,7 @@ public class LicenseService(
                 throw new InvalidOperationException("Rotated keys must be emailed to the technical contact.");
             await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: true, ct);
         }
-        else if (request.EmailLicenseKey)
+        else if (request.EmailLicenseKey && !stillSuspended)
         {
             var renewal = templates.Renewal(license.Customer, license.ServiceProduct, license);
             outbox.Enqueue(
@@ -290,7 +361,8 @@ public class LicenseService(
             ?? throw new InvalidOperationException("Failed to load license.");
         if (transaction is not null)
             await transaction.CommitAsync(ct);
-        await denyList.ClearLicenseDenyAsync(license.Id, ct);
+        if (!stillSuspended)
+            await denyList.ClearLicenseDenyAsync(license.Id, ct);
         return result;
         }, cancellationToken);
 
@@ -456,46 +528,132 @@ public class LicenseService(
             ?? throw new InvalidOperationException("Failed to load license.");
     }
 
+    private const int ExpiryBatchSize = 200;
+    private const int DenyListBatchSize = 50;
+
     public async Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         var horizon = now.Date.AddDays(1);
-        var ids = await db.Licenses
+
+        // P7: one query for everything that is due (instead of an id query plus a reload per license).
+        var due = await db.Licenses
             .IgnoreQueryFilters()
             .Where(l => l.Status == LicenseStatus.Active
                 && l.ExpiresAt != null
                 && l.ExpiresAt < horizon)
-            .Select(l => l.Id)
             .ToListAsync(cancellationToken);
 
-        var expired = 0;
-        foreach (var id in ids)
-        {
-            var license = await db.Licenses
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
-            if (license is null || license.Status != LicenseStatus.Active)
-                continue;
-            if (!DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
-                continue;
+        var dueIds = due
+            .Where(l => DateTimeNormalizer.IsPastExpiry(l.ExpiresAt, now))
+            .Select(l => l.Id)
+            .ToList();
 
-            license.Status = LicenseStatus.Expired;
-            license.UpdatedAt = now;
-            await db.SaveChangesAsync(cancellationToken);
-            await denyList.DenyLicenseAsync(license.Id, cancellationToken);
-            await auditLog.WriteAsync(
+        var expired = 0;
+        var first = true;
+        foreach (var chunk in dueIds.Chunk(ExpiryBatchSize))
+        {
+            if (!first)
+            {
+                // Later chunks are reloaded fresh (the tracker is cleared after each chunk).
+                due = await db.Licenses
+                    .IgnoreQueryFilters()
+                    .Where(l => chunk.Contains(l.Id))
+                    .ToListAsync(cancellationToken);
+            }
+
+            first = false;
+            var batch = due.Where(l => chunk.Contains(l.Id)).ToList();
+            expired += await ExpireBatchAsync(batch, chunk, now, cancellationToken);
+            db.ChangeTracker.Clear();
+        }
+
+        return expired;
+    }
+
+    /// <summary>
+    /// Expires a batch with one save (statuses and audit entries together), then updates the deny list in
+    /// bounded concurrent groups. If another writer changed one of the licenses in the meantime (the
+    /// <c>Version</c> concurrency token), falls back to the original one-at-a-time re-check for that batch.
+    /// </summary>
+    private async Task<int> ExpireBatchAsync(
+        List<License> batch,
+        string[] ids,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var expiring = batch
+            .Where(l => l.Status == LicenseStatus.Active && DateTimeNormalizer.IsPastExpiry(l.ExpiresAt, now))
+            .ToList();
+        if (expiring.Count == 0)
+            return 0;
+
+        try
+        {
+            var audits = new List<AuditEntryRequest>(expiring.Count);
+            foreach (var license in expiring)
+            {
+                license.Status = LicenseStatus.Expired;
+                license.UpdatedAt = now;
+                audits.Add(new AuditEntryRequest(
+                    AuditAction.LicenseExpired,
+                    "system:license-expiry",
+                    license.CustomerId,
+                    license.Id,
+                    null,
+                    AuditJson.Serialize(new { expiresAt = license.ExpiresAt })));
+            }
+
+            await auditLog.WriteBatchAsync(audits, cancellationToken);
+            await db.SaveChangesAsync(cancellationToken); // no-op when the audit service already saved
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            db.ChangeTracker.Clear();
+            var count = 0;
+            foreach (var id in ids)
+                count += await ExpireSingleAsync(id, now, cancellationToken);
+            return count;
+        }
+
+        await DenyAllAsync(expiring.Select(l => l.Id), cancellationToken);
+        return expiring.Count;
+    }
+
+    private async Task<int> ExpireSingleAsync(string id, DateTime now, CancellationToken cancellationToken)
+    {
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
+        if (license is null
+            || license.Status != LicenseStatus.Active
+            || !DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
+        {
+            return 0;
+        }
+
+        license.Status = LicenseStatus.Expired;
+        license.UpdatedAt = now;
+        await auditLog.WriteBatchAsync(
+        [
+            new AuditEntryRequest(
                 AuditAction.LicenseExpired,
                 "system:license-expiry",
                 license.CustomerId,
                 license.Id,
                 null,
-                AuditJson.Serialize(new { expiresAt = license.ExpiresAt }),
-                cancellationToken: cancellationToken);
-            expired++;
-            db.ChangeTracker.Clear();
-        }
+                AuditJson.Serialize(new { expiresAt = license.ExpiresAt }))
+        ], cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        await denyList.DenyLicenseAsync(license.Id, cancellationToken);
+        db.ChangeTracker.Clear();
+        return 1;
+    }
 
-        return expired;
+    private async Task DenyAllAsync(IEnumerable<string> licenseIds, CancellationToken cancellationToken)
+    {
+        foreach (var group in licenseIds.Chunk(DenyListBatchSize))
+            await Task.WhenAll(group.Select(id => denyList.DenyLicenseAsync(id, cancellationToken)));
     }
 
     private async Task<LicenseDto?> MapLicenseAsync(

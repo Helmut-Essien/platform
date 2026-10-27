@@ -26,3 +26,14 @@ public class PagingHelperTests
         Assert.Equal(PagingHelper.MaxPageSize, pageSize);
     }
 }
+
+public class SearchHelperTests
+{
+    [Theory]
+    [InlineData("100%", "%100\\%%")]
+    [InlineData("a_b", "%a\\_b%")]
+    [InlineData(@"c:\x", @"%c:\\x%")]
+    [InlineData("  plain ", "%plain%")]
+    public void ContainsPattern_EscapesLikeWildcards(string input, string expected) =>
+        Assert.Equal(expected, Platform.Api.Helpers.SearchHelper.ContainsPattern(input));
+}

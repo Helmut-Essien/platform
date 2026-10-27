@@ -13,12 +13,12 @@ public class DashboardService(AppDbContext db) : IDashboardService
 
         var customerCount = await db.Customers.CountAsync(cancellationToken);
 
+        // E1: license KPIs use the same default query filter as the Licenses list the KPI links to
+        // (licenses of suspended customers are excluded), so the number matches what the user sees.
         var activeLicenses = await db.Licenses
-            .IgnoreQueryFilters()
             .CountAsync(l => l.Status == LicenseStatus.Active, cancellationToken);
 
         var expiringWithin30Days = await db.Licenses
-            .IgnoreQueryFilters()
             .CountAsync(
                 l => l.Status == LicenseStatus.Active
                     && l.ExpiresAt.HasValue

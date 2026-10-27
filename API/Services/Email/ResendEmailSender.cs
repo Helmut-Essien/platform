@@ -80,8 +80,14 @@ public class ResendEmailSender(
                     Truncate(body, 500),
                     cancellationToken.IsCancellationRequested);
 
-                throw new InvalidOperationException(
-                    $"Resend API returned {(int)response.StatusCode}: {Truncate(body, 300)}");
+                var detail = $"Resend API returned {(int)response.StatusCode}: {Truncate(body, 300)}";
+                // 400/422: the provider rejected the request itself (bad address, invalid payload);
+                // retrying the identical request cannot succeed. 401/403/429/5xx stay retryable.
+                if (response.StatusCode is System.Net.HttpStatusCode.BadRequest
+                    or System.Net.HttpStatusCode.UnprocessableEntity)
+                    throw new PermanentEmailFailureException(detail);
+
+                throw new InvalidOperationException(detail);
             }
 
             logger.LogInformation(

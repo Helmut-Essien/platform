@@ -26,6 +26,19 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
         var logoBytes = letterhead.LogoBytes is { Length: > 0 }
             ? letterhead.LogoBytes
             : TryLoadBundledLogo();
+        try
+        {
+            return Render(invoice, customer, letterhead, logoBytes);
+        }
+        catch (Exception) when (logoBytes is { Length: > 0 })
+        {
+            // A logo the image decoder rejects must not make the invoice itself undeliverable.
+            return Render(invoice, customer, letterhead, null);
+        }
+    }
+
+    private static byte[] Render(Invoice invoice, Customer customer, InvoiceLetterhead letterhead, byte[]? logoBytes)
+    {
         var currencySymbol = CurrencySymbol(invoice.Currency);
         var dueDate = invoice.DueDate?.ToString("MMMM dd, yyyy") ?? "Upon receipt";
         var productLabel = invoice.ServiceProduct is null

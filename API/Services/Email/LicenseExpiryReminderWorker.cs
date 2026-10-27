@@ -40,8 +40,10 @@ public class LicenseExpiryReminderWorker(
         var outbox = scope.ServiceProvider.GetRequiredService<IEmailOutboxService>();
         var templates = scope.ServiceProvider.GetRequiredService<EmailTemplateService>();
         var now = DateTime.UtcNow;
-        var threshold = now.AddDays(Math.Max(1, settings.Value.ExpiryReminderDays));
-        var dedupeAfter = now.AddDays(-Math.Max(1, settings.Value.ExpiryReminderDays));
+        // E5: stepped reminders (e.g. 30, 7 and 1 days before expiry). A reminder for a step is sent at
+        // most once per expiry date: it is skipped when one was already queued since that step's window opened.
+        var steps = ReminderSteps(settings.Value);
+        var threshold = now.AddDays(steps[0]);
 
         var licenses = await db.Licenses
             .IgnoreQueryFilters()
@@ -55,14 +57,29 @@ public class LicenseExpiryReminderWorker(
                 && x.ExpiresAt.Value <= threshold)
             .ToListAsync(cancellationToken);
 
+        if (licenses.Count == 0)
+            return;
+
+        // P8: one batched lookup of the latest reminder per license instead of an AnyAsync per license.
+        var licenseIds = licenses.Select(x => x.Id).ToList();
+        var lastReminders = await db.EmailOutboxMessages
+            .AsNoTracking()
+            .Where(x => x.Kind == EmailDeliveryKind.ExpiryReminder
+                && x.Status != EmailDeliveryStatus.Cancelled
+                && x.LicenseId != null
+                && licenseIds.Contains(x.LicenseId))
+            .GroupBy(x => x.LicenseId!)
+            .Select(g => new { LicenseId = g.Key, LastCreatedAt = g.Max(m => m.CreatedAt) })
+            .ToDictionaryAsync(x => x.LicenseId, x => x.LastCreatedAt, cancellationToken);
+
         foreach (var license in licenses)
         {
-            var alreadyQueued = await db.EmailOutboxMessages.AnyAsync(
-                x => x.Kind == EmailDeliveryKind.ExpiryReminder
-                    && x.LicenseId == license.Id
-                    && x.CreatedAt >= dedupeAfter,
-                cancellationToken);
-            if (alreadyQueued)
+            var expiresAt = license.ExpiresAt!.Value;
+            var remaining = expiresAt - now;
+            // Tightest step whose window we are inside.
+            var step = steps.Where(s => remaining <= TimeSpan.FromDays(s)).Min();
+            var windowOpened = expiresAt.AddDays(-step);
+            if (lastReminders.TryGetValue(license.Id, out var last) && last >= windowOpened)
                 continue;
 
             var template = templates.ExpiryReminder(license.Customer, license.ServiceProduct, license);
@@ -76,5 +93,17 @@ public class LicenseExpiryReminderWorker(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>Distinct reminder steps in days, descending; the first is the scan horizon.</summary>
+    internal static int[] ReminderSteps(LifecycleSettings settings)
+    {
+        var max = Math.Max(1, settings.ExpiryReminderDays);
+        return new[] { max }
+            .Concat(settings.ExpiryReminderAdditionalSteps ?? [])
+            .Where(d => d >= 1 && d <= max)
+            .Distinct()
+            .OrderDescending()
+            .ToArray();
     }
 }
