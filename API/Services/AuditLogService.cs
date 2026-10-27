@@ -183,6 +183,26 @@ public class AuditLogService(AppDbContext db) : IAuditLogService, IAuditLogQuery
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task WriteBatchAsync(
+        IReadOnlyList<AuditEntryRequest> entries,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        db.AuditLogs.AddRange(entries.Select(e => new AuditLog
+        {
+            Action = e.Action,
+            PerformedBy = e.PerformedBy,
+            CustomerId = e.CustomerId,
+            LicenseId = e.LicenseId,
+            InvoiceId = e.InvoiceId,
+            DetailsJson = e.DetailsJson,
+            IpAddress = e.IpAddress,
+            Timestamp = now
+        }));
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private static AuditLogDto Map(AuditLog log) => new()
     {
         Id = log.Id,

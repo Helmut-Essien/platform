@@ -43,7 +43,7 @@
                 <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Refresh</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="@(() => LoadAsync(refreshStats: true))">Refresh</MudButton>
     </section>
 
     @if (_loading)
@@ -261,11 +261,11 @@
 
         // Customers feed the filter dropdown only; names in the table come with each log entry.
         var customersTask = Api.GetAllCustomersAsync();
-        await Task.WhenAll(LoadAsync(), customersTask);
+        await Task.WhenAll(LoadAsync(refreshStats: true), customersTask);
         _customers = await customersTask;
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool refreshStats = false)
     {
         // Ignore out-of-order responses when the user changes filters quickly.
         var request = ++_requestId;
@@ -280,7 +280,11 @@
             invoiceId: InvoiceId,
             action: _actionFilter,
             search: _search);
-        var statsTask = Api.GetAuditLogStatsAsync();
+        // Stats are global (not filtered), so they are only fetched on the initial load, not on every
+        // page/filter change.
+        var statsTask = refreshStats || _stats is null
+            ? Api.GetAuditLogStatsAsync()
+            : Task.FromResult<AuditLogStatsDto?>(_stats);
         await Task.WhenAll(logsTask, statsTask);
 
         if (request != _requestId)
