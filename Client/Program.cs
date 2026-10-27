@@ -29,6 +29,8 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
     sp.GetRequiredService<JwtAuthenticationStateProvider>());
 
 builder.Services.AddScoped<ApiErrorHandler>();
+builder.Services.AddScoped<ApiFailureNotifier>();
+builder.Services.AddTransient<NetworkFailureHandler>();
 builder.Services.AddScoped<PlatformApiClient>();
 builder.Services.AddHttpClient<PlatformApiClient>(client =>
 {
@@ -39,6 +41,7 @@ builder.Services.AddHttpClient<PlatformApiClient>(client =>
     client.BaseAddress = new Uri(baseUrl);
 })
 .AddHttpMessageHandler<JwtAuthorizationMessageHandler>()
-.AddHttpMessageHandler<ApiErrorHandler>();
+.AddHttpMessageHandler<ApiErrorHandler>()
+.AddHttpMessageHandler<NetworkFailureHandler>();
 
 await builder.Build().RunAsync();

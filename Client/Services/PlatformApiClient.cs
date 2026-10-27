@@ -14,8 +14,43 @@ using Platform.Shared.Enums;
 
 namespace Platform.Client.Services;
 
-public class PlatformApiClient(HttpClient http)
+public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
 {
+    public PlatformApiClient(HttpClient http) : this(http, new ApiFailureNotifier())
+    {
+    }
+
+    /// <summary>
+    /// GET + deserialize that never throws for transport, server or JSON failures: it reports the failure to the
+    /// UI shell and returns <c>default</c> so list pages show an empty state rather than an unhandled error.
+    /// Caller cancellation still propagates.
+    /// </summary>
+    private async Task<T?> GetJsonAsync<T>(string url, CancellationToken ct)
+    {
+        try
+        {
+            return await http.GetFromJsonAsync<T>(url, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            // 401 is handled by ApiErrorHandler (redirect to login); do not add noise on top of it.
+            if (ex.StatusCode != System.Net.HttpStatusCode.Unauthorized)
+                notifier.Report(ex.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable
+                    ? NetworkFailureHandler.UnreachableMessage
+                    : "The server could not complete the request. Please try again.");
+            return default;
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException or OperationCanceledException)
+        {
+            notifier.Report("The server returned an unexpected response. Please try again.");
+            return default;
+        }
+    }
+
     public async Task<ApiResult<LoginResponse>> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
         var response = await http.PostAsJsonAsync("api/auth/login", request, ct);
@@ -35,10 +70,10 @@ public class PlatformApiClient(HttpClient http)
     }
 
     public async Task<LoginResponse?> GetMeAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<LoginResponse>("api/auth/me", ct);
+        await GetJsonAsync<LoginResponse>("api/auth/me", ct);
 
     public async Task<DashboardStatsDto?> GetDashboardStatsAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<DashboardStatsDto>("api/dashboard/stats", ct);
+        await GetJsonAsync<DashboardStatsDto>("api/dashboard/stats", ct);
 
     public async Task<PagedResult<CustomerDto>> GetCustomersPagedAsync(
         int page = 1,
@@ -56,12 +91,12 @@ public class PlatformApiClient(HttpClient http)
         if (!string.IsNullOrWhiteSpace(created) && created != "all")
             url += $"&created={Uri.EscapeDataString(created)}";
 
-        return await http.GetFromJsonAsync<PagedResult<CustomerDto>>(url, ct)
+        return await GetJsonAsync<PagedResult<CustomerDto>>(url, ct)
             ?? new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
 
     public async Task<CustomerDto?> GetCustomerAsync(string id, CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<CustomerDto>($"api/customers/{id}", ct);
+        await GetJsonAsync<CustomerDto>($"api/customers/{id}", ct);
 
     public async Task<ApiResult<CustomerDto>> CreateCustomerAsync(
         CreateCustomerRequest request,
@@ -93,7 +128,7 @@ public class PlatformApiClient(HttpClient http)
     }
 
     public async Task<List<ServiceProductDto>> GetServiceProductsAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<List<ServiceProductDto>>("api/serviceproducts", ct) ?? [];
+        await GetJsonAsync<List<ServiceProductDto>>("api/serviceproducts", ct) ?? [];
 
     public async Task<ApiResult<ServiceProductDto>> CreateServiceProductAsync(
         CreateServiceProductRequest request,
@@ -144,12 +179,12 @@ public class PlatformApiClient(HttpClient http)
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search.Trim())}";
 
-        return await http.GetFromJsonAsync<PagedResult<LicenseDto>>(url, ct)
+        return await GetJsonAsync<PagedResult<LicenseDto>>(url, ct)
             ?? new PagedResult<LicenseDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
 
     public async Task<LicenseDto?> GetLicenseAsync(string id, CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<LicenseDto>($"api/licenses/{id}", ct);
+        await GetJsonAsync<LicenseDto>($"api/licenses/{id}", ct);
 
     public async Task<ApiResult<LicenseDto>> CreateLicenseAsync(
         CreateLicenseRequest request,
@@ -234,17 +269,17 @@ public class PlatformApiClient(HttpClient http)
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search.Trim())}";
         if (issuedFrom is not null)
-            url += $"&issuedFrom={issuedFrom.Value:yyyy-MM-dd}";
+            url += $"&issuedFrom={issuedFrom.Value.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}";
         if (issuedTo is not null)
-            url += $"&issuedTo={issuedTo.Value:yyyy-MM-dd}";
+            url += $"&issuedTo={issuedTo.Value.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}";
 
-        return await http.GetFromJsonAsync<PagedResult<InvoiceDto>>(url, ct)
+        return await GetJsonAsync<PagedResult<InvoiceDto>>(url, ct)
             ?? new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
 
     /// <summary>Server-side invoice aggregates (per currency) over all invoices, not just one page.</summary>
     public async Task<InvoiceStatsDto?> GetInvoiceStatsAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<InvoiceStatsDto>("api/invoices/stats", ct);
+        await GetJsonAsync<InvoiceStatsDto>("api/invoices/stats", ct);
 
     /// <summary>The API caps page size at 100, so larger lookups must walk the pages.</summary>
     public const int MaxPageSize = 100;
@@ -273,7 +308,7 @@ public class PlatformApiClient(HttpClient http)
         ReadAllPagesAsync((page, size) => GetCustomersPagedAsync(page, size, ct: ct));
 
     public async Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<InvoiceDto>($"api/invoices/{id}", ct);
+        await GetJsonAsync<InvoiceDto>($"api/invoices/{id}", ct);
 
     public async Task<ApiResult<InvoiceDto>> CreateInvoiceAsync(
         CreateInvoiceRequest request,
@@ -308,7 +343,7 @@ public class PlatformApiClient(HttpClient http)
             url += $"&licenseId={Uri.EscapeDataString(licenseId)}";
         if (!string.IsNullOrEmpty(invoiceId))
             url += $"&invoiceId={Uri.EscapeDataString(invoiceId)}";
-        return await http.GetFromJsonAsync<List<EmailDeliveryDto>>(url, ct) ?? [];
+        return await GetJsonAsync<List<EmailDeliveryDto>>(url, ct) ?? [];
     }
 
     public async Task<ApiResult<EmailDeliveryDto>> RetryEmailDeliveryAsync(string id, CancellationToken ct = default)
@@ -354,7 +389,7 @@ public class PlatformApiClient(HttpClient http)
         if (action is not null)
             url += $"&action={action}";
 
-        return await http.GetFromJsonAsync<List<AuditLogDto>>(url, ct) ?? [];
+        return await GetJsonAsync<List<AuditLogDto>>(url, ct) ?? [];
     }
 
     public async Task<PagedResult<AuditLogDto>> GetAuditLogsPagedAsync(
@@ -379,12 +414,12 @@ public class PlatformApiClient(HttpClient http)
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search.Trim())}";
 
-        return await http.GetFromJsonAsync<PagedResult<AuditLogDto>>(url, ct)
+        return await GetJsonAsync<PagedResult<AuditLogDto>>(url, ct)
             ?? new PagedResult<AuditLogDto> { Items = [], TotalCount = 0, Page = page, PageSize = pageSize };
     }
 
     public async Task<AuditLogStatsDto?> GetAuditLogStatsAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<AuditLogStatsDto>("api/audit-logs/stats", ct);
+        await GetJsonAsync<AuditLogStatsDto>("api/audit-logs/stats", ct);
 
     public async Task<ApiResult<ValidateLicenseResponse>> ValidateLicenseAsync(
         string integrationKey,
@@ -406,7 +441,7 @@ public class PlatformApiClient(HttpClient http)
         if (!string.IsNullOrEmpty(serviceProductId))
             url += $"?serviceProductId={Uri.EscapeDataString(serviceProductId)}";
 
-        return await http.GetFromJsonAsync<List<IntegrationKeyDto>>(url, ct) ?? [];
+        return await GetJsonAsync<List<IntegrationKeyDto>>(url, ct) ?? [];
     }
 
     public async Task<ApiResult<CreateIntegrationKeyResponse>> CreateIntegrationKeyAsync(
@@ -424,7 +459,7 @@ public class PlatformApiClient(HttpClient http)
     }
 
     public async Task<InvoiceBrandDto?> GetInvoiceBrandAsync(CancellationToken ct = default) =>
-        await http.GetFromJsonAsync<InvoiceBrandDto>("api/invoice-brand", ct);
+        await GetJsonAsync<InvoiceBrandDto>("api/invoice-brand", ct);
 
     public async Task<ApiResult<InvoiceBrandDto>> UpdateInvoiceBrandAsync(
         UpdateInvoiceBrandRequest request,
@@ -452,7 +487,16 @@ public class PlatformApiClient(HttpClient http)
     {
         if (response.IsSuccessStatusCode)
         {
-            var data = await response.Content.ReadFromJsonAsync<T>(ct);
+            T? data;
+            try
+            {
+                data = await response.Content.ReadFromJsonAsync<T>(ct);
+            }
+            catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException)
+            {
+                return ApiResult<T>.Fail("The server returned an unexpected response.");
+            }
+
             return data is null
                 ? ApiResult<T>.Fail("Empty response from server.")
                 : ApiResult<T>.Ok(data);
