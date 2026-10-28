@@ -154,15 +154,9 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 app.UseForwardedHeaders();
 
-var webRoot = app.Environment.WebRootPath;
-if (!string.IsNullOrEmpty(webRoot) && Directory.Exists(webRoot))
-{
-    app.UseDefaultFiles();
-    app.UseStaticFiles(new StaticFileOptions
-    {
-        ServeUnknownFileTypes = true
-    });
-}
+// Hosted Blazor WASM client (same origin as the API). Unknown file types are not served.
+app.UseBlazorFrameworkFiles();
+app.UseStaticFiles();
 
 app.UseCors("Client");
 
@@ -171,7 +165,22 @@ app.UseAuthorization();
 app.UseRateLimiter();
 
 app.MapControllers();
-if (!string.IsNullOrEmpty(webRoot) && Directory.Exists(webRoot))
-    app.MapFallbackToFile("index.html");
+
+// Anonymous, cheap liveness probe for keep-alive pings (IIS idle timeout) and load balancers.
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
+    .AllowAnonymous()
+    .DisableRateLimiting();
+
+// Readiness probe that also checks the database connection.
+app.MapGet("/health/db", async (AppDbContext db, CancellationToken ct) =>
+        await db.Database.CanConnectAsync(ct)
+            ? Results.Ok(new { status = "ok", database = "ok" })
+            : Results.Json(new { status = "degraded", database = "unreachable" }, statusCode: StatusCodes.Status503ServiceUnavailable))
+    .AllowAnonymous()
+    .DisableRateLimiting();
+
+// Unknown /api/* routes must stay 404s instead of returning the SPA shell.
+app.MapFallback("/api/{**slug}", () => Results.NotFound());
+app.MapFallbackToFile("index.html");
 
 app.Run();
