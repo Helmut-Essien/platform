@@ -15,9 +15,13 @@ var builder = WebApplication.CreateBuilder(args);
 // ForwardedHeaders__Enabled=true plus ForwardedHeaders__KnownProxies__0 / KnownNetworks__0 (CIDR).
 var forwardedHeadersEnabled = ForwardedHeadersSetup.Configure(builder.Services, builder.Configuration);
 
-var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? Environment.GetEnvironmentVariable("DB_CONNECTION")
-    ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+var rawConnectionString = new[]
+    {
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        Environment.GetEnvironmentVariable("DB_CONNECTION"),
+        Environment.GetEnvironmentVariable("DATABASE_URL")
+    }
+    .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
 var connectionString = rawConnectionString?.Trim();
 

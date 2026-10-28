@@ -31,6 +31,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Dev-only settings (local DB credentials, dev JWT key) never ship in publish output. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="Assets\helmutcode-logo.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
