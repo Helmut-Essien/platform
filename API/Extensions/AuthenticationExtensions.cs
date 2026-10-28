@@ -14,7 +14,8 @@ public static class AuthenticationExtensions
 {
     public static IServiceCollection AddPlatformAuthentication(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IHostEnvironment? environment = null)
     {
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<AdminSeedSettings>(configuration.GetSection(AdminSeedSettings.SectionName));
@@ -25,7 +26,14 @@ public static class AuthenticationExtensions
         if (string.IsNullOrWhiteSpace(jwtSettings.Key) || jwtSettings.Key.Length < 32)
         {
             throw new InvalidOperationException(
-                "Jwt:Key must be at least 32 characters. Set it in appsettings or user secrets.");
+                "Jwt:Key must be at least 32 characters. Set Jwt__Key via environment variables or user secrets.");
+        }
+
+        if (environment is not null && !environment.IsDevelopment() && IsWeakJwtKey(jwtSettings.Key))
+        {
+            throw new InvalidOperationException(
+                "Jwt:Key looks like a development/placeholder value. Set Jwt__Key to a random secret " +
+                "(at least 32 characters, e.g. `openssl rand -base64 48`) in production.");
         }
 
         services
@@ -73,6 +81,19 @@ public static class AuthenticationExtensions
         services.AddScoped<IJwtTokenService, JwtTokenService>();
 
         return services;
+    }
+
+    /// <summary>Rejects known dev keys, placeholders and low-entropy keys outside Development.</summary>
+    internal static bool IsWeakJwtKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key) || key.Length < 32)
+            return true;
+
+        string[] markers = ["change-me", "change_me", "changeme", "change_in_production", "platform_dev", "example", "secret"];
+        if (markers.Any(m => key.Contains(m, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return key.Distinct().Count() < 10;
     }
 }
 

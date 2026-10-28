@@ -10,12 +10,10 @@ using Platform.Api.Services.Email;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.KnownNetworks.Clear();
-    options.KnownProxies.Clear();
-});
+// Forwarded headers are only honoured from explicitly configured proxies/networks.
+// IIS in-process hosting (MonsterASP) needs none; behind a reverse proxy set
+// ForwardedHeaders__Enabled=true plus ForwardedHeaders__KnownProxies__0 / KnownNetworks__0 (CIDR).
+var forwardedHeadersEnabled = ForwardedHeadersSetup.Configure(builder.Services, builder.Configuration);
 
 var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? Environment.GetEnvironmentVariable("DB_CONNECTION")
@@ -54,23 +52,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
             errorCodesToAdd: null)));
 
 builder.Services.Configure<AuthSettings>(builder.Configuration.GetSection(AuthSettings.SectionName));
-builder.Services.AddPlatformAuthentication(builder.Configuration);
+builder.Services.AddPlatformAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddPlatformEmail(builder.Configuration, builder.Environment);
 builder.Services.AddPlatformRedis(builder.Configuration, builder.Environment);
 builder.Services.Configure<LifecycleSettings>(
     builder.Configuration.GetSection(LifecycleSettings.SectionName));
 builder.Services.AddHostedService<LicenseExpiryReminderWorker>();
 builder.Services.AddHostedService<OverdueInvoiceLifecycleWorker>();
-
-if (!builder.Environment.IsDevelopment())
-{
-    if (CorsOrigins.Resolve(builder.Configuration).Length == 0)
-    {
-        throw new InvalidOperationException(
-            "Cors:Origins must be configured in production. " +
-            "Set Cors__Origins__0 (and additional indices) or a comma-separated CORS_ORIGINS environment variable.");
-    }
-}
 
 builder.Services.AddCors(options =>
 {
@@ -124,6 +112,11 @@ builder.Services.AddProblemDetails();
 builder.Services.AddPlatformControllers();
 builder.Services.AddPlatformRateLimiting(builder.Configuration);
 builder.Services.AddOpenApi();
+builder.Services.AddHsts(options =>
+{
+    options.MaxAge = TimeSpan.FromDays(180);
+    options.IncludeSubDomains = false;
+});
 
 var app = builder.Build();
 
@@ -135,9 +128,20 @@ using (var scope = app.Services.CreateScope())
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     var adminSeed = scope.ServiceProvider.GetRequiredService<IOptions<AdminSeedSettings>>();
 
-    await DatabaseStartup.MigrateWithRetryAsync(db, logger);
-    await SeedData.SeedAsync(db, logger, app.Environment.IsDevelopment());
-    await SeedData.SeedBillingAsync(db);
+    var migrateOnStartup = app.Configuration.GetValue<bool?>("Database:MigrateOnStartup")
+        ?? app.Environment.IsDevelopment();
+    if (migrateOnStartup)
+        await DatabaseStartup.MigrateWithRetryAsync(db, logger);
+    else
+        logger.LogInformation("Database:MigrateOnStartup is off; apply migrations with `dotnet ef database update` or the idempotent SQL script.");
+
+    // Demo catalogue, demo customer/invoice and hard-coded integration keys are Development-only.
+    if (app.Environment.IsDevelopment())
+    {
+        await SeedData.SeedAsync(db, logger, isDevelopment: true);
+        await SeedData.SeedBillingAsync(db);
+    }
+
     await IdentitySeedData.SeedAdminAsync(
         userManager,
         roleManager,
@@ -152,7 +156,15 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
-app.UseForwardedHeaders();
+if (forwardedHeadersEnabled)
+    app.UseForwardedHeaders();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    if (app.Configuration.GetValue("Https:Redirect", true))
+        app.UseHttpsRedirection();
+}
 
 // Hosted Blazor WASM client (same origin as the API). Unknown file types are not served.
 app.UseBlazorFrameworkFiles();
