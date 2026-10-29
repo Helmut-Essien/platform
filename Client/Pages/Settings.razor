@@ -55,10 +55,13 @@
 
             <div class="settings-form-grid">
                 <MudTextField @bind-Value="_companyName"
+                              @bind-Value:after="OnCompanyNameEdited"
                               Label="Company name"
                               Variant="Variant.Outlined"
                               Required="true"
                               RequiredError="Company name is required"
+                              Error="@(CompanyNameError is not null)"
+                              ErrorText="@CompanyNameError"
                               MaxLength="200"
                               Class="settings-field-full" />
 
@@ -321,11 +324,28 @@
         _hasCustomLogo = false;
     }
 
+    private bool _companyNameTouched;
+    private string? _companyNameServerError;
+
+    private string? CompanyNameError =>
+        _companyNameServerError
+        ?? (!_companyNameTouched ? null
+            : string.IsNullOrWhiteSpace(_companyName) ? "Company name is required."
+            : _companyName.Trim().Length > 200 ? "Company name must be 200 characters or less."
+            : null);
+
+    private void OnCompanyNameEdited()
+    {
+        _companyNameTouched = true;
+        _companyNameServerError = null;
+    }
+
     private async Task SaveAsync()
     {
-        if (string.IsNullOrWhiteSpace(_companyName))
+        _companyNameTouched = true;
+        if (CompanyNameError is not null)
         {
-            Snackbar.Add("Company name is required.", Severity.Warning);
+            Snackbar.Add("Fix the highlighted field before saving.", Severity.Warning);
             return;
         }
 
@@ -356,6 +376,9 @@
             var result = await Api.UpdateInvoiceBrandAsync(request);
             if (!result.IsSuccess || result.Data is null)
             {
+                // Show server validation on the field it belongs to, not only in a snackbar.
+                _companyNameServerError = FieldErrorHelper.GetFieldError(
+                    result.FieldErrors, nameof(UpdateInvoiceBrandRequest.CompanyName), "companyName", "request.CompanyName");
                 Snackbar.Add(result.ErrorMessage ?? "Failed to save letterhead.", Severity.Error);
                 return;
             }
