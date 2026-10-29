@@ -318,6 +318,31 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
     public async Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken ct = default) =>
         await GetJsonAsync<InvoiceDto>($"api/invoices/{id}", ct);
 
+    /// <summary>Loads one invoice and distinguishes "doesn't exist" (404) from a failed request.</summary>
+    public async Task<LookupResult<InvoiceDto>> LookupInvoiceAsync(string id, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await http.GetAsync($"api/invoices/{Uri.EscapeDataString(id)}", ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return LookupResult<InvoiceDto>.Missing();
+            if (!response.IsSuccessStatusCode)
+                return LookupResult<InvoiceDto>.Failed();
+
+            var invoice = await response.Content.ReadFromJsonAsync<InvoiceDto>(cancellationToken: ct);
+            return invoice is null ? LookupResult<InvoiceDto>.Failed() : LookupResult<InvoiceDto>.Found(invoice);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException
+                                       or NotSupportedException or OperationCanceledException)
+        {
+            return LookupResult<InvoiceDto>.Failed();
+        }
+    }
+
     public async Task<ApiResult<InvoiceDto>> CreateInvoiceAsync(
         CreateInvoiceRequest request,
         CancellationToken ct = default)

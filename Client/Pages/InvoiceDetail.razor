@@ -23,12 +23,20 @@ else if (_invoice is null)
     <header class="invoice-detail-header">
         <div>
             <a href="/invoices" class="invoice-detail-back">← Back to invoices</a>
-            <h1 class="page-title">Invoice not found</h1>
-            <p class="page-subtitle">This invoice may have been removed, the link may be invalid, or it couldn't be loaded.</p>
-            <button type="button" class="btn-primary-cta mt-3" @onclick="LoadAsync">
-                <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" />
-                Retry
-            </button>
+            @if (_notFound)
+            {
+                <h1 class="page-title">Invoice not found</h1>
+                <p class="page-subtitle">This invoice may have been removed or the link is invalid.</p>
+            }
+            else
+            {
+                <h1 class="page-title">Couldn't load invoice</h1>
+                <p class="page-subtitle">Something went wrong while loading this invoice. Check your connection and try again.</p>
+                <button type="button" class="btn-primary-cta mt-3" @onclick="LoadAsync">
+                    <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" />
+                    Retry
+                </button>
+            }
         </div>
     </header>
 }
@@ -245,6 +253,9 @@ else
     private bool _busy;
     private int _loadVersion;
 
+    private bool _notFound;
+    private bool _loadFailed;
+
     private async Task LoadAsync()
     {
         var requestedId = Id;
@@ -253,13 +264,27 @@ else
         if (_invoice?.Id != requestedId)
             _loading = true;
 
-        var invoice = await Api.GetInvoiceAsync(requestedId);
+        var lookup = await Api.LookupInvoiceAsync(requestedId);
         if (version != _loadVersion)
             return; // a newer navigation/refresh superseded this response
 
-        // A transient failure while refreshing must not turn an invoice we already have into "not found".
-        if (invoice is not null || _invoice?.Id != requestedId)
-            _invoice = invoice;
+        var refreshingCurrent = _invoice?.Id == requestedId;
+        if (lookup.IsFound)
+        {
+            _invoice = lookup.Value;
+            _notFound = _loadFailed = false;
+        }
+        else if (refreshingCurrent && lookup.IsError)
+        {
+            // A transient failure while refreshing keeps the invoice we already show.
+            Snackbar.Add("Couldn't refresh the invoice. The details shown may be out of date.", Severity.Warning);
+        }
+        else
+        {
+            _invoice = null;
+            _notFound = lookup.NotFound;
+            _loadFailed = lookup.IsError;
+        }
 
         _loading = false;
         _loaded = true;
