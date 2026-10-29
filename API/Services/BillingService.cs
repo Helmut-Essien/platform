@@ -329,7 +329,8 @@ public class BillingService(
             query = query.Where(i => i.IssueDate >= from);
         }
 
-        if (issuedTo is not null)
+        // DateTime.MaxValue.Date has no next day; an "until the end of time" bound filters nothing.
+        if (issuedTo is not null && issuedTo.Value.Date < DateTime.MaxValue.Date)
         {
             var toExclusive = DateTime.SpecifyKind(issuedTo.Value.Date.AddDays(1), DateTimeKind.Utc);
             query = query.Where(i => i.IssueDate < toExclusive);

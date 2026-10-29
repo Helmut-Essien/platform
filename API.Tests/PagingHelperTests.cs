@@ -25,6 +25,19 @@ public class PagingHelperTests
 
         Assert.Equal(PagingHelper.MaxPageSize, pageSize);
     }
+
+    [Theory]
+    [InlineData(int.MaxValue, 100)]
+    [InlineData(int.MaxValue, 25)]
+    [InlineData(int.MinValue, int.MinValue)]
+    public void Normalize_HugePageNeverOverflowsSkip(int page, int pageSize)
+    {
+        var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
+
+        Assert.InRange(normalizedPage, 1, PagingHelper.MaxPage);
+        Assert.InRange(normalizedPageSize, 1, PagingHelper.MaxPageSize);
+        Assert.True(skip >= 0);
+    }
 }
 
 public class SearchHelperTests

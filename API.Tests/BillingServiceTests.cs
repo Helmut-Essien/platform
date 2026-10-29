@@ -692,6 +692,22 @@ public class BillingServiceTests
     }
 
     [Fact]
+    public async Task ListInvoicesAsync_MaxDateRangeAndHugePageDoNotThrow()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        await CreateSentInvoiceAsync(service, customer.Id, 10m);
+
+        var all = await service.ListInvoicesAsync(issuedFrom: DateTime.MinValue, issuedTo: DateTime.MaxValue);
+        Assert.Equal(1, all.TotalCount);
+
+        var beyond = await service.ListInvoicesAsync(page: int.MaxValue, pageSize: 100);
+        Assert.Equal(1, beyond.TotalCount);
+        Assert.Empty(beyond.Items);
+    }
+
+    [Fact]
     public async Task VoidInvoiceAsync_RejectsInvoiceWithPostedPayment()
     {
         await using var db = CreateDbContext();
