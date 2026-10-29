@@ -124,7 +124,7 @@
                 }
                 else
                 {
-                    <MudTable Items="_invoices" Dense="true" Hover="true" Class="customer-drawer-table">
+                    <MudTable Items="_invoices.Take(DrawerRowLimit)" Dense="true" Hover="true" Class="customer-drawer-table">
                         <HeaderContent>
                             <MudTh>Invoice #</MudTh>
                             <MudTh>Status</MudTh>
@@ -136,6 +136,10 @@
                             <MudTd>@context.TotalAmount.ToString("N2")</MudTd>
                         </RowTemplate>
                     </MudTable>
+                    @if (_invoices.Count > DrawerRowLimit)
+                    {
+                        <a class="customer-drawer-view-all" href="@($"/invoices?customerId={Uri.EscapeDataString(Customer!.Id)}")">View all @_invoices.Count invoices →</a>
+                    }
                 }
             }
             else if (_activeTab == "audit")

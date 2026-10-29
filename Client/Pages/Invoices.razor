@@ -104,6 +104,15 @@
                 <button type="button" class="btn-filter-apply" @onclick="ReloadGrid">FILTER</button>
             </div>
         </div>
+        @if (!string.IsNullOrEmpty(_customerFilter))
+        {
+            <div class="invoices-active-filters" aria-label="Active filters">
+                <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small"
+                         OnClose="@(_ => ClearCustomerFilterAsync())" CloseIcon="@Icons.Material.Filled.Close">
+                    Customer: @CustomerFilterLabel
+                </MudChip>
+            </div>
+        }
     </section>
 
     <div class="invoices-table-panel">
@@ -216,6 +225,7 @@
     private DateRange? _dateRange;
 
     [SupplyParameterFromQuery] public string? Filter { get; set; }
+    [SupplyParameterFromQuery] public string? CustomerId { get; set; }
 
     // Aggregates come from the server (B1): they cover every invoice, not the first page.
     // Amounts in different currencies are never summed (E7); the primary currency is USD when present,
@@ -241,6 +251,8 @@
     {
         if (string.Equals(Filter, "unpaid", StringComparison.OrdinalIgnoreCase))
             _quickFilter = "unpaid";
+        if (!string.IsNullOrWhiteSpace(CustomerId))
+            _customerFilter = CustomerId.Trim();
 
         var customersTask = Api.GetAllCustomersAsync();
         var statsTask = Api.GetInvoiceStatsAsync();
@@ -301,10 +313,28 @@
         await ReloadGrid();
     }
 
+    private string CustomerFilterLabel =>
+        _customers.FirstOrDefault(c => c.Id == _customerFilter)?.Name ?? "Selected customer";
+
+    private async Task ClearCustomerFilterAsync()
+    {
+        _customerFilter = null;
+        DropCustomerIdFromUrl();
+        await ReloadGrid();
+    }
+
+    // Keep the URL in sync (replace: no extra history entry) so refresh doesn't bring the filter back.
+    private void DropCustomerIdFromUrl()
+    {
+        if (!string.IsNullOrEmpty(CustomerId))
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("customerId", (string?)null), replace: true);
+    }
+
     private async Task ResetFiltersAsync()
     {
         _statusFilter = null;
         _customerFilter = null;
+        DropCustomerIdFromUrl();
         _customerSearch = "";
         _quickFilter = "all";
         _dateRange = null;
