@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Platform.Api.Entities;
@@ -6,8 +7,11 @@ using Platform.Api.Identity;
 namespace Platform.Api.Data;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options)
-    : IdentityDbContext<ApplicationUser>(options)
+    : IdentityDbContext<ApplicationUser>(options), IDataProtectionKeyContext
 {
+    /// <summary>ASP.NET Core Data Protection key ring (survives IIS app-pool recycles/restarts).</summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
+
     public DbSet<Customer> Customers => Set<Customer>();
 
     public DbSet<ServiceProduct> ServiceProducts => Set<ServiceProduct>();

@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="9.0.16" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.16" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.16" />
@@ -45,9 +46,7 @@
        ANCM creates the file but not the directory. A placeholder keeps it in Web Deploy syncs. -->
   <Target Name="CreateStdoutLogsFolder" AfterTargets="Publish">
     <MakeDir Directories="$(PublishDir)logs" />
-    <WriteLinesToFile File="$(PublishDir)logs\README.txt"
-                      Lines="ASP.NET Core Module stdout logs (stdout_*.log) are written here."
-                      Overwrite="true" />
+    <WriteLinesToFile File="$(PublishDir)logs\README.txt" Lines="ASP.NET Core Module stdout logs (stdout_*.log) are written here." Overwrite="true" />
   </Target>
 
 </Project>

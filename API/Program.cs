@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +55,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
             maxRetryCount: 5,
             maxRetryDelay: TimeSpan.FromSeconds(10),
             errorCodesToAdd: null)));
+
+// Persist the Data Protection key ring in Postgres. On IIS the default key store is ephemeral
+// (no user profile), so restarts invalidated password-reset/confirmation tokens and other protected data.
+builder.Services.AddDataProtection()
+    .SetApplicationName("Platform.Api")
+    .PersistKeysToDbContext<AppDbContext>();
 
 builder.Services.Configure<AuthSettings>(builder.Configuration.GetSection(AuthSettings.SectionName));
 builder.Services.AddPlatformAuthentication(builder.Configuration, builder.Environment);
