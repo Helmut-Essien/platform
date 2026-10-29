@@ -22,26 +22,10 @@ builder.Services.AddMudServices(config =>
     config.SnackbarConfiguration.ShowTransitionDuration = 200;
 });
 
-builder.Services.AddScoped<TokenStorage>();
-builder.Services.AddScoped<JwtAuthorizationMessageHandler>();
-builder.Services.AddScoped<JwtAuthenticationStateProvider>();
-builder.Services.AddScoped<AuthenticationStateProvider>(sp =>
-    sp.GetRequiredService<JwtAuthenticationStateProvider>());
-
-builder.Services.AddScoped<ApiErrorHandler>();
-builder.Services.AddScoped<ApiFailureNotifier>();
-builder.Services.AddTransient<NetworkFailureHandler>();
-builder.Services.AddScoped<PlatformApiClient>();
-builder.Services.AddHttpClient<PlatformApiClient>(client =>
-{
-    var configBaseUrl = builder.Configuration["ApiBaseUrl"];
-    var baseUrl = !string.IsNullOrEmpty(configBaseUrl)
-        ? configBaseUrl.TrimEnd('/') + "/"
-        : builder.HostEnvironment.BaseAddress;
-    client.BaseAddress = new Uri(baseUrl);
-})
-.AddHttpMessageHandler<JwtAuthorizationMessageHandler>()
-.AddHttpMessageHandler<ApiErrorHandler>()
-.AddHttpMessageHandler<NetworkFailureHandler>();
+// Auth/session state is app-wide in WASM and must be shared with the HttpClient message handlers,
+// which IHttpClientFactory resolves from its own DI scope. As scoped services, ApiErrorHandler cleared
+// the token and notified a *different* JwtAuthenticationStateProvider than the UI uses (stale auth UI
+// after a 401), and failure snackbars never reached the shell. Singletons fix that (one user per tab).
+builder.Services.AddPlatformClientServices(builder.Configuration["ApiBaseUrl"], builder.HostEnvironment.BaseAddress);
 
 await builder.Build().RunAsync();
