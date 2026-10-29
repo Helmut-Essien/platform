@@ -720,3 +720,20 @@ body.nav-overlay .platform-sidebar-overlay.mud-drawer--open {
     opacity: 0.55;
     cursor: not-allowed;
 }
+
+/* Tables: never push the page wider than the viewport on small screens.
+   MudDataGrid already stacks rows into cards below 600px; plain tables scroll horizontally. */
+.mud-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 599px) {
+    .page-content table {
+        min-width: 100%;
+    }
+
+    .page-content .mud-table-cell {
+        word-break: break-word;
+    }
+}
