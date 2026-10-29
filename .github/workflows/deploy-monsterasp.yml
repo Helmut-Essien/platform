@@ -4,11 +4,6 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      run_migrations:
-        description: Apply docs/migrations-idempotent.sql to the production database before deploying
-        type: boolean
-        default: false
 
 concurrency:
   group: deploy-monsterasp
@@ -104,11 +99,11 @@ jobs:
           $xml.Save($path)
           Write-Host "web.config: ASPNETCORE_ENVIRONMENT + $count app settings injected (values hidden)."
 
-      - name: Apply database migrations (optional)
-        if: github.event_name == 'workflow_dispatch' && inputs.run_migrations
+      - name: Apply database migrations
         shell: pwsh
         env:
-          DB_CONN: ${{ secrets.ConnectionStrings__DefaultConnection }}
+          # Optional MIGRATIONS_CONNECTION lets the pipeline use a schema-owner login; falls back to the app connection.
+          DB_CONN: ${{ secrets.MIGRATIONS_CONNECTION || secrets.ConnectionStrings__DefaultConnection }}
         run: |
           $ErrorActionPreference = 'Stop'
           $conn = $env:DB_CONN.Trim()

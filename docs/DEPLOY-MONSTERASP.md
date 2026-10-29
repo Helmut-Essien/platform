@@ -97,7 +97,7 @@ Repository secrets (Settings → Secrets and variables → Actions):
 Because the workflow writes these into `web.config`, settings in the panel for the same names are overridden by
 each deploy. Secret values are never printed; msdeploy output is masked.
 
-**Migrations:** Actions → Deploy to MonsterASP → Run workflow → tick `run_migrations`. It runs
+**Migrations:** every deploy applies `docs/migrations-idempotent.sql` before publishing; a failure stops the deploy and the old version keeps running. Optional secret `MIGRATIONS_CONNECTION` overrides the connection used. It runs
 `docs/migrations-idempotent.sql` with `psql` using `ConnectionStrings__DefaultConnection` (key=value or `postgres://`
 form; values must not contain `;`). The MonsterASP Postgres must accept connections from GitHub runners.
 
