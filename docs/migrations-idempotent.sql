@@ -159,7 +159,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260519131319_InitialCreate') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260519131319_InitialCreate', '9.0.16');
+    VALUES ('20260519131319_InitialCreate', '9.0.22');
     END IF;
 END $EF$;
 
@@ -285,7 +285,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260521063711_AddInvoicesAndReceipts') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260521063711_AddInvoicesAndReceipts', '9.0.16');
+    VALUES ('20260521063711_AddInvoicesAndReceipts', '9.0.22');
     END IF;
 END $EF$;
 
@@ -449,7 +449,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260522080128_AddIdentity') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260522080128_AddIdentity', '9.0.16');
+    VALUES ('20260522080128_AddIdentity', '9.0.22');
     END IF;
 END $EF$;
 
@@ -485,7 +485,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260526090515_AddKeyLookupHashes') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260526090515_AddKeyLookupHashes', '9.0.16');
+    VALUES ('20260526090515_AddKeyLookupHashes', '9.0.22');
     END IF;
 END $EF$;
 
@@ -511,7 +511,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260716114636_AddInvoiceBrandProfile') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260716114636_AddInvoiceBrandProfile', '9.0.16');
+    VALUES ('20260716114636_AddInvoiceBrandProfile', '9.0.22');
     END IF;
 END $EF$;
 
@@ -533,7 +533,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260716120244_AddInvoiceBrandPaymentFields') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260716120244_AddInvoiceBrandPaymentFields', '9.0.16');
+    VALUES ('20260716120244_AddInvoiceBrandPaymentFields', '9.0.22');
     END IF;
 END $EF$;
 
@@ -586,7 +586,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260716151448_ReplaceInvoiceBrandPaymentFieldsWithOptions') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260716151448_ReplaceInvoiceBrandPaymentFieldsWithOptions', '9.0.16');
+    VALUES ('20260716151448_ReplaceInvoiceBrandPaymentFieldsWithOptions', '9.0.22');
     END IF;
 END $EF$;
 
@@ -674,7 +674,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260717095233_AddHybridWorkflowAndEmailOutbox') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260717095233_AddHybridWorkflowAndEmailOutbox', '9.0.16');
+    VALUES ('20260717095233_AddHybridWorkflowAndEmailOutbox', '9.0.22');
     END IF;
 END $EF$;
 
@@ -807,7 +807,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260717122307_AddPaymentTransactionsAndHardenManualPayments') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260717122307_AddPaymentTransactionsAndHardenManualPayments', '9.0.16');
+    VALUES ('20260717122307_AddPaymentTransactionsAndHardenManualPayments', '9.0.22');
     END IF;
 END $EF$;
 
@@ -915,7 +915,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260928122640_HardenLicenseBillingEdgeCases') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260928122640_HardenLicenseBillingEdgeCases', '9.0.16');
+    VALUES ('20260928122640_HardenLicenseBillingEdgeCases', '9.0.22');
     END IF;
 END $EF$;
 
@@ -965,7 +965,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261027123314_AddListAndScanIndexes') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20261027123314_AddListAndScanIndexes', '9.0.16');
+    VALUES ('20261027123314_AddListAndScanIndexes', '9.0.22');
     END IF;
 END $EF$;
 
@@ -985,7 +985,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261029110451_AddDataProtectionKeys') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20261029110451_AddDataProtectionKeys', '9.0.16');
+    VALUES ('20261029110451_AddDataProtectionKeys', '9.0.22');
     END IF;
 END $EF$;
 COMMIT;
