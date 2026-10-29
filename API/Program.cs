@@ -123,6 +123,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddPlatformControllers();
 builder.Services.AddPlatformRateLimiting(builder.Configuration);
 builder.Services.AddOpenApi();
+builder.Services.AddPlatformResponseCompression();
 builder.Services.AddHsts(options =>
 {
     options.MaxAge = TimeSpan.FromDays(180);
@@ -192,7 +193,8 @@ if (!app.Environment.IsDevelopment())
 
 // Hosted Blazor WASM client (same origin as the API). Unknown file types are not served.
 app.UseBlazorFrameworkFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(StaticFileCaching.Options());
+app.UsePlatformResponseCompression();
 
 app.UseCors("Client");
 
@@ -217,6 +219,6 @@ app.MapGet("/health/db", async (AppDbContext db, CancellationToken ct) =>
 
 // Unknown /api/* routes must stay 404s instead of returning the SPA shell.
 app.MapFallback("/api/{**slug}", () => Results.NotFound());
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html", StaticFileCaching.Options());
 
 app.Run();
