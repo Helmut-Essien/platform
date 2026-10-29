@@ -51,8 +51,12 @@
         </MudForm>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || !_formValid)">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+            }
             Record
         </MudButton>
     </DialogActions>
@@ -63,6 +67,10 @@
 
     [Parameter] public decimal AmountDue { get; set; }
 
+    /// <summary>Saves inside the dialog; returns an error message to show, or null on success (dialog then closes).</summary>
+    [Parameter] public Func<RecordReceiptRequest, Task<string?>>? Submit { get; set; }
+
+    private bool _busy;
     private MudForm? _form;
     private bool _formValid;
     private string? _error;
@@ -82,10 +90,17 @@
 
     private static bool RequiresReference(PaymentMethod method) => method != PaymentMethod.Cash;
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel()
+    {
+        if (!_busy)
+            MudDialog.Cancel();
+    }
 
     private async Task SaveAsync()
     {
+        if (_busy)
+            return;
+
         if (_form is null)
             return;
 
@@ -108,6 +123,38 @@
 
         _model.IdempotencyKey = _idempotencyKey;
         _model.PaidAt ??= DateTime.UtcNow;
-        MudDialog.Close(DialogResult.Ok(_model));
+        await SubmitAndCloseAsync(_model);
+    }
+
+    private async Task SubmitAndCloseAsync(RecordReceiptRequest value)
+    {
+        if (Submit is null)
+        {
+            MudDialog.Close(DialogResult.Ok(value));
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            var error = await Submit(value);
+            if (error is not null)
+            {
+                _error = error;
+                return;
+            }
+
+            MudDialog.Close(DialogResult.Ok(value));
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 }

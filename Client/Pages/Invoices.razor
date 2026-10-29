@@ -306,20 +306,30 @@
 
     private async Task CreateInvoiceAsync()
     {
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<InvoiceDto>? apiResult = null;
+        Task<ApiResult<InvoiceDto>>? pending = null;
+        Func<CreateInvoiceRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.CreateInvoiceAsync(request);
+            apiResult = await pending;
+            return apiResult.IsSuccess ? null : apiResult.ErrorMessage ?? "Failed to create invoice.";
+        };
         var dialog = await DialogService.ShowAsync<CreateInvoiceDialog>("New Invoice", new DialogParameters
         {
-            [nameof(CreateInvoiceDialog.Customers)] = _customers
+            [nameof(CreateInvoiceDialog.Customers)] = _customers,
+            [nameof(CreateInvoiceDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not CreateInvoiceRequest request)
-            return;
-
-        var apiResult = await Api.CreateInvoiceAsync(request);
-        if (!apiResult.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && apiResult is null)
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to create invoice.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { apiResult = await pending; } catch { return; }
+            if (!apiResult.IsSuccess)
+                Snackbar.Add(apiResult.ErrorMessage ?? "Failed to create invoice.", Severity.Error);
         }
+        if (apiResult is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Invoice created.", Severity.Success);
         await RefreshStatsAsync();

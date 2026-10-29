@@ -257,20 +257,30 @@
         if (Customer is null)
             return;
 
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<CustomerDto>? update = null;
+        Task<ApiResult<CustomerDto>>? pending = null;
+        Func<UpdateCustomerRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.UpdateCustomerAsync(Customer.Id, request);
+            update = await pending;
+            return update.IsSuccess ? null : update.ErrorMessage ?? "Update failed.";
+        };
         var dialog = await DialogService.ShowAsync<CustomerEditDialog>("Edit Customer", new DialogParameters
         {
-            [nameof(CustomerEditDialog.Customer)] = Customer
+            [nameof(CustomerEditDialog.Customer)] = Customer,
+            [nameof(CustomerEditDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not UpdateCustomerRequest request)
-            return;
-
-        var update = await Api.UpdateCustomerAsync(Customer.Id, request);
-        if (!update.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && update is null)
         {
-            Snackbar.Add(update.ErrorMessage ?? "Update failed.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { update = await pending; } catch { return; }
+            if (!update.IsSuccess)
+                Snackbar.Add(update.ErrorMessage ?? "Update failed.", Severity.Error);
         }
+        if (update is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Customer updated.", Severity.Success);
         await OnCustomerUpdated.InvokeAsync();

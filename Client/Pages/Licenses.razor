@@ -302,22 +302,32 @@
 
     private async Task OpenIssueDialogAsync()
     {
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<LicenseDto>? result = null;
+        Task<ApiResult<LicenseDto>>? pending = null;
+        Func<CreateLicenseRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.CreateLicenseAsync(request);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to issue license.";
+        };
         var dialog = await DialogService.ShowAsync<LicenseIssueDialog>("Issue License", new DialogParameters
         {
             [nameof(LicenseIssueDialog.Customers)] = _customers,
             [nameof(LicenseIssueDialog.Products)] = _products,
-            [nameof(LicenseIssueDialog.DefaultCustomerId)] = _filterCustomerId ?? CustomerId
+            [nameof(LicenseIssueDialog.DefaultCustomerId)] = _filterCustomerId ?? CustomerId,
+            [nameof(LicenseIssueDialog.Submit)] = submit
         });
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not CreateLicenseRequest request)
-            return;
-
-        var result = await Api.CreateLicenseAsync(request);
-        if (!result.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && result is null)
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to issue license.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { result = await pending; } catch { return; }
+            if (!result.IsSuccess)
+                Snackbar.Add(result.ErrorMessage ?? "Failed to issue license.", Severity.Error);
         }
+        if (result is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("License issued (Pending).", Severity.Success);
         await ReloadGrid();
@@ -354,20 +364,30 @@
 
     private async Task EditAsync(LicenseDto license)
     {
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<LicenseDto>? apiResult = null;
+        Task<ApiResult<LicenseDto>>? pending = null;
+        Func<UpdateLicenseRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.UpdateLicenseAsync(license.Id, request);
+            apiResult = await pending;
+            return apiResult.IsSuccess ? null : apiResult.ErrorMessage ?? "Update failed.";
+        };
         var dialog = await DialogService.ShowAsync<LicenseEditDialog>("Edit License", new DialogParameters
         {
-            [nameof(LicenseEditDialog.License)] = license
+            [nameof(LicenseEditDialog.License)] = license,
+            [nameof(LicenseEditDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not UpdateLicenseRequest request)
-            return;
-
-        var apiResult = await Api.UpdateLicenseAsync(license.Id, request);
-        if (!apiResult.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && apiResult is null)
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Update failed.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { apiResult = await pending; } catch { return; }
+            if (!apiResult.IsSuccess)
+                Snackbar.Add(apiResult.ErrorMessage ?? "Update failed.", Severity.Error);
         }
+        if (apiResult is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("License updated.", Severity.Success);
         await ReloadGrid();

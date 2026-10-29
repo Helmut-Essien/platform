@@ -182,17 +182,29 @@
 
     private async Task OpenCreateDialogAsync()
     {
-        var dialog = await DialogService.ShowAsync<ServiceProductCreateDialog>("Add Service");
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not CreateServiceProductRequest request)
-            return;
-
-        var result = await Api.CreateServiceProductAsync(request);
-        if (!result.IsSuccess)
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<ServiceProductDto>? result = null;
+        Task<ApiResult<ServiceProductDto>>? pending = null;
+        Func<CreateServiceProductRequest, Task<string?>> submit = async request =>
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to create service.", Severity.Error);
-            return;
+            pending = Api.CreateServiceProductAsync(request);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to create service.";
+        };
+        var dialog = await DialogService.ShowAsync<ServiceProductCreateDialog>("Add Service", new DialogParameters
+        {
+            [nameof(ServiceProductCreateDialog.Submit)] = submit
+        });
+        await dialog.Result;
+        if (pending is not null && result is null)
+        {
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { result = await pending; } catch { return; }
+            if (!result.IsSuccess)
+                Snackbar.Add(result.ErrorMessage ?? "Failed to create service.", Severity.Error);
         }
+        if (result is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Service created.", Severity.Success);
         _createdServiceName = result.Data!.Name;
@@ -240,20 +252,30 @@
 
     private async Task EditAsync(ServiceProductDto product)
     {
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<ServiceProductDto>? result = null;
+        Task<ApiResult<ServiceProductDto>>? pending = null;
+        Func<UpdateServiceProductRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.UpdateServiceProductAsync(product.Id, request);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to update service.";
+        };
         var dialog = await DialogService.ShowAsync<ServiceProductEditDialog>("Edit Service", new DialogParameters
         {
-            [nameof(ServiceProductEditDialog.Product)] = product
+            [nameof(ServiceProductEditDialog.Product)] = product,
+            [nameof(ServiceProductEditDialog.Submit)] = submit
         });
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not UpdateServiceProductRequest request)
-            return;
-
-        var result = await Api.UpdateServiceProductAsync(product.Id, request);
-        if (!result.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && result is null)
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to update service.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { result = await pending; } catch { return; }
+            if (!result.IsSuccess)
+                Snackbar.Add(result.ErrorMessage ?? "Failed to update service.", Severity.Error);
         }
+        if (result is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Service updated.", Severity.Success);
         await ReloadAsync();

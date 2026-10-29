@@ -199,17 +199,29 @@
 
     private async Task OpenCreateDialogAsync()
     {
-        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("New Customer");
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not CreateCustomerRequest request)
-            return;
-
-        var result = await Api.CreateCustomerAsync(request);
-        if (!result.IsSuccess)
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<CustomerDto>? result = null;
+        Task<ApiResult<CustomerDto>>? pending = null;
+        Func<CreateCustomerRequest, Task<string?>> submit = async request =>
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to create customer.", Severity.Error);
-            return;
+            pending = Api.CreateCustomerAsync(request);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to create customer.";
+        };
+        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("New Customer", new DialogParameters
+        {
+            [nameof(CustomerCreateDialog.Submit)] = submit
+        });
+        await dialog.Result;
+        if (pending is not null && result is null)
+        {
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { result = await pending; } catch { return; }
+            if (!result.IsSuccess)
+                Snackbar.Add(result.ErrorMessage ?? "Failed to create customer.", Severity.Error);
         }
+        if (result is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Customer created.", Severity.Success);
         await ReloadGrid();
@@ -217,20 +229,30 @@
 
     private async Task EditAsync(CustomerDto customer)
     {
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<CustomerDto>? result = null;
+        Task<ApiResult<CustomerDto>>? pending = null;
+        Func<UpdateCustomerRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.UpdateCustomerAsync(customer.Id, request);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to update customer.";
+        };
         var dialog = await DialogService.ShowAsync<CustomerEditDialog>("Edit Customer", new DialogParameters
         {
-            [nameof(CustomerEditDialog.Customer)] = customer
+            [nameof(CustomerEditDialog.Customer)] = customer,
+            [nameof(CustomerEditDialog.Submit)] = submit
         });
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not UpdateCustomerRequest request)
-            return;
-
-        var result = await Api.UpdateCustomerAsync(customer.Id, request);
-        if (!result.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && result is null)
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to update customer.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { result = await pending; } catch { return; }
+            if (!result.IsSuccess)
+                Snackbar.Add(result.ErrorMessage ?? "Failed to update customer.", Severity.Error);
         }
+        if (result is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Customer updated.", Severity.Success);
         await ReloadGrid();

@@ -277,20 +277,31 @@ else
         if (_invoice is null)
             return;
 
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        var invoiceId = _invoice.Id;
+        ApiResult<ReceiptDto>? apiResult = null;
+        Task<ApiResult<ReceiptDto>>? pending = null;
+        Func<RecordReceiptRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.RecordReceiptAsync(invoiceId, request);
+            apiResult = await pending;
+            return apiResult.IsSuccess ? null : apiResult.ErrorMessage ?? "Failed to record payment.";
+        };
         var dialog = await DialogService.ShowAsync<RecordReceiptDialog>("Record Payment", new DialogParameters
         {
-            [nameof(RecordReceiptDialog.AmountDue)] = _invoice.AmountDue
+            [nameof(RecordReceiptDialog.AmountDue)] = _invoice.AmountDue,
+            [nameof(RecordReceiptDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not RecordReceiptRequest request)
-            return;
-
-        var apiResult = await Api.RecordReceiptAsync(_invoice.Id, request);
-        if (!apiResult.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && apiResult is null)
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to record payment.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { apiResult = await pending; } catch { return; }
+            if (!apiResult.IsSuccess)
+                Snackbar.Add(apiResult.ErrorMessage ?? "Failed to record payment.", Severity.Error);
         }
+        if (apiResult is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Payment recorded.", Severity.Success);
         await LoadAsync();
@@ -301,21 +312,32 @@ else
         if (_invoice is null)
             return;
 
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        var invoiceId = _invoice.Id;
+        ApiResult<ReceiptDto>? apiResult = null;
+        Task<ApiResult<ReceiptDto>>? pending = null;
+        Func<ReverseReceiptRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.ReverseReceiptAsync(invoiceId, receipt.Id, request);
+            apiResult = await pending;
+            return apiResult.IsSuccess ? null : apiResult.ErrorMessage ?? "Failed to reverse payment.";
+        };
         var dialog = await DialogService.ShowAsync<ReverseReceiptDialog>("Reverse Payment", new DialogParameters
         {
             [nameof(ReverseReceiptDialog.ReceiptNumber)] = receipt.ReceiptNumber,
-            [nameof(ReverseReceiptDialog.Amount)] = receipt.AmountPaid
+            [nameof(ReverseReceiptDialog.Amount)] = receipt.AmountPaid,
+            [nameof(ReverseReceiptDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not ReverseReceiptRequest request)
-            return;
-
-        var apiResult = await Api.ReverseReceiptAsync(_invoice.Id, receipt.Id, request);
-        if (!apiResult.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && apiResult is null)
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to reverse payment.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { apiResult = await pending; } catch { return; }
+            if (!apiResult.IsSuccess)
+                Snackbar.Add(apiResult.ErrorMessage ?? "Failed to reverse payment.", Severity.Error);
         }
+        if (apiResult is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Payment reversed.", Severity.Success);
         await LoadAsync();
