@@ -37,6 +37,20 @@ jobs:
       - name: Test
         run: dotnet test Platform.slnx -c Release --no-build --verbosity normal
 
+      # Generate the idempotent migration script from the code so CI never applies a stale script,
+      # and fail if the committed docs/ copy is out of date (regenerate it locally and commit).
+      - name: Generate migration script
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet tool install --global dotnet-ef --version 9.0.* | Out-Host
+          dotnet ef migrations script --idempotent -p API -s API --configuration Release --no-build -o artifacts/migrations.sql
+          if ($LASTEXITCODE -ne 0) { throw "dotnet ef failed ($LASTEXITCODE)" }
+          $norm = { param($p) ((Get-Content -Raw $p) -replace "`r`n", "`n").Trim() }
+          if ((& $norm 'artifacts/migrations.sql') -ne (& $norm 'docs/migrations-idempotent.sql')) {
+            throw 'docs/migrations-idempotent.sql is stale. Run: dotnet ef migrations script --idempotent -p API -s API -o docs/migrations-idempotent.sql'
+          }
+
       - name: Publish
         run: dotnet publish API/API.csproj -c Release -o publish --no-restore
 
@@ -82,6 +96,16 @@ jobs:
           $aspNetCore.SetAttribute('stdoutLogEnabled', 'true')
           $aspNetCore.SetAttribute('stdoutLogFile', '.\logs\stdout')
           New-Item -ItemType Directory -Force -Path (Join-Path $PWD 'publish/logs') | Out-Null
+
+          # Defense in depth: never serve the logs folder over HTTP (requests go to ASP.NET Core,
+          # which only serves wwwroot, but block it at IIS too).
+          $ws = $xml.SelectSingleNode('//system.webServer')
+          $sec = $ws.SelectSingleNode('security'); if (-not $sec) { $sec = $xml.CreateElement('security'); [void]$ws.AppendChild($sec) }
+          $rf = $sec.SelectSingleNode('requestFiltering'); if (-not $rf) { $rf = $xml.CreateElement('requestFiltering'); [void]$sec.AppendChild($rf) }
+          $hs = $rf.SelectSingleNode('hiddenSegments'); if (-not $hs) { $hs = $xml.CreateElement('hiddenSegments'); [void]$rf.AppendChild($hs) }
+          if (-not $hs.SelectSingleNode("add[@segment='logs']")) {
+            $add = $xml.CreateElement('add'); $add.SetAttribute('segment', 'logs'); [void]$hs.AppendChild($add)
+          }
 
           $vars = $aspNetCore.SelectSingleNode('environmentVariables')
           if (-not $vars) { $vars = $xml.CreateElement('environmentVariables'); [void]$aspNetCore.AppendChild($vars) }
@@ -141,8 +165,15 @@ jobs:
           $env:PGSSLMODE = if ($ssl) { $ssl.ToLowerInvariant() -replace 'verifyfull', 'verify-full' -replace 'verifyca', 'verify-ca' } else { 'prefer' }
           if (-not $env:PGHOST -or -not $env:PGDATABASE -or -not $env:PGUSER) { throw 'Could not parse host/database/username from the connection string.' }
 
-          $psql = if ($env:PGBIN) { Join-Path $env:PGBIN 'psql.exe' } else { 'psql' }
-          & $psql -v ON_ERROR_STOP=1 -q -f docs/migrations-idempotent.sql
+          $candidates = @()
+          if ($env:PGBIN) { $candidates += (Join-Path $env:PGBIN 'psql.exe') }
+          $cmd = Get-Command psql -ErrorAction SilentlyContinue
+          if ($cmd) { $candidates += $cmd.Source }
+          $candidates += Get-ChildItem 'C:\Program Files\PostgreSQL\*\bin\psql.exe' -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | ForEach-Object FullName
+          $psql = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $psql) { throw 'psql.exe not found on the runner (checked PGBIN, PATH, C:\Program Files\PostgreSQL).' }
+          & $psql -v ON_ERROR_STOP=1 -q -f artifacts/migrations.sql
           if ($LASTEXITCODE -ne 0) { throw "psql failed with exit code $LASTEXITCODE" }
           Write-Host 'Migrations applied.'
 
@@ -172,6 +203,10 @@ jobs:
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $msdeploy) { throw 'msdeploy.exe not found on runner' }
 
+          # msdeploy's provider settings are comma-separated; a comma in a value would be split.
+          foreach ($pair in @(@('MONSTER_SITE', $site), @('MONSTER_USER', $env:MONSTER_USER), @('MONSTER_PASSWORD', $env:MONSTER_PASSWORD))) {
+            if ($pair[1].Contains(',')) { throw "$($pair[0]) contains a comma, which msdeploy cannot parse. Change that value in the MonsterASP panel." }
+          }
           $source = (Resolve-Path publish).Path
           $msArgs = @(
             '-verb:sync',
@@ -195,7 +230,7 @@ jobs:
           foreach ($attempt in 1..10) {
             foreach ($scheme in 'https', 'http') {
               $url = "${scheme}://$env:SITE_HOST/health"
-              $body = curl.exe -fsS --max-time 30 $url 2>&1
+              $body = curl.exe -fsSL --max-time 30 $url 2>&1
               if ($LASTEXITCODE -eq 0) { Write-Host "OK $url -> $body"; exit 0 }
               Write-Host "Attempt $attempt ${url}: $body"
             }

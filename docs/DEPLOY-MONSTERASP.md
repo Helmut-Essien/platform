@@ -125,3 +125,13 @@ integration keys are seeded only in Development. Create service products and int
 - Run a single instance (in-memory cache, background workers and Postgres advisory locks assume it).
 - Back up the beta Postgres regularly.
 - Logs: set `stdoutLogEnabled="true"` in the deployed `web.config` temporarily if startup fails.
+
+## Review notes (Oct 2026)
+
+- **Migration script is generated in CI.** The workflow runs `dotnet ef migrations script --idempotent` and applies that output. It fails the build if `docs/migrations-idempotent.sql` is stale; regenerate it with `dotnet ef migrations script --idempotent -p API -s API -o docs/migrations-idempotent.sql` and commit.
+- **psql lookup:** `PGBIN`, then `PATH`, then `C:\Program Files\PostgreSQL\*\bin`. The job fails with a clear message if none is found.
+- **Data Protection keys** are stored in the `DataProtectionKeys` table (migration `AddDataProtectionKeys`), so restarts/app-pool recycles do not invalidate protected tokens (e.g. password-reset links).
+- **HTTPS redirect:** `Https:Redirect` defaults to true outside Development. If the site loops between http/https behind MonsterASP's proxy, set `Https__Redirect=false` (and/or `ForwardedHeaders__Enabled=true`).
+- **Auth__ClientBaseUrl** must be the public site URL; the API logs a warning at startup if it is empty or points at localhost.
+- **Secrets with commas:** msdeploy cannot parse commas in `MONSTER_SITE`/`MONSTER_USER`/`MONSTER_PASSWORD`; the job fails fast if one does.
+- The `logs` folder is hidden from HTTP via IIS `requestFiltering/hiddenSegments`.
