@@ -175,8 +175,8 @@ jobs:
           $source = (Resolve-Path publish).Path
           $msArgs = @(
             '-verb:sync',
-            "-source:contentPath=`"$source`"",
-            "-dest:contentPath=`"$site`",computerName=`"$endpoint`",userName=`"$($env:MONSTER_USER)`",password=`"$($env:MONSTER_PASSWORD)`",authType=Basic",
+            "-source:contentPath=$source",
+            "-dest:contentPath=$site,computerName=$endpoint,userName=$($env:MONSTER_USER),password=$($env:MONSTER_PASSWORD),authType=Basic",
             '-allowUntrusted',
             '-enableRule:AppOffline',
             '-retryAttempts:3',
