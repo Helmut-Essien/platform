@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Platform.Api.Configuration;
 using Xunit;
 
@@ -25,5 +26,28 @@ public class RedisConnectionStringNormalizerTests
         var endpoint = Assert.Single(options.EndPoints).ToString();
         Assert.Contains("red-d9bp5n3tqb8s73d550a0:6379", endpoint);
         Assert.DoesNotContain(":6379:6379", endpoint);
+    }
+
+    [Fact]
+    public void TryResolve_ReturnsNullWhenUnconfigured()
+    {
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("REDIS_URL")))
+            return; // machine-level REDIS_URL would legitimately win
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Redis:ConnectionString"] = "  " })
+            .Build();
+
+        Assert.Null(RedisConnectionStringNormalizer.TryResolve(config));
+    }
+
+    [Fact]
+    public void TryResolve_UsesConfiguredValue()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Redis:ConnectionString"] = "cache:6379" })
+            .Build();
+
+        Assert.Equal("cache:6379,abortConnect=false", RedisConnectionStringNormalizer.TryResolve(config));
     }
 }

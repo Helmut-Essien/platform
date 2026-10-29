@@ -58,9 +58,9 @@ public class LicenseKeyDeliveryService(
     internal static string GenerateLicenseKey(string serviceCode)
     {
         var code = serviceCode.Trim().ToUpperInvariant();
-        var segment1 = RandomSegment(4);
-        var segment2 = RandomSegment(4);
-        return $"{code}-{segment1}-{segment2}";
+        // 4 x 4 chars from a 32-symbol alphabet = 80 bits of entropy (was 2 x 4 = 40 bits).
+        // Validation is by hash lookup, so previously issued shorter keys keep working.
+        return $"{code}-{RandomSegment(4)}-{RandomSegment(4)}-{RandomSegment(4)}-{RandomSegment(4)}";
     }
 
     private static string RandomSegment(int length)

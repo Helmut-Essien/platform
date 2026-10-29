@@ -9,15 +9,25 @@ namespace Platform.Api.Configuration;
 /// </summary>
 public static class RedisConnectionStringNormalizer
 {
-    public static string Resolve(IConfiguration configuration)
-    {
-        var raw = configuration["Redis:ConnectionString"]
-            ?? configuration["REDIS_URL"]
-            ?? Environment.GetEnvironmentVariable("REDIS_URL")
-            ?? "localhost:6379";
+    public static string Resolve(IConfiguration configuration) =>
+        TryResolve(configuration) ?? Normalize("localhost:6379");
 
-        return Normalize(raw);
+    /// <summary>
+    /// Returns the normalized Redis connection string, or null when none is configured
+    /// (callers then fall back to in-process caching).
+    /// </summary>
+    public static string? TryResolve(IConfiguration configuration)
+    {
+        var raw = FirstNonBlank(
+            configuration["Redis:ConnectionString"],
+            configuration["REDIS_URL"],
+            Environment.GetEnvironmentVariable("REDIS_URL"));
+
+        return raw is null ? null : Normalize(raw);
     }
+
+    private static string? FirstNonBlank(params string?[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
     public static string Normalize(string? raw)
     {

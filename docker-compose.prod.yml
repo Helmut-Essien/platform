@@ -29,6 +29,12 @@ services:
       # Email__FromAddress, provider credentials, and CORS_ORIGINS / Cors__Origins__0
       # when the UI is not same-origin with the API.
       Email__Provider: Logging
+      # Comma-separated extra SPA origins; leave empty when the UI is served by this API (same origin).
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Compose has no separate migration step, so apply migrations at startup here.
+      Database__MigrateOnStartup: "true"
+      # Plain HTTP on port 80 in this stack; terminate TLS in front and set to "true" if desired.
+      Https__Redirect: "false"
       Email__Outbox__EncryptionKey: ${EMAIL_OUTBOX_ENCRYPTION_KEY}
       # Cors__Origins__0: https://admin.example.com
       # Auth__ClientBaseUrl: https://admin.example.com
