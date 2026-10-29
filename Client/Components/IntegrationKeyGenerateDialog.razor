@@ -7,9 +7,6 @@
         {
             <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
         }
-        <MudAlert Severity="Severity.Warning" Class="mb-4" Dense="true">
-            Creating a new key will revoke the previous active key for this service. Any app using the old key will fail validation.
-        </MudAlert>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudSelect T="string" @bind-Value="_model.ServiceProductId"
                        For="@(() => _model.ServiceProductId)"
@@ -21,15 +18,25 @@
                 }
             </MudSelect>
         </MudForm>
+        @if (WillRotate)
+        {
+            @* Rotation confirmation lives inside the dialog so the save can happen in place. *@
+            <MudAlert Severity="Severity.Warning" Class="mt-4" Dense="true">
+                This service already has an active key. Generating a new one revokes it immediately, and any app using the old key will fail validation.
+            </MudAlert>
+            <MudCheckBox T="bool" @bind-Value="_rotateConfirmed" Disabled="_busy" Color="Color.Error"
+                         Label="I understand the existing key will be revoked" />
+        }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateAsync" Disabled="@(_busy || !_formValid)">
+        <MudButton Variant="Variant.Filled" OnClick="GenerateAsync" Disabled="@(_busy || !_formValid || (WillRotate && !_rotateConfirmed))"
+                   Color="@(WillRotate ? Color.Error : Color.Primary)">
             @if (_busy)
             {
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
             }
-            Generate
+            @(WillRotate ? "Revoke old key & generate" : "Generate")
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -39,6 +46,12 @@
 
     [Parameter] public List<ServiceProductDto> Products { get; set; } = [];
     [Parameter] public string? DefaultProductId { get; set; }
+
+    /// <summary>Services that already have an active key (generating one rotates it).</summary>
+    [Parameter] public IReadOnlyCollection<string> ActiveKeyProductIds { get; set; } = [];
+
+    private bool _rotateConfirmed;
+    private bool WillRotate => ActiveKeyProductIds.Contains(_model.ServiceProductId);
 
     /// <summary>Saves inside the dialog; returns an error message to show, or null on success (dialog then closes).</summary>
     [Parameter] public Func<string, Task<string?>>? Submit { get; set; }
@@ -72,7 +85,7 @@
             return;
 
         await _form.Validate();
-        if (!_formValid)
+        if (!_formValid || (WillRotate && !_rotateConfirmed))
             return;
 
         await SubmitAndCloseAsync(_model.ServiceProductId);
