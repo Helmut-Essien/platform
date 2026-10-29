@@ -3,6 +3,8 @@
 @code {
     protected override void OnInitialized()
     {
-        Navigation.NavigateTo("/login");
+        // Keep where the user was going so Login can send them back (sanitized there and here).
+        var relative = Navigation.ToBaseRelativePath(Navigation.Uri);
+        Navigation.NavigateTo(Platform.Client.Helpers.ReturnUrl.LoginUrlFor(relative), replace: true);
     }
 }
