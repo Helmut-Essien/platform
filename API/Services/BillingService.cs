@@ -289,6 +289,8 @@ public class BillingService(
         string? search = null,
         DateTime? issuedFrom = null,
         DateTime? issuedTo = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -334,7 +336,9 @@ public class BillingService(
         }
 
         // Id tiebreaker keeps paging stable when many invoices share an IssueDate.
-        var ordered = query.OrderByDescending(i => i.IssueDate).ThenByDescending(i => i.Id);
+        var ordered = SortHelper.Apply(query, SortHelper.InvoiceSorts, sortBy, sortDesc,
+                q => q.OrderByDescending(i => i.IssueDate))
+            .ThenByDescending(i => i.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 

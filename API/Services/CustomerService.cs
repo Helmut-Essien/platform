@@ -22,6 +22,8 @@ public class CustomerService(
         string? search = null,
         bool? isSuspended = null,
         DateTime? createdAfter = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -43,7 +45,10 @@ public class CustomerService(
         if (createdAfter is not null)
             query = query.Where(c => c.CreatedAt >= createdAfter.Value);
 
-        var ordered = query.OrderByDescending(c => c.CreatedAt);
+        // Whitelisted sort (unknown keys fall back to newest first); Id tiebreaker keeps paging stable.
+        var ordered = SortHelper.Apply(query, SortHelper.CustomerSorts, sortBy, sortDesc,
+                q => q.OrderByDescending(c => c.CreatedAt))
+            .ThenByDescending(c => c.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 

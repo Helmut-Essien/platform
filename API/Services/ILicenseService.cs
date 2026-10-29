@@ -17,6 +17,8 @@ public interface ILicenseService
         string? serviceProductId = null,
         LicenseStatus? status = null,
         string? search = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken cancellationToken = default);
 
     Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default);

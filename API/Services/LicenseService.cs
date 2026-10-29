@@ -109,6 +109,8 @@ public class LicenseService(
         string? serviceProductId = null,
         LicenseStatus? status = null,
         string? search = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -149,7 +151,9 @@ public class LicenseService(
         }
 
         // Id tiebreaker keeps paging stable for licenses created in the same instant.
-        var ordered = query.OrderByDescending(l => l.CreatedAt).ThenByDescending(l => l.Id);
+        var ordered = SortHelper.Apply(query, SortHelper.LicenseSorts, sortBy, sortDesc,
+                q => q.OrderByDescending(l => l.CreatedAt))
+            .ThenByDescending(l => l.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 

@@ -11,6 +11,8 @@ public interface ICustomerService
         string? search = null,
         bool? isSuspended = null,
         DateTime? createdAfter = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken cancellationToken = default);
 
     Task<CustomerDto?> GetAsync(string id, CancellationToken cancellationToken = default);
