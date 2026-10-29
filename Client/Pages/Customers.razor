@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+<PageTitle>Customers · HelmutCode Admin</PageTitle>
 
 <div class="customers-page page-content">
     <header class="customers-header">
@@ -95,7 +96,7 @@
                                 var customer = context.Item;
                             }
                             <div class="d-flex justify-end" @onclick:stopPropagation="true">
-                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More actions" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
                                     <MudMenuItem OnClick="@(() => ViewCustomer(customer))">View profile</MudMenuItem>
                                     <MudMenuItem OnClick="@(() => EditAsync(customer))">Edit</MudMenuItem>
                                     <MudMenuItem Href="@($"/licenses?customerId={customer.Id}")">View licenses</MudMenuItem>
@@ -113,14 +114,28 @@
                     </TemplateColumn>
                 </Columns>
                 <NoRecordsContent>
-                    <div class="customers-empty">
-                        <h2>No customers yet</h2>
-                        <p>Add your first customer to start issuing licenses.</p>
-                        <button type="button" class="btn-primary-cta" @onclick="OpenCreateDialogAsync">
-                            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
-                            New Customer
-                        </button>
-                    </div>
+                    @if (HasFilters)
+                    {
+                        <div class="customers-empty">
+                            <h2>No matching customers</h2>
+                            <p>No customers match the current search or filters.</p>
+                            <button type="button" class="btn-primary-cta" @onclick="ClearFiltersAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.FilterAltOff" Size="Size.Small" />
+                                Clear filters
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="customers-empty">
+                            <h2>No customers yet</h2>
+                            <p>Add your first customer to start issuing licenses.</p>
+                            <button type="button" class="btn-primary-cta" @onclick="OpenCreateDialogAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                                New Customer
+                            </button>
+                        </div>
+                    }
                 </NoRecordsContent>
                 <PagerContent>
                     <MudDataGridPager T="CustomerDto" />
@@ -146,7 +161,11 @@
     protected override async Task OnInitializedAsync()
     {
         if (!string.IsNullOrEmpty(Add))
+        {
+            // Drop ?add=true (replace, no history entry) so refresh/back doesn't reopen the dialog.
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("add", (string?)null), replace: true);
             await OpenCreateDialogAsync();
+        }
     }
 
     // Grid column title/property → whitelisted API sort key (unlisted columns are not sortable).
@@ -184,6 +203,17 @@
     {
         if (_grid is not null)
             await _grid.ReloadServerData();
+    }
+
+    private bool HasFilters =>
+        !string.IsNullOrWhiteSpace(_search) || _statusFilter != "all" || _dateFilter != "all";
+
+    private async Task ClearFiltersAsync()
+    {
+        _search = "";
+        _statusFilter = "all";
+        _dateFilter = "all";
+        await ReloadGrid();
     }
 
     private async Task OnStatusFilterChanged(string? value)

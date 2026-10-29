@@ -313,3 +313,8 @@
         gap: 1rem;
     }
 }
+
+.licenses-bulk-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}

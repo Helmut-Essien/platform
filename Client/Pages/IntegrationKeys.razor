@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
+<PageTitle>Integration keys · HelmutCode Admin</PageTitle>
 
 <div class="integration-keys-page page-content">
     <header class="integration-keys-header">
@@ -67,7 +68,7 @@
                                 Key not recoverable after creation.
                                 @if (key.IsActive)
                                 {
-                                    <button type="button" class="integration-key-rotate-link" @onclick="() => RotateFromCardAsync(key)">
+                                    <button type="button" class="integration-key-rotate-link" disabled="@_busy" @onclick="() => RotateFromCardAsync(key)">
                                         Rotate to issue a new key
                                     </button>
                                 }
@@ -77,7 +78,7 @@
                             <span class="integration-key-created">Created: @key.CreatedAt.ToString("MMM dd, yyyy")</span>
                             @if (key.IsActive)
                             {
-                                <button type="button" class="btn-revoke-key" @onclick="() => RevokeAsync(key.Id)">
+                                <button type="button" class="btn-revoke-key" disabled="@_busy" aria-label="Revoke key created @key.CreatedAt.ToString("MMM dd, yyyy")" @onclick="() => RevokeAsync(key.Id)">
                                     <MudIcon Icon="@Icons.Material.Filled.DeleteForever" Size="Size.Small" />
                                     Revoke
                                 </button>

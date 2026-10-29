@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+<PageTitle>Licenses · HelmutCode Admin</PageTitle>
 
 <div class="licenses-page page-content">
     <header class="licenses-header">
@@ -138,7 +139,7 @@
                             var license = context.Item;
                         }
                         <div class="cell-right" @onclick:stopPropagation="true">
-                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More actions" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
                                 @if (CanRotateKey(context.Item))
                                 {
                                     <MudMenuItem OnClick="@(() => RotateKeyAsync(context.Item))">
@@ -195,19 +196,23 @@
 <div class="licenses-bulk-bar @(_selected.Count > 0 ? "visible" : "")">
     <div class="licenses-bulk-count">
         <span class="licenses-bulk-count-badge">@_selected.Count</span>
-        <span class="licenses-bulk-count-text">Items selected</span>
+        <span class="licenses-bulk-count-text">@(_selected.Count == 1 ? "license selected" : "licenses selected")</span>
     </div>
     <div class="licenses-bulk-divider"></div>
-    <div class="licenses-bulk-actions">
-        <button type="button" class="licenses-bulk-btn" @onclick="BulkRotateKeysAsync">
+    <div class="licenses-bulk-actions" aria-busy="@(_bulkBusy ? "true" : "false")">
+        <button type="button" class="licenses-bulk-btn" disabled="@_bulkBusy" @onclick="@(() => RunBulkAsync(BulkRotateKeysAsync))">
             <MudIcon Icon="@Icons.Material.Filled.Mail" Size="Size.Small" />
             Rotate &amp; Email Keys
         </button>
-        <button type="button" class="licenses-bulk-btn" @onclick="BulkRenewAsync">
-            <MudIcon Icon="@Icons.Material.Filled.Update" Size="Size.Small" />
-            Renew
-        </button>
-        <button type="button" class="licenses-bulk-btn licenses-bulk-btn-danger" @onclick="BulkRevokeAsync">
+        @if (_selected.Count == 1)
+        {
+            @* Renewal needs per-license billing details, so it is offered for a single selection only. *@
+            <button type="button" class="licenses-bulk-btn" disabled="@_bulkBusy" @onclick="@(() => RunBulkAsync(BulkRenewAsync))">
+                <MudIcon Icon="@Icons.Material.Filled.Update" Size="Size.Small" />
+                Renew
+            </button>
+        }
+        <button type="button" class="licenses-bulk-btn licenses-bulk-btn-danger" disabled="@_bulkBusy" @onclick="@(() => RunBulkAsync(BulkRevokeAsync))">
             <MudIcon Icon="@Icons.Material.Filled.Block" Size="Size.Small" />
             Revoke
         </button>
@@ -251,7 +256,11 @@
         }
 
         if (!string.IsNullOrEmpty(Add))
+        {
+            // Drop ?add=true (replace, no history entry) so refresh/back doesn't reopen the dialog.
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("add", (string?)null), replace: true);
             await OpenIssueDialogAsync();
+        }
     }
 
     // Grid column title/property → whitelisted API sort key (unlisted columns are not sortable).
@@ -542,6 +551,24 @@
 
         _selected.Clear();
         await ReloadGrid();
+    }
+
+    private bool _bulkBusy;
+
+    // One bulk action at a time; ignores double-clicks while a request is in flight.
+    private async Task RunBulkAsync(Func<Task> action)
+    {
+        if (_bulkBusy)
+            return;
+        _bulkBusy = true;
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _bulkBusy = false;
+        }
     }
 
     private async Task BulkRenewAsync()

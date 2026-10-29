@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+<PageTitle>Services · HelmutCode Admin</PageTitle>
 
 <div class="services-page page-content">
     @if (_showKeyPrompt)
@@ -13,20 +14,22 @@
                 <MudIcon Icon="@Icons.Material.Filled.CheckCircle" />
                 <div>
                     <p class="services-success-banner-title">Service "@_createdServiceName" created successfully.</p>
-                    <p class="services-success-banner-text">Ready for deployment. You need a secure key for API access.</p>
+                    <p class="services-success-banner-text">Generate an integration key so this service can validate licenses.</p>
                 </div>
             </div>
             <button type="button" class="btn-generate-key" @onclick="GenerateKeyForServiceAsync">
                 <MudIcon Icon="@Icons.Material.Filled.Key" Size="Size.Small" />
                 Generate Integration Key
             </button>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" aria-label="Dismiss"
+                           OnClick="@(() => _showKeyPrompt = false)" />
         </div>
     }
 
     <header class="services-header">
         <div>
             <h1 class="page-title">Service Catalog</h1>
-            <p class="page-subtitle">Manage microservices, API endpoints, and system-level integrations.</p>
+            <p class="page-subtitle">Products you license to customers, and the integration keys they use to validate licenses.</p>
         </div>
         <button type="button" class="btn-add-service" @onclick="OpenCreateDialogAsync">
             <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
@@ -283,13 +286,15 @@
 
     private async Task DeleteAsync(ServiceProductDto product)
     {
-        var confirmed = await DialogService.ShowMessageBox(
-            "Delete Service",
-            $"Are you sure you want to delete \"{product.Name}\" ({product.Code})? This cannot be undone.",
-            yesText: "Delete",
-            cancelText: "Cancel");
-
-        if (confirmed is not true)
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Delete Service", new DialogParameters
+        {
+            ["Title"] = "Delete Service",
+            ["Message"] = $"Delete \"{product.Name}\" ({product.Code})? This cannot be undone.",
+            ["ConfirmText"] = "Delete",
+            ["IsDestructive"] = true
+        }, PlatformDialogOptions.Confirm);
+        var confirmation = await dialog.Result;
+        if (confirmation?.Canceled is not false)
             return;
 
         var (success, errorMessage) = await Api.DeleteServiceProductAsync(product.Id);

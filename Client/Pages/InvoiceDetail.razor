@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+<PageTitle>@(_invoice?.InvoiceNumber is { Length: > 0 } num ? $"Invoice {num}" : "Invoice") · HelmutCode Admin</PageTitle>
 
 <div class="invoice-detail-page page-content">
 @if (_loading)
@@ -23,7 +24,11 @@ else if (_invoice is null)
         <div>
             <a href="/invoices" class="invoice-detail-back">← Back to invoices</a>
             <h1 class="page-title">Invoice not found</h1>
-            <p class="page-subtitle">This invoice may have been removed or the link is invalid.</p>
+            <p class="page-subtitle">This invoice may have been removed, the link may be invalid, or it couldn't be loaded.</p>
+            <button type="button" class="btn-primary-cta mt-3" @onclick="LoadAsync">
+                <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" />
+                Retry
+            </button>
         </div>
     </header>
 }
@@ -48,10 +53,15 @@ else
                 }
             </p>
         </div>
-        <div class="invoice-detail-actions">
+        <div class="invoice-detail-actions" aria-busy="@(_busy ? "true" : "false")">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" aria-label="Working…" />
+            }
             @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
             {
-                <button type="button" class="btn-primary-cta" @onclick="() => RunExclusiveAsync(SendInvoiceAsyncCore)" disabled="@_busy">
+                @* "Send again" is secondary so "Record payment" stays the primary action on sent invoices. *@
+                <button type="button" class="@(_invoice.Status == InvoiceStatus.Draft ? "btn-primary-cta" : "btn-secondary-cta")" @onclick="() => RunExclusiveAsync(SendInvoiceAsyncCore)" disabled="@_busy">
                     <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" />
                     @(_invoice.Status == InvoiceStatus.Draft ? "Send invoice" : "Send again")
                 </button>

@@ -95,7 +95,7 @@
                 }
                 else
                 {
-                    <MudTable Items="_licenses" Dense="true" Hover="true" Class="customer-drawer-table">
+                    <MudTable Items="_licenses.Take(DrawerRowLimit)" Dense="true" Hover="true" Class="customer-drawer-table">
                         <HeaderContent>
                             <MudTh>Service</MudTh>
                             <MudTh>Status</MudTh>
@@ -107,6 +107,10 @@
                             <MudTd>@(context.ExpiresAt?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
                         </RowTemplate>
                     </MudTable>
+                    @if (_licenses.Count > DrawerRowLimit)
+                    {
+                        <a class="customer-drawer-view-all" href="@($"/licenses?customerId={Uri.EscapeDataString(Customer!.Id)}")">View all @_licenses.Count licenses →</a>
+                    }
                 }
             }
             else if (_activeTab == "invoices")
@@ -145,7 +149,7 @@
                 }
                 else
                 {
-                    <MudTable Items="_audit" Dense="true" Hover="true" Class="customer-drawer-table">
+                    <MudTable Items="_audit.Take(DrawerRowLimit)" Dense="true" Hover="true" Class="customer-drawer-table">
                         <HeaderContent>
                             <MudTh>Timestamp</MudTh>
                             <MudTh>Action</MudTh>
@@ -155,6 +159,10 @@
                             <MudTd>@context.Action</MudTd>
                         </RowTemplate>
                     </MudTable>
+                    @if (_audit.Count > DrawerRowLimit)
+                    {
+                        <a class="customer-drawer-view-all" href="@($"/audit?customerId={Uri.EscapeDataString(Customer!.Id)}")">View all @_audit.Count events →</a>
+                    }
                 }
             }
             else if (_activeTab == "communications")
@@ -197,6 +205,7 @@
 
     private string _activeTab = "profile";
     private bool _loadingTab;
+    private const int DrawerRowLimit = 5;
     private List<LicenseDto> _licenses = [];
     private List<InvoiceDto> _invoices = [];
     private List<AuditLogDto> _audit = [];

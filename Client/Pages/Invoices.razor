@@ -5,6 +5,7 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+<PageTitle>Invoices · HelmutCode Admin</PageTitle>
 
 <div class="invoices-page page-content">
     <header class="invoices-header">
@@ -172,7 +173,7 @@
                             var invoice = context.Item;
                         }
                         <div class="cell-right" @onclick:stopPropagation="true">
-                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More actions" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
                                 <MudMenuItem OnClick="@(() => ViewInvoice(invoice))">View invoice</MudMenuItem>
                                 @if (invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
                                 {
