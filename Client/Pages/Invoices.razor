@@ -148,7 +148,7 @@
                         <div class="cell-right amount-mono">@FormatMoney(context.Item.TotalAmount, context.Item.Currency)</div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Paid" Sortable="false">
+                <TemplateColumn Title="Paid" Sortable="false" CellClass="hide-xs" HeaderClass="hide-xs">
                     <CellTemplate>
                         @{
                             var paidClass = context.Item.AmountPaid > 0 ? "amount-mono" : "amount-mono amount-mono-muted";
@@ -171,7 +171,7 @@
                         <StatusBadge InvoiceStatus="context.Item.Status" />
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Issue Date" Sortable="true">
+                <TemplateColumn Title="Issue Date" Sortable="true" CellClass="hide-xs" HeaderClass="hide-xs">
                     <CellTemplate>
                         @DateFormat.Date(context.Item.IssueDate)
                     </CellTemplate>

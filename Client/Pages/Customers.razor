@@ -68,7 +68,7 @@
                         </CellTemplate>
                     </TemplateColumn>
                     <PropertyColumn Property="x => x.ContactEmail" Title="Contact Email" />
-                    <TemplateColumn Title="Contact Phone" Sortable="true">
+                    <TemplateColumn Title="Contact Phone" Sortable="true" CellClass="hide-xs" HeaderClass="hide-xs">
                         <CellTemplate>
                             @(string.IsNullOrWhiteSpace(context.Item.ContactPhone) ? "—" : context.Item.ContactPhone)
                         </CellTemplate>
@@ -80,12 +80,12 @@
                             </div>
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Licenses" Sortable="false">
+                    <TemplateColumn Title="Licenses" Sortable="false" CellClass="hide-xs" HeaderClass="hide-xs">
                         <CellTemplate>
                             <div class="cell-center cell-mono">@context.Item.LicenseCount</div>
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Created At" Sortable="true">
+                    <TemplateColumn Title="Created At" Sortable="true" CellClass="hide-xs" HeaderClass="hide-xs">
                         <CellTemplate>
                             @DateFormat.Date(context.Item.CreatedAt)
                         </CellTemplate>
