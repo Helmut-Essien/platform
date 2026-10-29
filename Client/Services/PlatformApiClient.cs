@@ -14,11 +14,10 @@ using Platform.Shared.Enums;
 
 namespace Platform.Client.Services;
 
+// Single public constructor on purpose: the typed-HttpClient factory (ActivatorUtilities) throws
+// MultipleCtorsFound when a second public constructor is also satisfiable, which crashed every page.
 public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
 {
-    public PlatformApiClient(HttpClient http) : this(http, new ApiFailureNotifier())
-    {
-    }
 
     /// <summary>
     /// GET + deserialize that never throws for transport, server or JSON failures: it reports the failure to the

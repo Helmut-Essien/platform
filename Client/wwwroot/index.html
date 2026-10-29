@@ -55,23 +55,7 @@
             URL.revokeObjectURL(url);
         };
 
-        // #region agent log
-        window.platformShellDebugLog = (message, data, hypothesisId) => {
-            fetch('http://127.0.0.1:7855/ingest/0a148943-1fff-4cc8-a446-6d5a47b4f1af', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '8992ff' },
-                body: JSON.stringify({
-                    sessionId: '8992ff',
-                    location: 'index.html:platformShell',
-                    message,
-                    data: data || {},
-                    hypothesisId: hypothesisId || 'nav',
-                    timestamp: Date.now(),
-                    runId: 'sidebar-redesign'
-                })
-            }).catch(() => {});
-        };
-        // #endregion
+        window.platformShellDebugLog = () => {};
 
         window.platformShell = {
             isNavOverlay: () => window.matchMedia('(max-width: 1023.98px)').matches,

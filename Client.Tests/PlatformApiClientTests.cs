@@ -245,7 +245,7 @@ public class PlatformApiClientTests
             BaseAddress = new Uri("https://platform.test/")
         };
 
-        return new PlatformApiClient(http);
+        return new PlatformApiClient(http, new ApiFailureNotifier());
     }
 
     private static HttpResponseMessage JsonResponse<T>(T value, HttpStatusCode statusCode = HttpStatusCode.OK)
