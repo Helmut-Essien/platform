@@ -119,11 +119,11 @@ else
                 }
                 <div>
                     <dt>Issue date</dt>
-                    <dd class="mono">@_invoice.IssueDate.ToString("yyyy-MM-dd")</dd>
+                    <dd class="mono">@DateFormat.Date(_invoice.IssueDate)</dd>
                 </div>
                 <div>
                     <dt>Due date</dt>
-                    <dd class="mono">@(_invoice.DueDate?.ToString("yyyy-MM-dd") ?? "—")</dd>
+                    <dd class="mono">@DateFormat.Date(_invoice.DueDate)</dd>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(_invoice.Description))
                 {
@@ -206,7 +206,7 @@ else
                                 <td>@receipt.PaymentMethod</td>
                                 <td class="mono">@(string.IsNullOrWhiteSpace(receipt.PaymentReference) ? "—" : receipt.PaymentReference)</td>
                                 <td><StatusBadge ReceiptStatus="receipt.Status" /></td>
-                                <td class="mono">@receipt.PaidAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="mono">@DateFormat.DateAndTime(receipt.PaidAt)</td>
                                 <td class="cell-right">
                                     @if (receipt.Status == ReceiptStatus.Posted)
                                     {

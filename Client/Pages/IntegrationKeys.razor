@@ -75,10 +75,10 @@
                             </p>
                         </div>
                         <div class="integration-key-card-footer">
-                            <span class="integration-key-created">Created: @key.CreatedAt.ToString("MMM dd, yyyy")</span>
+                            <span class="integration-key-created">Created: @DateFormat.Date(key.CreatedAt)</span>
                             @if (key.IsActive)
                             {
-                                <button type="button" class="btn-revoke-key" disabled="@_busy" aria-label="Revoke key created @key.CreatedAt.ToString("MMM dd, yyyy")" @onclick="() => RevokeAsync(key.Id)">
+                                <button type="button" class="btn-revoke-key" disabled="@_busy" aria-label="Revoke key created @DateFormat.Date(key.CreatedAt)" @onclick="() => RevokeAsync(key.Id)">
                                     <MudIcon Icon="@Icons.Material.Filled.DeleteForever" Size="Size.Small" />
                                     Revoke
                                 </button>

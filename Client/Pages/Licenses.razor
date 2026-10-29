@@ -110,7 +110,7 @@
                         else
                         {
                             <span class="license-expires-mono @(context.Item.Status == LicenseStatus.Expired ? "license-expires-expired" : "")">
-                                @expires.Value.ToString("yyyy-MM-dd")
+                                @DateFormat.Date(expires.Value)
                             </span>
                         }
                     </CellTemplate>

@@ -173,7 +173,7 @@
                 </TemplateColumn>
                 <TemplateColumn Title="Issue Date" Sortable="true">
                     <CellTemplate>
-                        @context.Item.IssueDate.ToString("MMM dd, yyyy")
+                        @DateFormat.Date(context.Item.IssueDate)
                     </CellTemplate>
                 </TemplateColumn>
                 <TemplateColumn Title="" Sortable="false">

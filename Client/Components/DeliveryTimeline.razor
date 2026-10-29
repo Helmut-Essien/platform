@@ -25,7 +25,7 @@
                         <div>
                             <MudText Typo="Typo.body2">@FormatKind(delivery.Kind) — @delivery.ToEmail</MudText>
                             <MudText Typo="Typo.caption">
-                                @delivery.CreatedAt.ToLocalTime().ToString("g")
+                                @DateFormat.DateAndTime(delivery.CreatedAt)
                                 @if (delivery.AttemptCount > 0)
                                 {
                                     <span> · @delivery.AttemptCount attempt(s)</span>

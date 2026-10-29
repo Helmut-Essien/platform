@@ -16,7 +16,7 @@
         {
             <MudText Class="mb-2">
                 The license key email was queued at
-                <strong>@License.LicenseKeySentAt.Value.ToString("g") UTC</strong>.
+                <strong>@DateFormat.DateAndTime(License.LicenseKeySentAt.Value)</strong>.
             </MudText>
             <MudText Typo="Typo.caption" Class="mb-2">
                 Delivery is retried automatically. Check the customer Communications timeline for the final status.

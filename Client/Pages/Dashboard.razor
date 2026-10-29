@@ -261,7 +261,7 @@
         if (delta.TotalDays < 7)
             return $"{(int)delta.TotalDays} day{((int)delta.TotalDays == 1 ? "" : "s")} ago";
 
-        return utc.ToString("g") + " UTC";
+        return DateFormat.DateAndTime(utc);
     }
 
     private static void OnKpiKeyDown(KeyboardEventArgs e, Action navigate)

@@ -85,7 +85,7 @@
                                 <td class="cell-center">
                                     <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Class="@($"audit-chevron {(expanded ? "expanded" : "")}")" />
                                 </td>
-                                <td class="audit-timestamp">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td class="audit-timestamp">@DateFormat.Timestamp(log.Timestamp)</td>
                                 <td>
                                     <div class="audit-admin-cell">
                                         <div class="audit-admin-avatar @GetAvatarClass(log)">@GetAdminInitials(log.PerformedBy)</div>

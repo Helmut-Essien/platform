@@ -67,7 +67,7 @@
                         </div>
                         <div class="customer-drawer-info-card">
                             <label>Created</label>
-                            <span>@Customer.CreatedAt.ToString("MMM dd, yyyy")</span>
+                            <span>@DateFormat.Date(Customer.CreatedAt)</span>
                         </div>
                         <div class="customer-drawer-info-card">
                             <label>Licenses</label>
@@ -104,7 +104,7 @@
                         <RowTemplate>
                             <MudTd>@context.ServiceProductCode</MudTd>
                             <MudTd><LicenseStatusChip Status="context.Status" /></MudTd>
-                            <MudTd>@(context.ExpiresAt?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
+                            <MudTd>@DateFormat.Date(context.ExpiresAt)</MudTd>
                         </RowTemplate>
                     </MudTable>
                     @if (_licenses.Count > DrawerRowLimit)
@@ -159,7 +159,7 @@
                             <MudTh>Action</MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd>@context.Timestamp.ToString("g")</MudTd>
+                            <MudTd>@DateFormat.DateAndTime(context.Timestamp)</MudTd>
                             <MudTd>@context.Action</MudTd>
                         </RowTemplate>
                     </MudTable>
