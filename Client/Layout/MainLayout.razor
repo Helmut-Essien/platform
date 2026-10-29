@@ -25,7 +25,24 @@
             </MudLink>
             <MudSpacer />
             <div class="app-bar-actions">
-                <MudButton Variant="Variant.Text" Class="logout-btn" OnClick="Logout">Logout</MudButton>
+                <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true"
+                         AriaLabel="Account menu" Class="account-menu">
+                    <ActivatorContent>
+                        <MudIconButton Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Primary" aria-label="Account menu" />
+                    </ActivatorContent>
+                    <ChildContent>
+                        <div class="account-menu-header">
+                            <p class="account-menu-name">@DisplayName</p>
+                            @if (!string.IsNullOrWhiteSpace(_email))
+                            {
+                                <p class="account-menu-email">@_email</p>
+                            }
+                            <p class="account-menu-role">@_role</p>
+                        </div>
+                        <MudDivider />
+                        <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="Logout">Log out</MudMenuItem>
+                    </ChildContent>
+                </MudMenu>
             </div>
         </div>
 
@@ -41,20 +58,37 @@
             </div>
             <MudSpacer />
             <div class="app-bar-desktop-end">
-                <div class="app-bar-user-cluster">
-                    <div class="app-bar-user-meta">
-                        <p class="app-bar-user-name">@DisplayName</p>
-                        <p class="app-bar-user-role">Admin</p>
-                    </div>
-                    <MudButton Variant="Variant.Text" Class="logout-btn" OnClick="Logout">Logout</MudButton>
-                </div>
+                <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true"
+                         AriaLabel="Account menu" Class="account-menu">
+                    <ActivatorContent>
+                        <button type="button" class="app-bar-user-cluster account-menu-trigger" aria-label="Account menu">
+                            <span class="app-bar-user-meta">
+                                <span class="app-bar-user-name">@DisplayName</span>
+                                <span class="app-bar-user-role">@_role</span>
+                            </span>
+                            <MudIcon Icon="@Icons.Material.Filled.ExpandMore" Size="Size.Small" />
+                        </button>
+                    </ActivatorContent>
+                    <ChildContent>
+                        <div class="account-menu-header">
+                            <p class="account-menu-name">@DisplayName</p>
+                            @if (!string.IsNullOrWhiteSpace(_email))
+                            {
+                                <p class="account-menu-email">@_email</p>
+                            }
+                            <p class="account-menu-role">@_role</p>
+                        </div>
+                        <MudDivider />
+                        <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="Logout">Log out</MudMenuItem>
+                    </ChildContent>
+                </MudMenu>
             </div>
         </div>
     </MudAppBar>
 
     @* Desktop (≥1024px): Stitch-style CSS rail — width 64px → 280px on hover *@
     <aside class="platform-sidebar-rail" tabindex="-1" aria-label="Main navigation panel">
-        <NavMenu Email="@(_email ?? "")" />
+        <NavMenu Email="@(_email ?? "")" Role="@_role" />
     </aside>
 
     @* Tablet/mobile (<1024px): temporary overlay drawer *@
@@ -66,7 +100,7 @@
                Class="platform-sidebar platform-sidebar-overlay"
                Width="280px">
         <div class="drawer-header drawer-header-overlay">
-            <span class="drawer-admin-menu-title">Admin Menu</span>
+            <span class="drawer-admin-menu-title">Menu</span>
             <MudIconButton Icon="@Icons.Material.Filled.Close"
                            Color="Color.Inherit"
                            OnClick="CloseOverlayDrawer"
@@ -75,6 +109,7 @@
         </div>
 
         <NavMenu Email="@(_email ?? "")"
+                 Role="@_role"
                  OnNavigate="CloseDrawerIfOverlay" />
     </MudDrawer>
 
@@ -88,15 +123,19 @@
 @code {
     private bool _drawerOpen;
     private string? _email;
+    private string _role = UserDisplay.NoRoleLabel;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
     private DotNetObjectReference<MainLayout>? _dotNetRef;
 
-    private string DisplayName =>
-        string.IsNullOrWhiteSpace(_email) ? "Admin" : _email.Split('@')[0];
+    private string DisplayName => UserDisplay.Name(_email);
 
     protected override async Task OnInitializedAsync()
     {
         ApiFailures.Failed += OnApiFailure;
         _email = await TokenStorage.GetEmailAsync();
+        if (AuthenticationStateTask is not null)
+            _role = UserDisplay.Role((await AuthenticationStateTask).User);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -171,7 +210,7 @@
     {
         await TokenStorage.ClearAsync();
         AuthState.NotifyStateChanged();
-        Navigation.NavigateTo("/login");
+        Navigation.NavigateTo("/login", replace: true);
     }
 
     private void OnApiFailure(string message) => Snackbar.Add(message, Severity.Warning);

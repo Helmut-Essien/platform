@@ -737,3 +737,14 @@ body.nav-overlay .platform-sidebar-overlay.mud-drawer--open {
         word-break: break-word;
     }
 }
+
+/* Nav section titles follow the rail labels: hidden while the rail is collapsed (divider stays). */
+body.nav-desktop .platform-sidebar-rail:not(:hover) .platform-nav-section-title,
+body.nav-desktop .platform-sidebar-rail.platform-sidebar-rail--collapsed .platform-nav-section-title {
+    visibility: hidden;
+    height: 0;
+}
+
+body.nav-desktop .platform-sidebar-rail:not(:hover) .platform-nav-section {
+    padding: 0.375rem 0 0;
+}
