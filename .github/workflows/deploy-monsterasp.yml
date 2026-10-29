@@ -78,6 +78,11 @@ jobs:
           $aspNetCore = $xml.SelectSingleNode('//system.webServer/aspNetCore')
           if (-not $aspNetCore) { throw 'aspNetCore element not found in web.config' }
 
+          # ASP.NET Core Module stdout logging -> site\logs\stdout_<timestamp>_<pid>.log
+          $aspNetCore.SetAttribute('stdoutLogEnabled', 'true')
+          $aspNetCore.SetAttribute('stdoutLogFile', '.\logs\stdout')
+          New-Item -ItemType Directory -Force -Path (Join-Path $PWD 'publish/logs') | Out-Null
+
           $vars = $aspNetCore.SelectSingleNode('environmentVariables')
           if (-not $vars) { $vars = $xml.CreateElement('environmentVariables'); [void]$aspNetCore.AppendChild($vars) }
           $vars.RemoveAll()
@@ -174,6 +179,8 @@ jobs:
             "-dest:contentPath=$site,computerName=$endpoint,userName=$($env:MONSTER_USER),password=$($env:MONSTER_PASSWORD),authType=Basic",
             '-allowUntrusted',
             '-enableRule:AppOffline',
+            # Keep existing stdout log files on the server (sync would otherwise delete them).
+            '-skip:objectName=filePath,absolutePath=logs\\stdout.*\.log$',
             '-retryAttempts:3',
             '-retryInterval:3000'
           )

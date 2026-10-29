@@ -41,4 +41,13 @@
     </None>
   </ItemGroup>
 
+  <!-- IIS stdout logging (web.config stdoutLogFile=".\logs\stdout") needs the folder to exist:
+       ANCM creates the file but not the directory. A placeholder keeps it in Web Deploy syncs. -->
+  <Target Name="CreateStdoutLogsFolder" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)logs" />
+    <WriteLinesToFile File="$(PublishDir)logs\README.txt"
+                      Lines="ASP.NET Core Module stdout logs (stdout_*.log) are written here."
+                      Overwrite="true" />
+  </Target>
+
 </Project>
