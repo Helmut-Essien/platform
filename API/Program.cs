@@ -161,6 +161,19 @@ using (var scope = app.Services.CreateScope())
         logger);
 }
 
+if (!app.Environment.IsDevelopment())
+{
+    var clientBaseUrl = app.Configuration["Auth:ClientBaseUrl"];
+    if (string.IsNullOrWhiteSpace(clientBaseUrl)
+        || clientBaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase)
+        || clientBaseUrl.Contains("127.0.0.1", StringComparison.Ordinal))
+    {
+        app.Logger.LogWarning(
+            "Auth:ClientBaseUrl is '{ClientBaseUrl}'. Password-reset links in emails will not work; set Auth__ClientBaseUrl to the public site URL.",
+            clientBaseUrl);
+    }
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
