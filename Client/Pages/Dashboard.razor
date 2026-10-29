@@ -30,7 +30,7 @@
             </MudAlert>
         }
         <section class="dashboard-kpi-grid" aria-label="Key metrics">
-            <article class="kpi-card" @onclick="GoToCustomers" @onkeydown="@(e => OnKpiKeyDown(e, GoToCustomers))" tabindex="0" role="link" aria-label="Total customers">
+            <a class="kpi-card" href="/customers">
                 <div class="kpi-card-head">
                     <span class="kpi-card-label">Total Customers</span>
                     <MudIcon Icon="@Icons.Material.Filled.Group" Class="kpi-card-icon" />
@@ -40,9 +40,9 @@
                     <span class="highlight-primary">Registered</span>
                     <span>organizations</span>
                 </div>
-            </article>
+            </a>
 
-            <article class="kpi-card" @onclick="GoToLicenses" @onkeydown="@(e => OnKpiKeyDown(e, GoToLicenses))" tabindex="0" role="link" aria-label="Active licenses">
+            <a class="kpi-card" href="/licenses">
                 <div class="kpi-card-head">
                     <span class="kpi-card-label">Active Licenses</span>
                     <MudIcon Icon="@Icons.Material.Filled.VpnKey" Class="kpi-card-icon" />
@@ -52,9 +52,9 @@
                     <span class="highlight-primary">Status: Active</span>
                     <span>(excludes suspended customers)</span>
                 </div>
-            </article>
+            </a>
 
-            <article class="kpi-card" @onclick="GoToExpiringLicenses" @onkeydown="@(e => OnKpiKeyDown(e, GoToExpiringLicenses))" tabindex="0" role="link" aria-label="Licenses expiring in 30 days">
+            <a class="kpi-card" href="/licenses?filter=expiring">
                 <div class="kpi-card-head">
                     <span class="kpi-card-label">Expiring in 30 Days</span>
                     <MudIcon Icon="@Icons.Material.Filled.Schedule" Class="kpi-card-icon" />
@@ -71,9 +71,9 @@
                         <span class="highlight-primary">All clear</span>
                     }
                 </div>
-            </article>
+            </a>
 
-            <article class="kpi-card" @onclick="GoToUnpaidInvoices" @onkeydown="@(e => OnKpiKeyDown(e, GoToUnpaidInvoices))" tabindex="0" role="link" aria-label="Unpaid invoices">
+            <a class="kpi-card" href="/invoices?filter=unpaid">
                 <div class="kpi-card-head">
                     <span class="kpi-card-label">Unpaid Invoices</span>
                     <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" Class="kpi-card-icon" />
@@ -91,7 +91,7 @@
                         <span>reconciled</span>
                     }
                 </div>
-            </article>
+            </a>
         </section>
 
         <div class="dashboard-main-grid">
@@ -264,17 +264,8 @@
         return DateFormat.DateAndTime(utc);
     }
 
-    private static void OnKpiKeyDown(KeyboardEventArgs e, Action navigate)
-    {
-        if (e.Key is "Enter" or " ")
-            navigate();
-    }
 
-    private void GoToCustomers() => Navigation.NavigateTo("/customers");
     private void GoToNewCustomer() => Navigation.NavigateTo("/customers?add=true");
-    private void GoToLicenses() => Navigation.NavigateTo("/licenses");
-    private void GoToExpiringLicenses() => Navigation.NavigateTo("/licenses?filter=expiring");
-    private void GoToUnpaidInvoices() => Navigation.NavigateTo("/invoices?filter=unpaid");
     private void GoToIssueLicense() => Navigation.NavigateTo("/licenses?add=true");
     private void GoToIntegrationKeys() => Navigation.NavigateTo("/integration-keys");
     private void GoToAudit() => Navigation.NavigateTo("/audit");

@@ -39,8 +39,19 @@
 
     @if (_loading)
     {
-        <div class="services-loading">
-            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        @* Skeleton matches the stats row + table, like the other list pages. *@
+        <div class="services-loading" aria-busy="true" aria-label="Loading services">
+            <div class="services-skeleton-stats">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="5.5rem" />
+                }
+            </div>
+            <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="2.75rem" Class="mt-6" />
+            @for (var i = 0; i < 5; i++)
+            {
+                <MudSkeleton SkeletonType="SkeletonType.Rectangle" Height="3.25rem" Class="mt-2" />
+            }
         </div>
     }
     else

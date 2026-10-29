@@ -392,9 +392,13 @@
 }
 
 .services-loading {
-    padding: 3rem;
-    display: flex;
-    justify-content: center;
+    padding-top: 0.5rem;
+}
+
+.services-skeleton-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 1rem;
 }
 
 .cell-center {
