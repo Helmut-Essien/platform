@@ -16,6 +16,27 @@ namespace Client.Tests;
 public class PlatformApiClientTests
 {
     [Fact]
+    public async Task PagedLists_AppendSortQuery_OnlyWhenSortRequested()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = 1, PageSize = 25 }));
+        var client = CreateClient(handler);
+
+        await client.GetCustomersPagedAsync(1, 25, sortBy: "name", sortDesc: true);
+        var query = handler.LastRequest!.RequestUri!.Query;
+        Assert.Contains("sortBy=name", query);
+        Assert.Contains("sortDesc=true", query);
+
+        await client.GetCustomersPagedAsync(1, 25, sortBy: "created");
+        query = handler.LastRequest!.RequestUri!.Query;
+        Assert.Contains("sortBy=created", query);
+        Assert.DoesNotContain("sortDesc", query);
+
+        await client.GetCustomersPagedAsync(1, 25);
+        Assert.DoesNotContain("sortBy", handler.LastRequest!.RequestUri!.Query);
+    }
+
+    [Fact]
     public async Task ValidateLicenseAsync_SendsIntegrationKeyHeaderAndPayload()
     {
         var handler = new CapturingHttpMessageHandler(_ =>

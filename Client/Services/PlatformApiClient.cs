@@ -80,9 +80,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         string? search = null,
         string? status = null,
         string? created = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken ct = default)
     {
         var url = $"api/customers?page={page}&pageSize={pageSize}";
+        url += SortQuery(sortBy, sortDesc);
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search.Trim())}";
         if (!string.IsNullOrWhiteSpace(status) && status != "all")
@@ -164,9 +167,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         string? serviceProductId = null,
         LicenseStatus? status = null,
         string? search = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken ct = default)
     {
         var url = $"api/licenses?page={page}&pageSize={pageSize}";
+        url += SortQuery(sortBy, sortDesc);
         if (!string.IsNullOrEmpty(customerId))
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
         if (expiringWithinDays is > 0)
@@ -256,9 +262,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         string? search = null,
         DateTime? issuedFrom = null,
         DateTime? issuedTo = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken ct = default)
     {
         var url = $"api/invoices?page={page}&pageSize={pageSize}";
+        url += SortQuery(sortBy, sortDesc);
         if (!string.IsNullOrEmpty(customerId))
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
         if (unpaidOnly)
@@ -532,4 +541,9 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         var (message, _) = await ParseErrorAsync(response, ct);
         return message;
     }
+
+    private static string SortQuery(string? sortBy, bool sortDesc) =>
+        string.IsNullOrWhiteSpace(sortBy)
+            ? ""
+            : $"&sortBy={Uri.EscapeDataString(sortBy.Trim())}" + (sortDesc ? "&sortDesc=true" : "");
 }

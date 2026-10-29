@@ -65,6 +65,7 @@
     <div class="licenses-table-panel">
         <MudDataGrid @ref="_grid"
                      T="LicenseDto"
+                     SortMode="SortMode.Single"
                      Class="licenses-grid"
                      ServerData="LoadServerData"
                      Hover="true"
@@ -74,7 +75,7 @@
                      RowsPerPage="25">
             <Columns>
                 <SelectColumn T="LicenseDto" />
-                <TemplateColumn Title="Customer">
+                <TemplateColumn Title="Customer" Sortable="true">
                     <CellTemplate>
                         @{
                             var license = context.Item;
@@ -85,18 +86,18 @@
                         </div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Service">
+                <TemplateColumn Title="Service" Sortable="true">
                     <CellTemplate>
                         @GetServiceLabel(context.Item)
                     </CellTemplate>
                 </TemplateColumn>
                 <PropertyColumn Property="x => x.PlanName" Title="Plan" />
-                <TemplateColumn Title="Status">
+                <TemplateColumn Title="Status" Sortable="true">
                     <CellTemplate>
                         <StatusBadge LicenseStatus="context.Item.Status" />
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Expires">
+                <TemplateColumn Title="Expires" Sortable="true">
                     <CellTemplate>
                         @{
                             var expires = context.Item.ExpiresAt;
@@ -113,7 +114,7 @@
                         }
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Key Sent">
+                <TemplateColumn Title="Key Sent" Sortable="true">
                     <CellTemplate>
                         @if (KeyWasSent(context.Item))
                         {
@@ -253,8 +254,22 @@
             await OpenIssueDialogAsync();
     }
 
+    // Grid column title/property → whitelisted API sort key (unlisted columns are not sortable).
+    private static readonly IReadOnlyDictionary<string, string> SortColumns =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Customer"] = "customer",
+            ["Service"] = "service",
+            ["Status"] = "status",
+            ["Expires"] = "expires",
+            ["Key Sent"] = "keySent",
+            ["PlanName"] = "plan",
+            ["Plan"] = "plan"
+        };
+
     private async Task<GridData<LicenseDto>> LoadServerData(GridState<LicenseDto> state)
     {
+        var (sortBy, sortDesc) = GridSort.From(state, SortColumns, _grid?.RenderedColumns);
         // All filters are applied server-side so paging and totals are correct (B2).
         var result = await Api.GetLicensesPagedAsync(
             _filterCustomerId,
@@ -263,7 +278,9 @@
             expiringWithinDays: _filterExpiring ? 30 : null,
             serviceProductId: _filterServiceId,
             status: _filterExpiring ? null : _filterStatus,
-            search: _search);
+            search: _search,
+            sortBy: sortBy,
+            sortDesc: sortDesc);
 
         return new GridData<LicenseDto>
         {

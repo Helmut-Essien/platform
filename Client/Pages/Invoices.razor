@@ -108,6 +108,7 @@
     <div class="invoices-table-panel">
         <MudDataGrid @ref="_grid"
                      T="InvoiceDto"
+                     SortMode="SortMode.Single"
                      Class="invoices-grid"
                      ServerData="LoadServerData"
                      Hover="true"
@@ -116,12 +117,12 @@
                      RowClassFunc="GetRowClass"
                      RowsPerPage="25">
             <Columns>
-                <TemplateColumn Title="Invoice #">
+                <TemplateColumn Title="Invoice #" Sortable="true">
                     <CellTemplate>
                         <span class="invoice-number-link">@context.Item.InvoiceNumber</span>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Customer">
+                <TemplateColumn Title="Customer" Sortable="true">
                     <CellTemplate>
                         @{
                             var invoice = context.Item;
@@ -132,12 +133,12 @@
                         </div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Total">
+                <TemplateColumn Title="Total" Sortable="true">
                     <CellTemplate>
                         <div class="cell-right amount-mono">@FormatMoney(context.Item.TotalAmount, context.Item.Currency)</div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Paid">
+                <TemplateColumn Title="Paid" Sortable="false">
                     <CellTemplate>
                         @{
                             var paidClass = context.Item.AmountPaid > 0 ? "amount-mono" : "amount-mono amount-mono-muted";
@@ -145,7 +146,7 @@
                         <div class="cell-right @paidClass">@FormatMoney(context.Item.AmountPaid, context.Item.Currency)</div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Due">
+                <TemplateColumn Title="Due" Sortable="false">
                     <CellTemplate>
                         @{
                             var dueClass = context.Item.Status == InvoiceStatus.Overdue
@@ -155,12 +156,12 @@
                         <div class="cell-right @dueClass">@FormatMoney(context.Item.AmountDue, context.Item.Currency)</div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Status">
+                <TemplateColumn Title="Status" Sortable="true">
                     <CellTemplate>
                         <StatusBadge InvoiceStatus="context.Item.Status" />
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Issue Date">
+                <TemplateColumn Title="Issue Date" Sortable="true">
                     <CellTemplate>
                         @context.Item.IssueDate.ToString("MMM dd, yyyy")
                     </CellTemplate>
@@ -248,8 +249,20 @@
         _stats = statsTask.Result;
     }
 
+    // Grid column title/property → whitelisted API sort key (unlisted columns are not sortable).
+    private static readonly IReadOnlyDictionary<string, string> SortColumns =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Invoice #"] = "number",
+            ["Customer"] = "customer",
+            ["Total"] = "total",
+            ["Status"] = "status",
+            ["Issue Date"] = "issueDate"
+        };
+
     private async Task<GridData<InvoiceDto>> LoadServerData(GridState<InvoiceDto> state)
     {
+        var (sortBy, sortDesc) = GridSort.From(state, SortColumns, _grid?.RenderedColumns);
         var result = await Api.GetInvoicesPagedAsync(
             _customerFilter,
             page: state.Page + 1,
@@ -258,7 +271,9 @@
             status: _statusFilter ?? (_quickFilter == "sent" ? InvoiceStatus.Sent : null),
             search: _customerSearch,
             issuedFrom: _dateRange?.Start,
-            issuedTo: _dateRange?.End);
+            issuedTo: _dateRange?.End,
+            sortBy: sortBy,
+            sortDesc: sortDesc);
 
         return new GridData<InvoiceDto>
         {

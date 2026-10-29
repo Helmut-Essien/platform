@@ -44,6 +44,7 @@
     <div class="customers-table-panel">
         <MudDataGrid @ref="_grid"
                      T="CustomerDto"
+                     SortMode="SortMode.Single"
                      Class="customers-grid"
                      ServerData="LoadServerData"
                      Hover="true"
@@ -51,7 +52,7 @@
                      RowClick="OnRowClick"
                      RowsPerPage="25">
                 <Columns>
-                    <TemplateColumn Title="Name">
+                    <TemplateColumn Title="Name" Sortable="true">
                         <CellTemplate>
                             @{
                                 var c = context.Item;
@@ -66,24 +67,24 @@
                         </CellTemplate>
                     </TemplateColumn>
                     <PropertyColumn Property="x => x.ContactEmail" Title="Contact Email" />
-                    <TemplateColumn Title="Contact Phone">
+                    <TemplateColumn Title="Contact Phone" Sortable="true">
                         <CellTemplate>
                             @(string.IsNullOrWhiteSpace(context.Item.ContactPhone) ? "—" : context.Item.ContactPhone)
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Status">
+                    <TemplateColumn Title="Status" Sortable="true">
                         <CellTemplate>
                             <div class="cell-center">
                                 <StatusBadge CustomerSuspended="context.Item.IsSuspended" />
                             </div>
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Licenses">
+                    <TemplateColumn Title="Licenses" Sortable="false">
                         <CellTemplate>
                             <div class="cell-center cell-mono">@context.Item.LicenseCount</div>
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Created At">
+                    <TemplateColumn Title="Created At" Sortable="true">
                         <CellTemplate>
                             @context.Item.CreatedAt.ToString("MMM dd, yyyy")
                         </CellTemplate>
@@ -148,14 +149,29 @@
             await OpenCreateDialogAsync();
     }
 
+    // Grid column title/property → whitelisted API sort key (unlisted columns are not sortable).
+    private static readonly IReadOnlyDictionary<string, string> SortColumns =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Name"] = "name",
+            ["Contact Phone"] = "phone",
+            ["Status"] = "status",
+            ["Created At"] = "created",
+            ["ContactEmail"] = "email",
+            ["Contact Email"] = "email"
+        };
+
     private async Task<GridData<CustomerDto>> LoadServerData(GridState<CustomerDto> state)
     {
+        var (sortBy, sortDesc) = GridSort.From(state, SortColumns, _grid?.RenderedColumns);
         var result = await Api.GetCustomersPagedAsync(
             state.Page + 1,
             state.PageSize,
             search: _search,
             status: _statusFilter,
-            created: _dateFilter);
+            created: _dateFilter,
+            sortBy: sortBy,
+            sortDesc: sortDesc);
 
         return new GridData<CustomerDto>
         {
