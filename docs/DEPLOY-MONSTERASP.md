@@ -77,7 +77,7 @@ From Linux, upload the `bin/Release/net9.0/publish/` folder by FTP instead.
 
 ## 4b. Deploy with GitHub Actions (`.github/workflows/deploy-monsterasp.yml`)
 
-Runs on every push to `main` and on manual **Run workflow**. Windows runner: restore → build → test
+Runs on every push to `master` and on manual **Run workflow**. Windows runner: restore → build → test
 (Postgres tests return early, `PLATFORM_TEST_DB` is not set) → `dotnet publish API/API.csproj -c Release -o publish`
 → write app settings into the published `web.config` as `<environmentVariables>` (plus
 `ASPNETCORE_ENVIRONMENT=Production`) → optional migrations → `msdeploy.exe` sync with AppOffline → `/health` check
