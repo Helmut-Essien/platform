@@ -1,0 +1,202 @@
+name: Deploy to MonsterASP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_migrations:
+        description: Apply docs/migrations-idempotent.sql to the production database before deploying
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-monsterasp
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  SITE_HOST: helmutcode.runasp.net
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Platform.slnx
+
+      - name: Build
+        run: dotnet build Platform.slnx -c Release --no-restore
+
+      # PLATFORM_TEST_DB is intentionally not set: the Postgres-backed tests return early without it.
+      - name: Test
+        run: dotnet test Platform.slnx -c Release --no-build --verbosity normal
+
+      - name: Publish
+        run: dotnet publish API/API.csproj -c Release -o publish --no-restore
+
+      - name: Inject app settings into web.config
+        shell: pwsh
+        env:
+          ConnectionStrings__DefaultConnection: ${{ secrets.ConnectionStrings__DefaultConnection }}
+          Jwt__Key: ${{ secrets.Jwt__Key }}
+          Email__Outbox__EncryptionKey: ${{ secrets.Email__Outbox__EncryptionKey }}
+          Auth__ClientBaseUrl: ${{ secrets.Auth__ClientBaseUrl }}
+          AdminSeed__Email: ${{ secrets.AdminSeed__Email }}
+          AdminSeed__Password: ${{ secrets.AdminSeed__Password }}
+          Email__Provider: ${{ secrets.Email__Provider }}
+          Email__FromAddress: ${{ secrets.Email__FromAddress }}
+          Email__FromName: ${{ secrets.Email__FromName }}
+          Email__ResendApiKey: ${{ secrets.Email__ResendApiKey }}
+          Email__Host: ${{ secrets.Email__Host }}
+          Email__Port: ${{ secrets.Email__Port }}
+          Email__EnableSsl: ${{ secrets.Email__EnableSsl }}
+          Email__Username: ${{ secrets.Email__Username }}
+          Email__Password: ${{ secrets.Email__Password }}
+          Redis__ConnectionString: ${{ secrets.Redis__ConnectionString }}
+          Database__MigrateOnStartup: ${{ secrets.Database__MigrateOnStartup }}
+          Https__Redirect: ${{ secrets.Https__Redirect }}
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+          ForwardedHeaders__Enabled: ${{ secrets.ForwardedHeaders__Enabled }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $required = @('ConnectionStrings__DefaultConnection', 'Jwt__Key', 'Email__Outbox__EncryptionKey', 'Auth__ClientBaseUrl')
+          $optional = @('AdminSeed__Email', 'AdminSeed__Password', 'Email__Provider', 'Email__FromAddress', 'Email__FromName',
+            'Email__ResendApiKey', 'Email__Host', 'Email__Port', 'Email__EnableSsl', 'Email__Username', 'Email__Password',
+            'Redis__ConnectionString', 'Database__MigrateOnStartup', 'Https__Redirect', 'CORS_ORIGINS', 'ForwardedHeaders__Enabled')
+
+          $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          if ($missing) { throw "Missing required secrets: $($missing -join ', ')" }
+
+          $path = Join-Path $PWD 'publish/web.config'
+          [xml]$xml = Get-Content -Raw $path
+          $aspNetCore = $xml.SelectSingleNode('//system.webServer/aspNetCore')
+          if (-not $aspNetCore) { throw 'aspNetCore element not found in web.config' }
+
+          $vars = $aspNetCore.SelectSingleNode('environmentVariables')
+          if (-not $vars) { $vars = $xml.CreateElement('environmentVariables'); [void]$aspNetCore.AppendChild($vars) }
+          $vars.RemoveAll()
+
+          function Add-Var([string]$name, [string]$value) {
+            # SetAttribute XML-escapes the value; values are never written to the log.
+            $el = $xml.CreateElement('environmentVariable')
+            $el.SetAttribute('name', $name)
+            $el.SetAttribute('value', $value)
+            [void]$vars.AppendChild($el)
+          }
+
+          Add-Var 'ASPNETCORE_ENVIRONMENT' 'Production'
+          $count = 0
+          foreach ($name in $required + $optional) {
+            $value = [Environment]::GetEnvironmentVariable($name)
+            if (-not [string]::IsNullOrWhiteSpace($value)) { Add-Var $name $value.Trim(); $count++ }
+          }
+          $xml.Save($path)
+          Write-Host "web.config: ASPNETCORE_ENVIRONMENT + $count app settings injected (values hidden)."
+
+      - name: Apply database migrations (optional)
+        if: github.event_name == 'workflow_dispatch' && inputs.run_migrations
+        shell: pwsh
+        env:
+          DB_CONN: ${{ secrets.ConnectionStrings__DefaultConnection }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $conn = $env:DB_CONN.Trim()
+          $map = @{}
+          if ($conn -match '^postgres(ql)?://') {
+            $uri = [Uri]$conn
+            $user, $pw = $uri.UserInfo.Split(':', 2)
+            $map['host'] = $uri.Host
+            $map['port'] = if ($uri.Port -gt 0) { "$($uri.Port)" } else { '5432' }
+            $map['database'] = $uri.AbsolutePath.TrimStart('/')
+            $map['username'] = [Uri]::UnescapeDataString($user)
+            if ($pw) { $map['password'] = [Uri]::UnescapeDataString($pw) }
+          } else {
+            # Npgsql key=value;key=value (values containing ';' must not be used here).
+            foreach ($part in $conn.Split(';')) {
+              if ($part -notmatch '=') { continue }
+              $k, $v = $part.Split('=', 2)
+              $map[($k.Trim().ToLowerInvariant() -replace '\s', '')] = $v.Trim()
+            }
+          }
+          function Pick([string[]]$keys) { foreach ($k in $keys) { if ($map[$k]) { return $map[$k] } }; return $null }
+
+          # Pass everything through PG* env vars so nothing appears on a command line or in logs.
+          $env:PGHOST = Pick @('host', 'server')
+          $env:PGPORT = (Pick @('port')) ?? '5432'
+          $env:PGDATABASE = Pick @('database', 'db')
+          $env:PGUSER = Pick @('username', 'userid', 'user', 'uid')
+          $env:PGPASSWORD = Pick @('password', 'pwd')
+          $ssl = Pick @('sslmode')
+          $env:PGSSLMODE = if ($ssl) { $ssl.ToLowerInvariant() -replace 'verifyfull', 'verify-full' -replace 'verifyca', 'verify-ca' } else { 'prefer' }
+          if (-not $env:PGHOST -or -not $env:PGDATABASE -or -not $env:PGUSER) { throw 'Could not parse host/database/username from the connection string.' }
+
+          $psql = if ($env:PGBIN) { Join-Path $env:PGBIN 'psql.exe' } else { 'psql' }
+          & $psql -v ON_ERROR_STOP=1 -q -f docs/migrations-idempotent.sql
+          if ($LASTEXITCODE -ne 0) { throw "psql failed with exit code $LASTEXITCODE" }
+          Write-Host 'Migrations applied.'
+
+      - name: Deploy with Web Deploy
+        shell: pwsh
+        env:
+          MONSTER_SERVER: ${{ secrets.MONSTER_SERVER }}
+          MONSTER_SITE: ${{ secrets.MONSTER_SITE }}
+          MONSTER_USER: ${{ secrets.MONSTER_USER }}
+          MONSTER_PASSWORD: ${{ secrets.MONSTER_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($n in 'MONSTER_SERVER', 'MONSTER_SITE', 'MONSTER_USER', 'MONSTER_PASSWORD') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($n))) { throw "Missing secret $n" }
+          }
+          # Accept a bare host ("site123.siteasp.net"), host:port, or a full https://host:8172/msdeploy.axd URL.
+          $server = $env:MONSTER_SERVER.Trim()
+          if ($server -notmatch '^[a-z]+://') { $server = "https://$server" }
+          $u = [Uri]$server
+          $port = if ($u.IsDefaultPort) { 8172 } else { $u.Port }
+          $site = $env:MONSTER_SITE.Trim()
+          $endpoint = "https://$($u.Host):$port/msdeploy.axd?site=$([Uri]::EscapeDataString($site))"
+
+          $msdeploy = @(
+            "$env:ProgramFiles\IIS\Microsoft Web Deploy V3\msdeploy.exe",
+            "${env:ProgramFiles(x86)}\IIS\Microsoft Web Deploy V3\msdeploy.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $msdeploy) { throw 'msdeploy.exe not found on runner' }
+
+          $source = (Resolve-Path publish).Path
+          $msArgs = @(
+            '-verb:sync',
+            "-source:contentPath=`"$source`"",
+            "-dest:contentPath=`"$site`",computerName=`"$endpoint`",userName=`"$($env:MONSTER_USER)`",password=`"$($env:MONSTER_PASSWORD)`",authType=Basic",
+            '-allowUntrusted',
+            '-enableRule:AppOffline',
+            '-retryAttempts:3',
+            '-retryInterval:3000'
+          )
+          Write-Host "Deploying to $($u.Host):$port (site name hidden)"
+          # Output is filtered so the password can never be echoed back.
+          & $msdeploy @msArgs 2>&1 | ForEach-Object { "$_".Replace($env:MONSTER_PASSWORD, '***') }
+          if ($LASTEXITCODE -ne 0) { throw "msdeploy failed with exit code $LASTEXITCODE" }
+
+      - name: Smoke check /health
+        shell: pwsh
+        run: |
+          foreach ($attempt in 1..10) {
+            foreach ($scheme in 'https', 'http') {
+              $url = "${scheme}://$env:SITE_HOST/health"
+              $body = curl.exe -fsS --max-time 30 $url 2>&1
+              if ($LASTEXITCODE -eq 0) { Write-Host "OK $url -> $body"; exit 0 }
+              Write-Host "Attempt $attempt ${url}: $body"
+            }
+            Start-Sleep -Seconds 15
+          }
+          throw "Health check failed for $env:SITE_HOST"

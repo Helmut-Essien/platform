@@ -75,6 +75,32 @@ Then from Windows / Visual Studio (Web Deploy needs Windows' msdeploy): Publish 
 profile, or `dotnet publish API/API.csproj -c Release /p:PublishProfile=MonsterASP /p:Password=<deploy password>`.
 From Linux, upload the `bin/Release/net9.0/publish/` folder by FTP instead.
 
+## 4b. Deploy with GitHub Actions (`.github/workflows/deploy-monsterasp.yml`)
+
+Runs on every push to `main` and on manual **Run workflow**. Windows runner: restore → build → test
+(Postgres tests return early, `PLATFORM_TEST_DB` is not set) → `dotnet publish API/API.csproj -c Release -o publish`
+→ write app settings into the published `web.config` as `<environmentVariables>` (plus
+`ASPNETCORE_ENVIRONMENT=Production`) → optional migrations → `msdeploy.exe` sync with AppOffline → `/health` check
+on `https://helmutcode.runasp.net` (falls back to http).
+
+Repository secrets (Settings → Secrets and variables → Actions):
+
+- Web Deploy: `MONSTER_SERVER` (bare host like `siteXXXX.siteasp.net`, `host:port`, or full
+  `https://host:8172/msdeploy.axd` URL; port defaults to 8172), `MONSTER_SITE`, `MONSTER_USER`, `MONSTER_PASSWORD`.
+- Required app settings (the job fails if missing): `ConnectionStrings__DefaultConnection`, `Jwt__Key`,
+  `Email__Outbox__EncryptionKey`, `Auth__ClientBaseUrl`.
+- Optional (skipped when empty): `AdminSeed__Email`, `AdminSeed__Password`, `Email__Provider`, `Email__FromAddress`,
+  `Email__FromName`, `Email__ResendApiKey`, `Email__Host`, `Email__Port`, `Email__EnableSsl`, `Email__Username`,
+  `Email__Password`, `Redis__ConnectionString`, `Database__MigrateOnStartup`, `Https__Redirect`, `CORS_ORIGINS`,
+  `ForwardedHeaders__Enabled`.
+
+Because the workflow writes these into `web.config`, settings in the panel for the same names are overridden by
+each deploy. Secret values are never printed; msdeploy output is masked.
+
+**Migrations:** Actions → Deploy to MonsterASP → Run workflow → tick `run_migrations`. It runs
+`docs/migrations-idempotent.sql` with `psql` using `ConnectionStrings__DefaultConnection` (key=value or `postgres://`
+form; values must not contain `;`). The MonsterASP Postgres must accept connections from GitHub runners.
+
 ## 5. HTTPS
 
 Panel → SSL → enable the free Let's Encrypt certificate for your (sub)domain. The app enables HSTS and
