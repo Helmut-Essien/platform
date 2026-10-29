@@ -67,7 +67,7 @@
                         </div>
                         <div class="customer-drawer-info-card">
                             <label>Created</label>
-                            <span>@Customer.CreatedAt.ToString("MMM dd, yyyy")</span>
+                            <span>@DateFormat.Date(Customer.CreatedAt)</span>
                         </div>
                         <div class="customer-drawer-info-card">
                             <label>Licenses</label>
@@ -95,7 +95,7 @@
                 }
                 else
                 {
-                    <MudTable Items="_licenses" Dense="true" Hover="true" Class="customer-drawer-table">
+                    <MudTable Items="_licenses.Take(DrawerRowLimit)" Dense="true" Hover="true" Class="customer-drawer-table">
                         <HeaderContent>
                             <MudTh>Service</MudTh>
                             <MudTh>Status</MudTh>
@@ -104,9 +104,13 @@
                         <RowTemplate>
                             <MudTd>@context.ServiceProductCode</MudTd>
                             <MudTd><LicenseStatusChip Status="context.Status" /></MudTd>
-                            <MudTd>@(context.ExpiresAt?.ToString("yyyy-MM-dd") ?? "—")</MudTd>
+                            <MudTd>@DateFormat.Date(context.ExpiresAt)</MudTd>
                         </RowTemplate>
                     </MudTable>
+                    @if (_licenses.Count > DrawerRowLimit)
+                    {
+                        <a class="customer-drawer-view-all" href="@($"/licenses?customerId={Uri.EscapeDataString(Customer!.Id)}")">View all @_licenses.Count licenses →</a>
+                    }
                 }
             }
             else if (_activeTab == "invoices")
@@ -120,7 +124,7 @@
                 }
                 else
                 {
-                    <MudTable Items="_invoices" Dense="true" Hover="true" Class="customer-drawer-table">
+                    <MudTable Items="_invoices.Take(DrawerRowLimit)" Dense="true" Hover="true" Class="customer-drawer-table">
                         <HeaderContent>
                             <MudTh>Invoice #</MudTh>
                             <MudTh>Status</MudTh>
@@ -132,6 +136,10 @@
                             <MudTd>@context.TotalAmount.ToString("N2")</MudTd>
                         </RowTemplate>
                     </MudTable>
+                    @if (_invoices.Count > DrawerRowLimit)
+                    {
+                        <a class="customer-drawer-view-all" href="@($"/invoices?customerId={Uri.EscapeDataString(Customer!.Id)}")">View all @_invoices.Count invoices →</a>
+                    }
                 }
             }
             else if (_activeTab == "audit")
@@ -145,16 +153,20 @@
                 }
                 else
                 {
-                    <MudTable Items="_audit" Dense="true" Hover="true" Class="customer-drawer-table">
+                    <MudTable Items="_audit.Take(DrawerRowLimit)" Dense="true" Hover="true" Class="customer-drawer-table">
                         <HeaderContent>
                             <MudTh>Timestamp</MudTh>
                             <MudTh>Action</MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd>@context.Timestamp.ToString("g")</MudTd>
+                            <MudTd>@DateFormat.DateAndTime(context.Timestamp)</MudTd>
                             <MudTd>@context.Action</MudTd>
                         </RowTemplate>
                     </MudTable>
+                    @if (_audit.Count > DrawerRowLimit)
+                    {
+                        <a class="customer-drawer-view-all" href="@($"/audit?customerId={Uri.EscapeDataString(Customer!.Id)}")">View all @_audit.Count events →</a>
+                    }
                 }
             }
             else if (_activeTab == "communications")
@@ -197,6 +209,7 @@
 
     private string _activeTab = "profile";
     private bool _loadingTab;
+    private const int DrawerRowLimit = 5;
     private List<LicenseDto> _licenses = [];
     private List<InvoiceDto> _invoices = [];
     private List<AuditLogDto> _audit = [];
@@ -257,20 +270,30 @@
         if (Customer is null)
             return;
 
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<CustomerDto>? update = null;
+        Task<ApiResult<CustomerDto>>? pending = null;
+        Func<UpdateCustomerRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.UpdateCustomerAsync(Customer.Id, request);
+            update = await pending;
+            return update.IsSuccess ? null : update.ErrorMessage ?? "Update failed.";
+        };
         var dialog = await DialogService.ShowAsync<CustomerEditDialog>("Edit Customer", new DialogParameters
         {
-            [nameof(CustomerEditDialog.Customer)] = Customer
+            [nameof(CustomerEditDialog.Customer)] = Customer,
+            [nameof(CustomerEditDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not UpdateCustomerRequest request)
-            return;
-
-        var update = await Api.UpdateCustomerAsync(Customer.Id, request);
-        if (!update.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && update is null)
         {
-            Snackbar.Add(update.ErrorMessage ?? "Update failed.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { update = await pending; } catch { return; }
+            if (!update.IsSuccess)
+                Snackbar.Add(update.ErrorMessage ?? "Update failed.", Severity.Error);
         }
+        if (update is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Customer updated.", Severity.Success);
         await OnCustomerUpdated.InvokeAsync();

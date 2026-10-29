@@ -14,7 +14,12 @@
                     else
                     {
                         <LayoutView Layout="@typeof(MainLayout)">
-                            <MudText Typo="Typo.h6">Not authorized.</MudText>
+                            <PageTitle>Not authorized · HelmutCode Admin</PageTitle>
+                            <div class="page-content">
+                                <h1 class="page-title">Not authorized</h1>
+                                <p class="page-subtitle">Your account doesn't have access to this page.</p>
+                                <MudLink Href="/" Class="mt-4 d-inline-block">← Back to dashboard</MudLink>
+                            </div>
                         </LayoutView>
                     }
                 </NotAuthorized>
@@ -22,7 +27,12 @@
         </Found>
         <NotFound>
             <LayoutView Layout="@typeof(MainLayout)">
-                <MudText Typo="Typo.h5">Page not found</MudText>
+                <PageTitle>Page not found · HelmutCode Admin</PageTitle>
+                <div class="page-content">
+                    <h1 class="page-title">Page not found</h1>
+                    <p class="page-subtitle">The link may be wrong or the page may have moved.</p>
+                    <MudLink Href="/" Class="mt-4 d-inline-block">← Back to dashboard</MudLink>
+                </div>
             </LayoutView>
         </NotFound>
     </Router>

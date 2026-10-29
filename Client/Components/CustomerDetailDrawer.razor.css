@@ -230,3 +230,11 @@
     color: var(--text-secondary);
     border: 1px solid var(--border-subtle);
 }
+
+.customer-drawer-view-all {
+    display: inline-block;
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--primary, #92d959);
+}

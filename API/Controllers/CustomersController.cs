@@ -20,6 +20,8 @@ public class CustomersController(ICustomerService customers) : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] string? status = null,
         [FromQuery] string? created = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] bool sortDesc = false,
         CancellationToken cancellationToken = default)
     {
         bool? isSuspended = status?.Trim().ToLowerInvariant() switch
@@ -33,7 +35,7 @@ public class CustomersController(ICustomerService customers) : ControllerBase
             ? DateTime.UtcNow.AddDays(-30)
             : null;
 
-        var result = await customers.ListAsync(page, pageSize, search, isSuspended, createdAfter, cancellationToken);
+        var result = await customers.ListAsync(page, pageSize, search, isSuspended, createdAfter, sortBy, sortDesc, cancellationToken);
         return Ok(result);
     }
 

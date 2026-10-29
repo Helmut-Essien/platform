@@ -506,3 +506,10 @@
     margin-top: 0.5rem;
     letter-spacing: 0.04em;
 }
+
+.invoices-active-filters {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}

@@ -24,10 +24,12 @@ public class InvoicesController(IBillingService billing) : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] DateTime? issuedFrom = null,
         [FromQuery] DateTime? issuedTo = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] bool sortDesc = false,
         CancellationToken cancellationToken = default)
     {
         var invoices = await billing.ListInvoicesAsync(
-            customerId, page, pageSize, unpaidOnly, status, search, issuedFrom, issuedTo, cancellationToken);
+            customerId, page, pageSize, unpaidOnly, status, search, issuedFrom, issuedTo, sortBy, sortDesc, cancellationToken);
         return Ok(invoices);
     }
 

@@ -71,12 +71,26 @@ public class JwtAuthenticationStateProvider(TokenStorage tokenStorage) : Authent
         return roles;
     }
 
-    private static bool IsExpired(JsonElement payload)
+    public static bool IsExpired(JsonElement payload) => IsExpired(payload, DateTimeOffset.UtcNow);
+
+    public static bool IsExpired(JsonElement payload, DateTimeOffset now)
     {
-        if (payload.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var unix))
-            return DateTimeOffset.FromUnixTimeSeconds(unix) < DateTimeOffset.UtcNow;
-        return true;
+        if (payload.ValueKind != JsonValueKind.Object
+            || !payload.TryGetProperty("exp", out var exp)
+            || exp.ValueKind != JsonValueKind.Number)
+            return true;
+
+        // "exp" is a NumericDate and may be fractional; an out-of-range value used to throw from
+        // FromUnixTimeSeconds and break the whole auth state instead of treating the token as invalid.
+        if (!exp.TryGetDouble(out var seconds) || double.IsNaN(seconds)
+            || seconds < MinUnixSeconds || seconds > MaxUnixSeconds)
+            return true;
+
+        return DateTimeOffset.FromUnixTimeSeconds((long)Math.Floor(seconds)) <= now;
     }
+
+    private static readonly long MinUnixSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
+    private static readonly long MaxUnixSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
 
     private static bool TryParsePayload(string jwt, out JsonElement payload)
     {

@@ -57,4 +57,27 @@ public class JwtAuthenticationStateProviderTests
         var body = B64(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)));
         return $"{header}.{body}.sig";
     }
+
+    [Theory]
+    [InlineData("{\"exp\":1e30}")]
+    [InlineData("{\"exp\":-1e30}")]
+    [InlineData("{\"exp\":\"soon\"}")]
+    [InlineData("{}")]
+    public void IsExpired_TreatsMissingOrOutOfRangeExpAsExpired(string json)
+    {
+        var payload = JsonSerializer.Deserialize<JsonElement>(json);
+
+        Assert.True(JwtAuthenticationStateProvider.IsExpired(payload));
+    }
+
+    [Fact]
+    public void IsExpired_AcceptsFractionalExpAndExpiresAtTheBoundary()
+    {
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
+
+        Assert.False(JwtAuthenticationStateProvider.IsExpired(
+            JsonSerializer.Deserialize<JsonElement>("{\"exp\":1800000060.5}"), now));
+        Assert.True(JwtAuthenticationStateProvider.IsExpired(
+            JsonSerializer.Deserialize<JsonElement>("{\"exp\":1800000000}"), now));
+    }
 }

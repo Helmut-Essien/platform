@@ -80,9 +80,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         string? search = null,
         string? status = null,
         string? created = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken ct = default)
     {
         var url = $"api/customers?page={page}&pageSize={pageSize}";
+        url += SortQuery(sortBy, sortDesc);
         if (!string.IsNullOrWhiteSpace(search))
             url += $"&search={Uri.EscapeDataString(search.Trim())}";
         if (!string.IsNullOrWhiteSpace(status) && status != "all")
@@ -164,9 +167,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         string? serviceProductId = null,
         LicenseStatus? status = null,
         string? search = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken ct = default)
     {
         var url = $"api/licenses?page={page}&pageSize={pageSize}";
+        url += SortQuery(sortBy, sortDesc);
         if (!string.IsNullOrEmpty(customerId))
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
         if (expiringWithinDays is > 0)
@@ -256,9 +262,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         string? search = null,
         DateTime? issuedFrom = null,
         DateTime? issuedTo = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken ct = default)
     {
         var url = $"api/invoices?page={page}&pageSize={pageSize}";
+        url += SortQuery(sortBy, sortDesc);
         if (!string.IsNullOrEmpty(customerId))
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
         if (unpaidOnly)
@@ -308,6 +317,31 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
 
     public async Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken ct = default) =>
         await GetJsonAsync<InvoiceDto>($"api/invoices/{id}", ct);
+
+    /// <summary>Loads one invoice and distinguishes "doesn't exist" (404) from a failed request.</summary>
+    public async Task<LookupResult<InvoiceDto>> LookupInvoiceAsync(string id, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await http.GetAsync($"api/invoices/{Uri.EscapeDataString(id)}", ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return LookupResult<InvoiceDto>.Missing();
+            if (!response.IsSuccessStatusCode)
+                return LookupResult<InvoiceDto>.Failed();
+
+            var invoice = await response.Content.ReadFromJsonAsync<InvoiceDto>(cancellationToken: ct);
+            return invoice is null ? LookupResult<InvoiceDto>.Failed() : LookupResult<InvoiceDto>.Found(invoice);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException
+                                       or NotSupportedException or OperationCanceledException)
+        {
+            return LookupResult<InvoiceDto>.Failed();
+        }
+    }
 
     public async Task<ApiResult<InvoiceDto>> CreateInvoiceAsync(
         CreateInvoiceRequest request,
@@ -532,4 +566,9 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         var (message, _) = await ParseErrorAsync(response, ct);
         return message;
     }
+
+    private static string SortQuery(string? sortBy, bool sortDesc) =>
+        string.IsNullOrWhiteSpace(sortBy)
+            ? ""
+            : $"&sortBy={Uri.EscapeDataString(sortBy.Trim())}" + (sortDesc ? "&sortDesc=true" : "");
 }

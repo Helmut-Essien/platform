@@ -5,6 +5,7 @@
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+<PageTitle>Invoices · HelmutCode Admin</PageTitle>
 
 <div class="invoices-page page-content">
     <header class="invoices-header">
@@ -103,11 +104,21 @@
                 <button type="button" class="btn-filter-apply" @onclick="ReloadGrid">FILTER</button>
             </div>
         </div>
+        @if (!string.IsNullOrEmpty(_customerFilter))
+        {
+            <div class="invoices-active-filters" aria-label="Active filters">
+                <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small"
+                         OnClose="@(_ => ClearCustomerFilterAsync())" CloseIcon="@Icons.Material.Filled.Close">
+                    Customer: @CustomerFilterLabel
+                </MudChip>
+            </div>
+        }
     </section>
 
     <div class="invoices-table-panel">
         <MudDataGrid @ref="_grid"
                      T="InvoiceDto"
+                     SortMode="SortMode.Single"
                      Class="invoices-grid"
                      ServerData="LoadServerData"
                      Hover="true"
@@ -116,12 +127,12 @@
                      RowClassFunc="GetRowClass"
                      RowsPerPage="25">
             <Columns>
-                <TemplateColumn Title="Invoice #">
+                <TemplateColumn Title="Invoice #" Sortable="true">
                     <CellTemplate>
                         <span class="invoice-number-link">@context.Item.InvoiceNumber</span>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Customer">
+                <TemplateColumn Title="Customer" Sortable="true">
                     <CellTemplate>
                         @{
                             var invoice = context.Item;
@@ -132,12 +143,12 @@
                         </div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Total">
+                <TemplateColumn Title="Total" Sortable="true">
                     <CellTemplate>
                         <div class="cell-right amount-mono">@FormatMoney(context.Item.TotalAmount, context.Item.Currency)</div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Paid">
+                <TemplateColumn Title="Paid" Sortable="false" CellClass="hide-xs" HeaderClass="hide-xs">
                     <CellTemplate>
                         @{
                             var paidClass = context.Item.AmountPaid > 0 ? "amount-mono" : "amount-mono amount-mono-muted";
@@ -145,7 +156,7 @@
                         <div class="cell-right @paidClass">@FormatMoney(context.Item.AmountPaid, context.Item.Currency)</div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Due">
+                <TemplateColumn Title="Due" Sortable="false">
                     <CellTemplate>
                         @{
                             var dueClass = context.Item.Status == InvoiceStatus.Overdue
@@ -155,14 +166,14 @@
                         <div class="cell-right @dueClass">@FormatMoney(context.Item.AmountDue, context.Item.Currency)</div>
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Status">
+                <TemplateColumn Title="Status" Sortable="true">
                     <CellTemplate>
                         <StatusBadge InvoiceStatus="context.Item.Status" />
                     </CellTemplate>
                 </TemplateColumn>
-                <TemplateColumn Title="Issue Date">
+                <TemplateColumn Title="Issue Date" Sortable="true" CellClass="hide-xs" HeaderClass="hide-xs">
                     <CellTemplate>
-                        @context.Item.IssueDate.ToString("MMM dd, yyyy")
+                        @DateFormat.Date(context.Item.IssueDate)
                     </CellTemplate>
                 </TemplateColumn>
                 <TemplateColumn Title="" Sortable="false">
@@ -171,7 +182,7 @@
                             var invoice = context.Item;
                         }
                         <div class="cell-right" @onclick:stopPropagation="true">
-                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More actions" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
                                 <MudMenuItem OnClick="@(() => ViewInvoice(invoice))">View invoice</MudMenuItem>
                                 @if (invoice.Status is not InvoiceStatus.Void and not InvoiceStatus.Paid)
                                 {
@@ -214,6 +225,7 @@
     private DateRange? _dateRange;
 
     [SupplyParameterFromQuery] public string? Filter { get; set; }
+    [SupplyParameterFromQuery] public string? CustomerId { get; set; }
 
     // Aggregates come from the server (B1): they cover every invoice, not the first page.
     // Amounts in different currencies are never summed (E7); the primary currency is USD when present,
@@ -239,6 +251,8 @@
     {
         if (string.Equals(Filter, "unpaid", StringComparison.OrdinalIgnoreCase))
             _quickFilter = "unpaid";
+        if (!string.IsNullOrWhiteSpace(CustomerId))
+            _customerFilter = CustomerId.Trim();
 
         var customersTask = Api.GetAllCustomersAsync();
         var statsTask = Api.GetInvoiceStatsAsync();
@@ -248,8 +262,20 @@
         _stats = statsTask.Result;
     }
 
+    // Grid column title/property → whitelisted API sort key (unlisted columns are not sortable).
+    private static readonly IReadOnlyDictionary<string, string> SortColumns =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Invoice #"] = "number",
+            ["Customer"] = "customer",
+            ["Total"] = "total",
+            ["Status"] = "status",
+            ["Issue Date"] = "issueDate"
+        };
+
     private async Task<GridData<InvoiceDto>> LoadServerData(GridState<InvoiceDto> state)
     {
+        var (sortBy, sortDesc) = GridSort.From(state, SortColumns, _grid?.RenderedColumns);
         var result = await Api.GetInvoicesPagedAsync(
             _customerFilter,
             page: state.Page + 1,
@@ -258,7 +284,9 @@
             status: _statusFilter ?? (_quickFilter == "sent" ? InvoiceStatus.Sent : null),
             search: _customerSearch,
             issuedFrom: _dateRange?.Start,
-            issuedTo: _dateRange?.End);
+            issuedTo: _dateRange?.End,
+            sortBy: sortBy,
+            sortDesc: sortDesc);
 
         return new GridData<InvoiceDto>
         {
@@ -285,10 +313,28 @@
         await ReloadGrid();
     }
 
+    private string CustomerFilterLabel =>
+        _customers.FirstOrDefault(c => c.Id == _customerFilter)?.Name ?? "Selected customer";
+
+    private async Task ClearCustomerFilterAsync()
+    {
+        _customerFilter = null;
+        DropCustomerIdFromUrl();
+        await ReloadGrid();
+    }
+
+    // Keep the URL in sync (replace: no extra history entry) so refresh doesn't bring the filter back.
+    private void DropCustomerIdFromUrl()
+    {
+        if (!string.IsNullOrEmpty(CustomerId))
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("customerId", (string?)null), replace: true);
+    }
+
     private async Task ResetFiltersAsync()
     {
         _statusFilter = null;
         _customerFilter = null;
+        DropCustomerIdFromUrl();
         _customerSearch = "";
         _quickFilter = "all";
         _dateRange = null;
@@ -306,20 +352,30 @@
 
     private async Task CreateInvoiceAsync()
     {
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<InvoiceDto>? apiResult = null;
+        Task<ApiResult<InvoiceDto>>? pending = null;
+        Func<CreateInvoiceRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.CreateInvoiceAsync(request);
+            apiResult = await pending;
+            return apiResult.IsSuccess ? null : apiResult.ErrorMessage ?? "Failed to create invoice.";
+        };
         var dialog = await DialogService.ShowAsync<CreateInvoiceDialog>("New Invoice", new DialogParameters
         {
-            [nameof(CreateInvoiceDialog.Customers)] = _customers
+            [nameof(CreateInvoiceDialog.Customers)] = _customers,
+            [nameof(CreateInvoiceDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not CreateInvoiceRequest request)
-            return;
-
-        var apiResult = await Api.CreateInvoiceAsync(request);
-        if (!apiResult.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && apiResult is null)
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to create invoice.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { apiResult = await pending; } catch { return; }
+            if (!apiResult.IsSuccess)
+                Snackbar.Add(apiResult.ErrorMessage ?? "Failed to create invoice.", Severity.Error);
         }
+        if (apiResult is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Invoice created.", Severity.Success);
         await RefreshStatsAsync();

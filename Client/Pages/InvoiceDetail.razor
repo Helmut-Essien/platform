@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+<PageTitle>@(_invoice?.InvoiceNumber is { Length: > 0 } num ? $"Invoice {num}" : "Invoice") · HelmutCode Admin</PageTitle>
 
 <div class="invoice-detail-page page-content">
 @if (_loading)
@@ -22,8 +23,20 @@ else if (_invoice is null)
     <header class="invoice-detail-header">
         <div>
             <a href="/invoices" class="invoice-detail-back">← Back to invoices</a>
-            <h1 class="page-title">Invoice not found</h1>
-            <p class="page-subtitle">This invoice may have been removed or the link is invalid.</p>
+            @if (_notFound)
+            {
+                <h1 class="page-title">Invoice not found</h1>
+                <p class="page-subtitle">This invoice may have been removed or the link is invalid.</p>
+            }
+            else
+            {
+                <h1 class="page-title">Couldn't load invoice</h1>
+                <p class="page-subtitle">Something went wrong while loading this invoice. Check your connection and try again.</p>
+                <button type="button" class="btn-primary-cta mt-3" @onclick="LoadAsync">
+                    <MudIcon Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" />
+                    Retry
+                </button>
+            }
         </div>
     </header>
 }
@@ -48,10 +61,15 @@ else
                 }
             </p>
         </div>
-        <div class="invoice-detail-actions">
+        <div class="invoice-detail-actions" aria-busy="@(_busy ? "true" : "false")">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" aria-label="Working…" />
+            }
             @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue)
             {
-                <button type="button" class="btn-primary-cta" @onclick="() => RunExclusiveAsync(SendInvoiceAsyncCore)" disabled="@_busy">
+                @* "Send again" is secondary so "Record payment" stays the primary action on sent invoices. *@
+                <button type="button" class="@(_invoice.Status == InvoiceStatus.Draft ? "btn-primary-cta" : "btn-secondary-cta")" @onclick="() => RunExclusiveAsync(SendInvoiceAsyncCore)" disabled="@_busy">
                     <MudIcon Icon="@Icons.Material.Filled.Send" Size="Size.Small" />
                     @(_invoice.Status == InvoiceStatus.Draft ? "Send invoice" : "Send again")
                 </button>
@@ -101,11 +119,11 @@ else
                 }
                 <div>
                     <dt>Issue date</dt>
-                    <dd class="mono">@_invoice.IssueDate.ToString("yyyy-MM-dd")</dd>
+                    <dd class="mono">@DateFormat.Date(_invoice.IssueDate)</dd>
                 </div>
                 <div>
                     <dt>Due date</dt>
-                    <dd class="mono">@(_invoice.DueDate?.ToString("yyyy-MM-dd") ?? "—")</dd>
+                    <dd class="mono">@DateFormat.Date(_invoice.DueDate)</dd>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(_invoice.Description))
                 {
@@ -188,7 +206,7 @@ else
                                 <td>@receipt.PaymentMethod</td>
                                 <td class="mono">@(string.IsNullOrWhiteSpace(receipt.PaymentReference) ? "—" : receipt.PaymentReference)</td>
                                 <td><StatusBadge ReceiptStatus="receipt.Status" /></td>
-                                <td class="mono">@receipt.PaidAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td class="mono">@DateFormat.DateAndTime(receipt.PaidAt)</td>
                                 <td class="cell-right">
                                     @if (receipt.Status == ReceiptStatus.Posted)
                                     {
@@ -235,6 +253,9 @@ else
     private bool _busy;
     private int _loadVersion;
 
+    private bool _notFound;
+    private bool _loadFailed;
+
     private async Task LoadAsync()
     {
         var requestedId = Id;
@@ -243,13 +264,27 @@ else
         if (_invoice?.Id != requestedId)
             _loading = true;
 
-        var invoice = await Api.GetInvoiceAsync(requestedId);
+        var lookup = await Api.LookupInvoiceAsync(requestedId);
         if (version != _loadVersion)
             return; // a newer navigation/refresh superseded this response
 
-        // A transient failure while refreshing must not turn an invoice we already have into "not found".
-        if (invoice is not null || _invoice?.Id != requestedId)
-            _invoice = invoice;
+        var refreshingCurrent = _invoice?.Id == requestedId;
+        if (lookup.IsFound)
+        {
+            _invoice = lookup.Value;
+            _notFound = _loadFailed = false;
+        }
+        else if (refreshingCurrent && lookup.IsError)
+        {
+            // A transient failure while refreshing keeps the invoice we already show.
+            Snackbar.Add("Couldn't refresh the invoice. The details shown may be out of date.", Severity.Warning);
+        }
+        else
+        {
+            _invoice = null;
+            _notFound = lookup.NotFound;
+            _loadFailed = lookup.IsError;
+        }
 
         _loading = false;
         _loaded = true;
@@ -277,20 +312,31 @@ else
         if (_invoice is null)
             return;
 
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        var invoiceId = _invoice.Id;
+        ApiResult<ReceiptDto>? apiResult = null;
+        Task<ApiResult<ReceiptDto>>? pending = null;
+        Func<RecordReceiptRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.RecordReceiptAsync(invoiceId, request);
+            apiResult = await pending;
+            return apiResult.IsSuccess ? null : apiResult.ErrorMessage ?? "Failed to record payment.";
+        };
         var dialog = await DialogService.ShowAsync<RecordReceiptDialog>("Record Payment", new DialogParameters
         {
-            [nameof(RecordReceiptDialog.AmountDue)] = _invoice.AmountDue
+            [nameof(RecordReceiptDialog.AmountDue)] = _invoice.AmountDue,
+            [nameof(RecordReceiptDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not RecordReceiptRequest request)
-            return;
-
-        var apiResult = await Api.RecordReceiptAsync(_invoice.Id, request);
-        if (!apiResult.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && apiResult is null)
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to record payment.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { apiResult = await pending; } catch { return; }
+            if (!apiResult.IsSuccess)
+                Snackbar.Add(apiResult.ErrorMessage ?? "Failed to record payment.", Severity.Error);
         }
+        if (apiResult is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Payment recorded.", Severity.Success);
         await LoadAsync();
@@ -301,21 +347,32 @@ else
         if (_invoice is null)
             return;
 
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        var invoiceId = _invoice.Id;
+        ApiResult<ReceiptDto>? apiResult = null;
+        Task<ApiResult<ReceiptDto>>? pending = null;
+        Func<ReverseReceiptRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.ReverseReceiptAsync(invoiceId, receipt.Id, request);
+            apiResult = await pending;
+            return apiResult.IsSuccess ? null : apiResult.ErrorMessage ?? "Failed to reverse payment.";
+        };
         var dialog = await DialogService.ShowAsync<ReverseReceiptDialog>("Reverse Payment", new DialogParameters
         {
             [nameof(ReverseReceiptDialog.ReceiptNumber)] = receipt.ReceiptNumber,
-            [nameof(ReverseReceiptDialog.Amount)] = receipt.AmountPaid
+            [nameof(ReverseReceiptDialog.Amount)] = receipt.AmountPaid,
+            [nameof(ReverseReceiptDialog.Submit)] = submit
         });
-        var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not ReverseReceiptRequest request)
-            return;
-
-        var apiResult = await Api.ReverseReceiptAsync(_invoice.Id, receipt.Id, request);
-        if (!apiResult.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && apiResult is null)
         {
-            Snackbar.Add(apiResult.ErrorMessage ?? "Failed to reverse payment.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { apiResult = await pending; } catch { return; }
+            if (!apiResult.IsSuccess)
+                Snackbar.Add(apiResult.ErrorMessage ?? "Failed to reverse payment.", Severity.Error);
         }
+        if (apiResult is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Payment reversed.", Severity.Success);
         await LoadAsync();

@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+<PageTitle>Customers · HelmutCode Admin</PageTitle>
 
 <div class="customers-page page-content">
     <header class="customers-header">
@@ -44,6 +45,7 @@
     <div class="customers-table-panel">
         <MudDataGrid @ref="_grid"
                      T="CustomerDto"
+                     SortMode="SortMode.Single"
                      Class="customers-grid"
                      ServerData="LoadServerData"
                      Hover="true"
@@ -51,7 +53,7 @@
                      RowClick="OnRowClick"
                      RowsPerPage="25">
                 <Columns>
-                    <TemplateColumn Title="Name">
+                    <TemplateColumn Title="Name" Sortable="true">
                         <CellTemplate>
                             @{
                                 var c = context.Item;
@@ -66,26 +68,26 @@
                         </CellTemplate>
                     </TemplateColumn>
                     <PropertyColumn Property="x => x.ContactEmail" Title="Contact Email" />
-                    <TemplateColumn Title="Contact Phone">
+                    <TemplateColumn Title="Contact Phone" Sortable="true" CellClass="hide-xs" HeaderClass="hide-xs">
                         <CellTemplate>
                             @(string.IsNullOrWhiteSpace(context.Item.ContactPhone) ? "—" : context.Item.ContactPhone)
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Status">
+                    <TemplateColumn Title="Status" Sortable="true">
                         <CellTemplate>
                             <div class="cell-center">
                                 <StatusBadge CustomerSuspended="context.Item.IsSuspended" />
                             </div>
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Licenses">
+                    <TemplateColumn Title="Licenses" Sortable="false" CellClass="hide-xs" HeaderClass="hide-xs">
                         <CellTemplate>
                             <div class="cell-center cell-mono">@context.Item.LicenseCount</div>
                         </CellTemplate>
                     </TemplateColumn>
-                    <TemplateColumn Title="Created At">
+                    <TemplateColumn Title="Created At" Sortable="true" CellClass="hide-xs" HeaderClass="hide-xs">
                         <CellTemplate>
-                            @context.Item.CreatedAt.ToString("MMM dd, yyyy")
+                            @DateFormat.Date(context.Item.CreatedAt)
                         </CellTemplate>
                     </TemplateColumn>
                     <TemplateColumn Title="" Sortable="false">
@@ -94,7 +96,7 @@
                                 var customer = context.Item;
                             }
                             <div class="d-flex justify-end" @onclick:stopPropagation="true">
-                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More actions" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
                                     <MudMenuItem OnClick="@(() => ViewCustomer(customer))">View profile</MudMenuItem>
                                     <MudMenuItem OnClick="@(() => EditAsync(customer))">Edit</MudMenuItem>
                                     <MudMenuItem Href="@($"/licenses?customerId={customer.Id}")">View licenses</MudMenuItem>
@@ -112,14 +114,28 @@
                     </TemplateColumn>
                 </Columns>
                 <NoRecordsContent>
-                    <div class="customers-empty">
-                        <h2>No customers yet</h2>
-                        <p>Add your first customer to start issuing licenses.</p>
-                        <button type="button" class="btn-primary-cta" @onclick="OpenCreateDialogAsync">
-                            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
-                            New Customer
-                        </button>
-                    </div>
+                    @if (HasFilters)
+                    {
+                        <div class="customers-empty">
+                            <h2>No matching customers</h2>
+                            <p>No customers match the current search or filters.</p>
+                            <button type="button" class="btn-primary-cta" @onclick="ClearFiltersAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.FilterAltOff" Size="Size.Small" />
+                                Clear filters
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="customers-empty">
+                            <h2>No customers yet</h2>
+                            <p>Add your first customer to start issuing licenses.</p>
+                            <button type="button" class="btn-primary-cta" @onclick="OpenCreateDialogAsync">
+                                <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Small" />
+                                New Customer
+                            </button>
+                        </div>
+                    }
                 </NoRecordsContent>
                 <PagerContent>
                     <MudDataGridPager T="CustomerDto" />
@@ -145,17 +161,36 @@
     protected override async Task OnInitializedAsync()
     {
         if (!string.IsNullOrEmpty(Add))
+        {
+            // Drop ?add=true (replace, no history entry) so refresh/back doesn't reopen the dialog.
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("add", (string?)null), replace: true);
             await OpenCreateDialogAsync();
+        }
     }
+
+    // Grid column title/property → whitelisted API sort key (unlisted columns are not sortable).
+    private static readonly IReadOnlyDictionary<string, string> SortColumns =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Name"] = "name",
+            ["Contact Phone"] = "phone",
+            ["Status"] = "status",
+            ["Created At"] = "created",
+            ["ContactEmail"] = "email",
+            ["Contact Email"] = "email"
+        };
 
     private async Task<GridData<CustomerDto>> LoadServerData(GridState<CustomerDto> state)
     {
+        var (sortBy, sortDesc) = GridSort.From(state, SortColumns, _grid?.RenderedColumns);
         var result = await Api.GetCustomersPagedAsync(
             state.Page + 1,
             state.PageSize,
             search: _search,
             status: _statusFilter,
-            created: _dateFilter);
+            created: _dateFilter,
+            sortBy: sortBy,
+            sortDesc: sortDesc);
 
         return new GridData<CustomerDto>
         {
@@ -168,6 +203,17 @@
     {
         if (_grid is not null)
             await _grid.ReloadServerData();
+    }
+
+    private bool HasFilters =>
+        !string.IsNullOrWhiteSpace(_search) || _statusFilter != "all" || _dateFilter != "all";
+
+    private async Task ClearFiltersAsync()
+    {
+        _search = "";
+        _statusFilter = "all";
+        _dateFilter = "all";
+        await ReloadGrid();
     }
 
     private async Task OnStatusFilterChanged(string? value)
@@ -199,17 +245,29 @@
 
     private async Task OpenCreateDialogAsync()
     {
-        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("New Customer");
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not CreateCustomerRequest request)
-            return;
-
-        var result = await Api.CreateCustomerAsync(request);
-        if (!result.IsSuccess)
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<CustomerDto>? result = null;
+        Task<ApiResult<CustomerDto>>? pending = null;
+        Func<CreateCustomerRequest, Task<string?>> submit = async request =>
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to create customer.", Severity.Error);
-            return;
+            pending = Api.CreateCustomerAsync(request);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to create customer.";
+        };
+        var dialog = await DialogService.ShowAsync<CustomerCreateDialog>("New Customer", new DialogParameters
+        {
+            [nameof(CustomerCreateDialog.Submit)] = submit
+        });
+        await dialog.Result;
+        if (pending is not null && result is null)
+        {
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { result = await pending; } catch { return; }
+            if (!result.IsSuccess)
+                Snackbar.Add(result.ErrorMessage ?? "Failed to create customer.", Severity.Error);
         }
+        if (result is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Customer created.", Severity.Success);
         await ReloadGrid();
@@ -217,20 +275,30 @@
 
     private async Task EditAsync(CustomerDto customer)
     {
+        // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
+        ApiResult<CustomerDto>? result = null;
+        Task<ApiResult<CustomerDto>>? pending = null;
+        Func<UpdateCustomerRequest, Task<string?>> submit = async request =>
+        {
+            pending = Api.UpdateCustomerAsync(customer.Id, request);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to update customer.";
+        };
         var dialog = await DialogService.ShowAsync<CustomerEditDialog>("Edit Customer", new DialogParameters
         {
-            [nameof(CustomerEditDialog.Customer)] = customer
+            [nameof(CustomerEditDialog.Customer)] = customer,
+            [nameof(CustomerEditDialog.Submit)] = submit
         });
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not UpdateCustomerRequest request)
-            return;
-
-        var result = await Api.UpdateCustomerAsync(customer.Id, request);
-        if (!result.IsSuccess)
+        await dialog.Result;
+        if (pending is not null && result is null)
         {
-            Snackbar.Add(result.ErrorMessage ?? "Failed to update customer.", Severity.Error);
-            return;
+            // Dialog dismissed (Esc/backdrop) while saving: still report the outcome.
+            try { result = await pending; } catch { return; }
+            if (!result.IsSuccess)
+                Snackbar.Add(result.ErrorMessage ?? "Failed to update customer.", Severity.Error);
         }
+        if (result is not { IsSuccess: true })
+            return;
 
         Snackbar.Add("Customer updated.", Severity.Success);
         await ReloadGrid();

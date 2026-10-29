@@ -6,6 +6,8 @@
 @inject JwtAuthenticationStateProvider AuthState
 @inject NavigationManager Navigation
 
+<PageTitle>Sign in · HelmutCode Admin</PageTitle>
+
 <MudPaper Class="login-card pa-5 pa-sm-8" Elevation="0">
     <div class="login-brand">
         <img src="images/login-logo.png" alt="HelmutCode" class="login-logo" />
@@ -101,6 +103,8 @@
         ["autocomplete"] = "current-password"
     };
 
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnTo { get; set; }
+
     private bool _busy;
     private bool _passwordVisible;
     private bool _hasError;
@@ -144,12 +148,12 @@
 
             await TokenStorage.SetAsync(result.Data!.Token, result.Data.Email);
             AuthState.NotifyStateChanged();
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo(Platform.Client.Helpers.ReturnUrl.Sanitize(ReturnTo), replace: true);
         }
         catch (Exception ex)
         {
             _hasError = true;
-            _errorMessage = "Sign-in failed. Check that the API is running and try again.";
+            _errorMessage = "Couldn't reach the server. Check your connection and try again.";
             Console.Error.WriteLine($"Login error: {ex}");
         }
         finally

@@ -3,6 +3,8 @@
 @inject PlatformApiClient Api
 @inject IJSRuntime JSRuntime
 @inject ISnackbar Snackbar
+<PageTitle>Audit log · HelmutCode Admin</PageTitle>
+
 <div class="audit-page page-content">
     <header class="audit-header">
         <div>
@@ -83,7 +85,7 @@
                                 <td class="cell-center">
                                     <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Class="@($"audit-chevron {(expanded ? "expanded" : "")}")" />
                                 </td>
-                                <td class="audit-timestamp">@log.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                <td class="audit-timestamp">@DateFormat.Timestamp(log.Timestamp)</td>
                                 <td>
                                     <div class="audit-admin-cell">
                                         <div class="audit-admin-avatar @GetAvatarClass(log)">@GetAdminInitials(log.PerformedBy)</div>
@@ -97,7 +99,7 @@
                                 <td class="audit-ip">@(string.IsNullOrWhiteSpace(log.IpAddress) ? "—" : log.IpAddress)</td>
                                 <td class="cell-right" @onclick:stopPropagation="true">
                                     <div class="audit-row-menu">
-                                        <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
+                                        <MudMenu Icon="@Icons.Material.Filled.MoreVert" AriaLabel="More actions" Size="Size.Small" Dense="true" AnchorOrigin="Origin.BottomRight">
                                             @if (!string.IsNullOrEmpty(log.CustomerId))
                                             {
                                                 <MudMenuItem Href="@($"/customers?highlight={log.CustomerId}")">View customer</MudMenuItem>
@@ -166,7 +168,7 @@
                     </button>
                     @foreach (var pageNum in VisiblePages)
                     {
-                        <button type="button" class="audit-page-btn @(pageNum == _page ? "active" : "")" @onclick="() => GoToPage(pageNum)">@pageNum</button>
+                        <button type="button" class="audit-page-btn @(pageNum == _page ? "active" : "")" aria-label="Page @pageNum" aria-current="@(pageNum == _page ? "page" : null)" @onclick="() => GoToPage(pageNum)">@pageNum</button>
                     }
                     <button type="button" class="audit-page-btn" disabled="@(_page >= TotalPages)" @onclick="() => GoToPage(_page + 1)" aria-label="Next page">
                         <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" />

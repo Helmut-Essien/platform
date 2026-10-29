@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @using Microsoft.AspNetCore.Components.Forms
 @using Platform.Shared.Dtos.Settings
+<PageTitle>Settings · HelmutCode Admin</PageTitle>
 
 <div class="settings-page page-content">
     <header class="settings-header">
@@ -23,6 +24,14 @@
             Save letterhead
         </button>
     </header>
+
+    @if (_loadFailed && !_loading)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">
+            Settings couldn't be loaded, so saving is disabled to protect your current letterhead.
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Class="ml-2" OnClick="RetryAsync">Retry</MudButton>
+        </MudAlert>
+    }
 
     @if (_loading)
     {
@@ -46,10 +55,13 @@
 
             <div class="settings-form-grid">
                 <MudTextField @bind-Value="_companyName"
+                              @bind-Value:after="OnCompanyNameEdited"
                               Label="Company name"
                               Variant="Variant.Outlined"
                               Required="true"
                               RequiredError="Company name is required"
+                              Error="@(CompanyNameError is not null)"
+                              ErrorText="@CompanyNameError"
                               MaxLength="200"
                               Class="settings-field-full" />
 
@@ -189,7 +201,17 @@
     private string? _savedLogoDataUrl;
     private string? _logoFileName;
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task RetryAsync()
+    {
+        _loadFailed = false;
+        _loading = true;
+        _paymentOptions.Clear();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
     {
         try
         {
@@ -224,7 +246,8 @@
         catch (Exception ex)
         {
             _loadFailed = true;
-            Snackbar.Add($"Failed to load settings: {ex.Message}", Severity.Error);
+            Console.Error.WriteLine($"Settings load failed: {ex}");
+            Snackbar.Add("Couldn't load settings. Check your connection and try again.", Severity.Error);
         }
         finally
         {
@@ -301,11 +324,28 @@
         _hasCustomLogo = false;
     }
 
+    private bool _companyNameTouched;
+    private string? _companyNameServerError;
+
+    private string? CompanyNameError =>
+        _companyNameServerError
+        ?? (!_companyNameTouched ? null
+            : string.IsNullOrWhiteSpace(_companyName) ? "Company name is required."
+            : _companyName.Trim().Length > 200 ? "Company name must be 200 characters or less."
+            : null);
+
+    private void OnCompanyNameEdited()
+    {
+        _companyNameTouched = true;
+        _companyNameServerError = null;
+    }
+
     private async Task SaveAsync()
     {
-        if (string.IsNullOrWhiteSpace(_companyName))
+        _companyNameTouched = true;
+        if (CompanyNameError is not null)
         {
-            Snackbar.Add("Company name is required.", Severity.Warning);
+            Snackbar.Add("Fix the highlighted field before saving.", Severity.Warning);
             return;
         }
 
@@ -336,6 +376,9 @@
             var result = await Api.UpdateInvoiceBrandAsync(request);
             if (!result.IsSuccess || result.Data is null)
             {
+                // Show server validation on the field it belongs to, not only in a snackbar.
+                _companyNameServerError = FieldErrorHelper.GetFieldError(
+                    result.FieldErrors, nameof(UpdateInvoiceBrandRequest.CompanyName), "companyName", "request.CompanyName");
                 Snackbar.Add(result.ErrorMessage ?? "Failed to save letterhead.", Severity.Error);
                 return;
             }

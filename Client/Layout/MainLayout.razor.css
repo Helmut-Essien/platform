@@ -395,3 +395,41 @@
     left: 1rem;
     top: 1rem;
 }
+
+/* Account menu (replaces the bare Logout button) */
+.account-menu-trigger {
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.5rem;
+    text-align: right;
+}
+
+.account-menu-trigger:hover,
+.account-menu-trigger:focus-visible {
+    background: rgba(146, 217, 89, 0.08);
+}
+
+.account-menu-trigger .app-bar-user-name,
+.account-menu-trigger .app-bar-user-role {
+    display: block;
+}
+
+.account-menu-header {
+    padding: 0.75rem 1rem 0.5rem;
+    min-width: 12rem;
+}
+
+.account-menu-name {
+    margin: 0;
+    font-weight: 600;
+}
+
+.account-menu-email,
+.account-menu-role {
+    margin: 0.125rem 0 0;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #a0a0a0);
+}

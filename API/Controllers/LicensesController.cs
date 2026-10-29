@@ -24,6 +24,8 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromQuery] string? serviceProductId = null,
         [FromQuery] LicenseStatus? status = null,
         [FromQuery] string? search = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] bool sortDesc = false,
         CancellationToken cancellationToken = default)
     {
         var result = await licenses.ListAsync(
@@ -35,6 +37,8 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
             serviceProductId,
             status,
             search,
+            sortBy,
+            sortDesc,
             cancellationToken);
         return Ok(result);
     }

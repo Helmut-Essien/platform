@@ -388,3 +388,20 @@ a.platform-nav-item.active .platform-nav-label {
         transition: none !important;
     }
 }
+
+/* Section headings (Operations / Configuration / Tools) */
+.platform-nav-section {
+    padding: 0.875rem 1rem 0.25rem;
+    border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    margin-top: 0.25rem;
+}
+
+.platform-nav-section-title {
+    display: block;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-secondary, #a0a0a0);
+    white-space: nowrap;
+}

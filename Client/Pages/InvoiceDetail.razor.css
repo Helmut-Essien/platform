@@ -277,3 +277,27 @@
     font-size: 0.75rem;
     color: var(--text-secondary);
 }
+
+.btn-secondary-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1.25rem;
+    background: transparent;
+    color: var(--primary, #92d959);
+    border: 1px solid var(--primary, #92d959);
+    border-radius: 0.5rem;
+    font-weight: 700;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.btn-secondary-cta:hover:not(:disabled) {
+    background: rgba(146, 217, 89, 0.08);
+}
+
+.btn-secondary-cta:disabled,
+.btn-invoice-void:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}

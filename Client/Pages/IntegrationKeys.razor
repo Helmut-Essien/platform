@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IJSRuntime JSRuntime
+<PageTitle>Integration keys · HelmutCode Admin</PageTitle>
 
 <div class="integration-keys-page page-content">
     <header class="integration-keys-header">
@@ -67,17 +68,17 @@
                                 Key not recoverable after creation.
                                 @if (key.IsActive)
                                 {
-                                    <button type="button" class="integration-key-rotate-link" @onclick="() => RotateFromCardAsync(key)">
+                                    <button type="button" class="integration-key-rotate-link" disabled="@_busy" @onclick="() => RotateFromCardAsync(key)">
                                         Rotate to issue a new key
                                     </button>
                                 }
                             </p>
                         </div>
                         <div class="integration-key-card-footer">
-                            <span class="integration-key-created">Created: @key.CreatedAt.ToString("MMM dd, yyyy")</span>
+                            <span class="integration-key-created">Created: @DateFormat.Date(key.CreatedAt)</span>
                             @if (key.IsActive)
                             {
-                                <button type="button" class="btn-revoke-key" @onclick="() => RevokeAsync(key.Id)">
+                                <button type="button" class="btn-revoke-key" disabled="@_busy" aria-label="Revoke key created @DateFormat.Date(key.CreatedAt)" @onclick="() => RevokeAsync(key.Id)">
                                     <MudIcon Icon="@Icons.Material.Filled.DeleteForever" Size="Size.Small" />
                                     Revoke
                                 </button>
@@ -145,44 +146,43 @@
         if (_busy)
             return;
 
-        var dialog = await DialogService.ShowAsync<IntegrationKeyGenerateDialog>(
-            "Generate Integration Key",
-            new DialogParameters
-            {
-                [nameof(IntegrationKeyGenerateDialog.Products)] = _products,
-                [nameof(IntegrationKeyGenerateDialog.DefaultProductId)] = defaultProductId ?? ProductId
-            });
-
-        var dialogResult = await dialog.Result;
-        if (dialogResult?.Canceled is not false || dialogResult.Data is not string serviceProductId)
-            return;
-
-        var existingActive = _keys.Any(k => k.ServiceProductId == serviceProductId && k.IsActive);
-        if (existingActive)
+        // The key is created inside the dialog (busy state, inline errors, closes only on success);
+        // the dialog itself asks for confirmation when this rotates an existing active key.
+        ApiResult<CreateIntegrationKeyResponse>? result = null;
+        Task<ApiResult<CreateIntegrationKeyResponse>>? pending = null;
+        Func<string, Task<string?>> submit = async serviceProductId =>
         {
-            var confirm = await DialogService.ShowAsync<ConfirmDialog>("Rotate Integration Key", new DialogParameters
-            {
-                ["Title"] = "Rotate Integration Key",
-                ["Message"] = "Creating a new key will revoke the existing active key for this service. Any app using the old key will fail validation. Continue?",
-                ["ConfirmText"] = "Generate",
-                ["IsDestructive"] = true
-            }, PlatformDialogOptions.Confirm);
-            var confirmResult = await confirm.Result;
-            if (confirmResult?.Canceled is not false)
-                return;
-        }
+            pending = Api.CreateIntegrationKeyAsync(serviceProductId);
+            result = await pending;
+            return result.IsSuccess ? null : result.ErrorMessage ?? "Failed to create integration key.";
+        };
 
         _busy = true;
         try
         {
-            var result = await Api.CreateIntegrationKeyAsync(serviceProductId);
-            if (!result.IsSuccess)
-            {
-                Snackbar.Add(result.ErrorMessage ?? "Failed to create integration key.", Severity.Error);
-                return;
-            }
+            var dialog = await DialogService.ShowAsync<IntegrationKeyGenerateDialog>(
+                "Generate Integration Key",
+                new DialogParameters
+                {
+                    [nameof(IntegrationKeyGenerateDialog.Products)] = _products,
+                    [nameof(IntegrationKeyGenerateDialog.DefaultProductId)] = defaultProductId ?? ProductId,
+                    [nameof(IntegrationKeyGenerateDialog.ActiveKeyProductIds)] =
+                        _keys.Where(k => k.IsActive).Select(k => k.ServiceProductId).ToHashSet(),
+                    [nameof(IntegrationKeyGenerateDialog.Submit)] = submit
+                });
+            await dialog.Result;
 
-            var product = GetProduct(result.Data!.Key);
+            if (pending is not null && result is null)
+            {
+                // Dismissed (Esc/backdrop) mid-request: still surface the outcome — the plain key is shown only once.
+                try { result = await pending; } catch { return; }
+                if (!result.IsSuccess)
+                    Snackbar.Add(result.ErrorMessage ?? "Failed to create integration key.", Severity.Error);
+            }
+            if (result is not { IsSuccess: true, Data: not null })
+                return;
+
+            var product = GetProduct(result.Data.Key);
             await ShowRevealDialogAsync(
                 result.Data.PlainKey,
                 product?.Name ?? result.Data.Key.ServiceProductCode ?? "Service",

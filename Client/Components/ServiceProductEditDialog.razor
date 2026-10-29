@@ -3,11 +3,17 @@
         <MudText Typo="Typo.h6">Edit Service</MudText>
     </TitleContent>
     <DialogContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
+        }
         <MudText Typo="Typo.caption" Class="mb-2">Code: <span class="license-key">@Product.Code</span></MudText>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudTextField @bind-Value="_model.Name"
                           For="@(() => _model.Name)"
                           Label="Name"
+                          Required="true"
+                          RequiredError="Name is required"
                           Variant="Variant.Outlined"
                           MaxLength="200"
                           Counter="200"
@@ -24,8 +30,12 @@
         </MudForm>
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!_formValid)">
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || !_formValid)">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+            }
             Save
         </MudButton>
     </DialogActions>
@@ -36,6 +46,11 @@
 
     [Parameter] public required ServiceProductDto Product { get; set; }
 
+    /// <summary>Saves inside the dialog; returns an error message to show, or null on success (dialog then closes).</summary>
+    [Parameter] public Func<UpdateServiceProductRequest, Task<string?>>? Submit { get; set; }
+
+    private bool _busy;
+    private string? _error;
     private MudForm? _form;
     private bool _formValid;
     private UpdateServiceProductRequest _model = new() { Name = "" };
@@ -50,10 +65,17 @@
         };
     }
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel()
+    {
+        if (!_busy)
+            MudDialog.Cancel();
+    }
 
     private async Task SaveAsync()
     {
+        if (_busy)
+            return;
+
         if (_form is null)
             return;
 
@@ -61,6 +83,38 @@
         if (!_formValid)
             return;
 
-        MudDialog.Close(DialogResult.Ok(_model));
+        await SubmitAndCloseAsync(_model);
+    }
+
+    private async Task SubmitAndCloseAsync(UpdateServiceProductRequest value)
+    {
+        if (Submit is null)
+        {
+            MudDialog.Close(DialogResult.Ok(value));
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            var error = await Submit(value);
+            if (error is not null)
+            {
+                _error = error;
+                return;
+            }
+
+            MudDialog.Close(DialogResult.Ok(value));
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 }

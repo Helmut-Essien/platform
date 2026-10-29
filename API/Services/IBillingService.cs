@@ -24,6 +24,8 @@ public interface IBillingService
         string? search = null,
         DateTime? issuedFrom = null,
         DateTime? issuedTo = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken cancellationToken = default);
 
     Task<InvoiceStatsDto> GetInvoiceStatsAsync(CancellationToken cancellationToken = default);

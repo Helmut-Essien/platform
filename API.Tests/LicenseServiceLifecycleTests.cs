@@ -447,6 +447,8 @@ public class LicenseServiceLifecycleTests
             string? search = null,
             DateTime? issuedFrom = null,
             DateTime? issuedTo = null,
+            string? sortBy = null,
+            bool sortDesc = false,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

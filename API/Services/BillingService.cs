@@ -289,6 +289,8 @@ public class BillingService(
         string? search = null,
         DateTime? issuedFrom = null,
         DateTime? issuedTo = null,
+        string? sortBy = null,
+        bool sortDesc = false,
         CancellationToken cancellationToken = default)
     {
         var (normalizedPage, normalizedPageSize, skip) = PagingHelper.Normalize(page, pageSize);
@@ -327,14 +329,17 @@ public class BillingService(
             query = query.Where(i => i.IssueDate >= from);
         }
 
-        if (issuedTo is not null)
+        // DateTime.MaxValue.Date has no next day; an "until the end of time" bound filters nothing.
+        if (issuedTo is not null && issuedTo.Value.Date < DateTime.MaxValue.Date)
         {
             var toExclusive = DateTime.SpecifyKind(issuedTo.Value.Date.AddDays(1), DateTimeKind.Utc);
             query = query.Where(i => i.IssueDate < toExclusive);
         }
 
         // Id tiebreaker keeps paging stable when many invoices share an IssueDate.
-        var ordered = query.OrderByDescending(i => i.IssueDate).ThenByDescending(i => i.Id);
+        var ordered = SortHelper.Apply(query, SortHelper.InvoiceSorts, sortBy, sortDesc,
+                q => q.OrderByDescending(i => i.IssueDate))
+            .ThenByDescending(i => i.Id);
 
         var totalCount = await ordered.CountAsync(cancellationToken);
 

@@ -26,6 +26,9 @@
 }
 
 .kpi-card {
+    /* Rendered as <a>: keep card look, no link colour/underline. */
+    color: inherit;
+    text-decoration: none;
     background: var(--bg-surface);
     border: 1px solid var(--border-subtle);
     padding: 1.5rem;
@@ -34,6 +37,12 @@
     gap: 0.5rem;
     cursor: pointer;
     transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.kpi-card:hover,
+.kpi-card:visited {
+    color: inherit;
+    text-decoration: none;
 }
 
 .kpi-card:hover {

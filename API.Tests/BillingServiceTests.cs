@@ -670,6 +670,44 @@ public class BillingServiceTests
     }
 
     [Fact]
+    public async Task ListInvoicesAsync_FiltersByCustomerId()
+    {
+        await using var db = CreateDbContext();
+        var acme = await SeedCustomerAsync(db);
+        var globex = new Customer { Name = "Globex", ContactEmail = "g@globex.test" };
+        db.Customers.Add(globex);
+        await db.SaveChangesAsync();
+        var service = CreateBillingService(db);
+
+        await CreateSentInvoiceAsync(service, acme.Id, 10m);
+        var g1 = await CreateSentInvoiceAsync(service, globex.Id, 20m);
+        var g2 = await CreateSentInvoiceAsync(service, globex.Id, 30m);
+
+        var forGlobex = await service.ListInvoicesAsync(customerId: globex.Id);
+        Assert.Equal(2, forGlobex.TotalCount);
+        Assert.Equal(new[] { g1.Id, g2.Id }.OrderBy(x => x), forGlobex.Items.Select(i => i.Id).OrderBy(x => x));
+
+        var unknown = await service.ListInvoicesAsync(customerId: "no-such-customer");
+        Assert.Equal(0, unknown.TotalCount);
+    }
+
+    [Fact]
+    public async Task ListInvoicesAsync_MaxDateRangeAndHugePageDoNotThrow()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var service = CreateBillingService(db);
+        await CreateSentInvoiceAsync(service, customer.Id, 10m);
+
+        var all = await service.ListInvoicesAsync(issuedFrom: DateTime.MinValue, issuedTo: DateTime.MaxValue);
+        Assert.Equal(1, all.TotalCount);
+
+        var beyond = await service.ListInvoicesAsync(page: int.MaxValue, pageSize: 100);
+        Assert.Equal(1, beyond.TotalCount);
+        Assert.Empty(beyond.Items);
+    }
+
+    [Fact]
     public async Task VoidInvoiceAsync_RejectsInvoiceWithPostedPayment()
     {
         await using var db = CreateDbContext();

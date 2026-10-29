@@ -16,6 +16,75 @@ namespace Client.Tests;
 public class PlatformApiClientTests
 {
     [Fact]
+    public async Task GetInvoicesPagedAsync_SendsCustomerIdFilter()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new PagedResult<InvoiceDto> { Items = [], TotalCount = 0, Page = 1, PageSize = 25 }));
+        var client = CreateClient(handler);
+
+        await client.GetInvoicesPagedAsync("cust 1&x", page: 1, pageSize: 25);
+
+        Assert.Contains("customerId=cust%201%26x", handler.LastRequest!.RequestUri!.Query);
+    }
+
+    [Fact]
+    public async Task LookupInvoiceAsync_404_IsNotFound()
+    {
+        var client = CreateClient(new CapturingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)));
+
+        var result = await client.LookupInvoiceAsync("missing");
+
+        Assert.True(result.NotFound);
+        Assert.False(result.IsError);
+        Assert.Null(result.Value);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task LookupInvoiceAsync_OtherFailures_AreErrors(HttpStatusCode status)
+    {
+        var client = CreateClient(new CapturingHttpMessageHandler(_ => new HttpResponseMessage(status)));
+
+        var result = await client.LookupInvoiceAsync("inv1");
+
+        Assert.True(result.IsError);
+        Assert.False(result.NotFound);
+    }
+
+    [Fact]
+    public async Task LookupInvoiceAsync_NetworkFailure_IsError()
+    {
+        var client = CreateClient(new CapturingHttpMessageHandler(_ => throw new HttpRequestException("down")));
+
+        var result = await client.LookupInvoiceAsync("inv1");
+
+        Assert.True(result.IsError);
+    }
+
+    [Fact]
+    public async Task PagedLists_AppendSortQuery_OnlyWhenSortRequested()
+    {
+        var handler = new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new PagedResult<CustomerDto> { Items = [], TotalCount = 0, Page = 1, PageSize = 25 }));
+        var client = CreateClient(handler);
+
+        await client.GetCustomersPagedAsync(1, 25, sortBy: "name", sortDesc: true);
+        var query = handler.LastRequest!.RequestUri!.Query;
+        Assert.Contains("sortBy=name", query);
+        Assert.Contains("sortDesc=true", query);
+
+        await client.GetCustomersPagedAsync(1, 25, sortBy: "created");
+        query = handler.LastRequest!.RequestUri!.Query;
+        Assert.Contains("sortBy=created", query);
+        Assert.DoesNotContain("sortDesc", query);
+
+        await client.GetCustomersPagedAsync(1, 25);
+        Assert.DoesNotContain("sortBy", handler.LastRequest!.RequestUri!.Query);
+    }
+
+    [Fact]
     public async Task ValidateLicenseAsync_SendsIntegrationKeyHeaderAndPayload()
     {
         var handler = new CapturingHttpMessageHandler(_ =>
