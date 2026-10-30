@@ -155,6 +155,13 @@ the receipt and reactivates suspended licenses as usual.
   gets recorded — keep the `/health` keep-alive (§6) running.
 - If Paystack's amount or currency doesn't match, or the invoice was voided/paid in the meantime, nothing is recorded
   and the checkout is marked *NeedsReview* (look it up in the Paystack dashboard and refund or record manually).
+- If you pass Paystack fees to the customer, the invoice is credited with the invoice amount (`requested_amount`);
+  the dashboard total shows what Paystack actually charged. Test-mode payments never count toward the live total.
+- The customer needs a valid billing or contact email (Paystack requires one); otherwise the button shows an error.
+- Clicking **Pay with Paystack** again within an hour reuses the same checkout; older or different-amount
+  checkouts stay open until verified and expire after 24 hours, so a late payment on them is still picked up.
+- Webhook rate limit: 120 requests/minute per client IP (IIS in-process sees the real IP; with
+  `ForwardedHeaders__Enabled` only trusted proxies are honoured).
 
 **Going live**
 
