@@ -50,12 +50,24 @@ public class PaymentsController(
         if (!options.Enabled)
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Online payments are not configured." });
 
+        if (Request.ContentLength > MaxWebhookBytes)
+            return StatusCode(StatusCodes.Status413PayloadTooLarge);
+
+        // Read the raw body exactly once (the signature covers these bytes; no model binding re-reads it).
         byte[] body;
-        using (var buffer = new MemoryStream())
+        try
         {
+            using var buffer = new MemoryStream();
             await Request.Body.CopyToAsync(buffer, cancellationToken);
             body = buffer.ToArray();
         }
+        catch (BadHttpRequestException ex)
+        {
+            // Chunked bodies over [RequestSizeLimit] surface here instead of as Content-Length.
+            return StatusCode(ex.StatusCode);
+        }
+        if (body.Length > MaxWebhookBytes)
+            return StatusCode(StatusCodes.Status413PayloadTooLarge);
 
         if (!PaystackSignature.IsValid(options.SecretKey, body, Request.Headers[PaystackSignature.HeaderName].FirstOrDefault()))
         {
