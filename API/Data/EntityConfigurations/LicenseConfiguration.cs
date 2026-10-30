@@ -43,6 +43,12 @@ public class LicenseConfiguration : IEntityTypeConfiguration<License>
         builder.Property(l => l.AutoSuspendedForOverdueInvoiceId)
             .HasMaxLength(26);
 
+        builder.Property(l => l.BillingAmount).HasPrecision(18, 2);
+        builder.Property(l => l.BillingTaxAmount).HasPrecision(18, 2).HasDefaultValue(0m);
+        builder.Property(l => l.BillingCurrency).HasMaxLength(3);
+        builder.Property(l => l.BillingPeriodMonths).HasDefaultValue(12);
+        builder.Property(l => l.AutoRenewInvoice).HasDefaultValue(true);
+
         builder.HasIndex(l => new { l.ServiceProductId, l.LicenseKeyLookupHash });
         builder.HasIndex(l => l.AutoSuspendedForOverdueInvoiceId);
 

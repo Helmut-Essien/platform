@@ -1075,5 +1075,111 @@ BEGIN
     VALUES ('20261030064726_PaymentCheckoutConcurrencyAndCap', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Licenses" ADD "AutoRenewInvoice" boolean NOT NULL DEFAULT TRUE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Licenses" ADD "BillingAmount" numeric(18,2);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Licenses" ADD "BillingAnchorDay" integer;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Licenses" ADD "BillingCurrency" character varying(3);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Licenses" ADD "BillingPeriodMonths" integer NOT NULL DEFAULT 12;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Licenses" ADD "BillingTaxAmount" numeric(18,2) NOT NULL DEFAULT 0.0;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Invoices" ADD "PayLinkExpiresAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Invoices" ADD "PayLinkNonce" character varying(32);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Invoices" ADD "RenewalAppliedAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Invoices" ADD "RenewalForExpiresAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Invoices" ADD "RenewalNewExpiresAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Invoices" ADD "RenewalPeriodMonths" integer;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    ALTER TABLE "Invoices" ADD "RenewalPreviousExpiresAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    CREATE UNIQUE INDEX "IX_Invoices_OneRenewalPerPeriod" ON "Invoices" ("LicenseId", "RenewalForExpiresAt") WHERE "RenewalForExpiresAt" IS NOT NULL AND "Status" <> 'Void';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030075845_AddAutoRenewalAndPayLinks') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261030075845_AddAutoRenewalAndPayLinks', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 

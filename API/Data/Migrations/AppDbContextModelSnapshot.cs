@@ -443,9 +443,31 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
 
+                    b.Property<DateTime?>("PayLinkExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayLinkNonce")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("PlanName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("RenewalAppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RenewalForExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RenewalNewExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("RenewalPeriodMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RenewalPreviousExpiresAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ServiceProductId")
                         .HasMaxLength(26)
@@ -485,6 +507,11 @@ namespace Platform.Api.Data.Migrations
                     b.HasIndex("ServiceProductId");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("LicenseId", "RenewalForExpiresAt")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Invoices_OneRenewalPerPeriod")
+                        .HasFilter("\"RenewalForExpiresAt\" IS NOT NULL AND \"Status\" <> 'Void'");
 
                     b.HasIndex("Status", "DueDate");
 
@@ -542,9 +569,36 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
 
+                    b.Property<bool>("AutoRenewInvoice")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("AutoSuspendedForOverdueInvoiceId")
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
+
+                    b.Property<decimal?>("BillingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("BillingAnchorDay")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BillingCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("BillingPeriodMonths")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(12);
+
+                    b.Property<decimal>("BillingTaxAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

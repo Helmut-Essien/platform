@@ -31,5 +31,10 @@ public enum AuditAction
     LicenseAutoSuspendedOverdue,
     LicenseAutoReactivatedPaid,
     LicenseExpired,
-    LicenseReactivated
+    LicenseReactivated,
+    RenewalInvoiceCreated,
+    LicenseAutoRenewedPaid,
+    LicenseRenewalSkipped,
+    LicenseRenewalReverted,
+    LicenseRenewalReversalConflict
 }
