@@ -341,6 +341,56 @@ public class RenewalTests
     }
 
     [Fact]
+    public async Task ManualRenewal_ThenNextPeriod_VoidsStaleUnpaidRenewalInvoice()
+    {
+        await using var db = CreateDb();
+        var expiry = Day(10);
+        var license = await SeedLicenseAsync(db, expiry);
+        var billing = CreateBilling(db);
+        var stale = await billing.CreateRenewalInvoiceAsync(license.Id, expiry, BillingService.RenewalActor);
+        var manual = Day(12);
+        var tracked = await db.Licenses.SingleAsync(l => l.Id == license.Id);
+        tracked.ExpiresAt = manual; // admin moved the expiry by hand
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var next = await billing.CreateRenewalInvoiceAsync(license.Id, manual, BillingService.RenewalActor);
+
+        Assert.NotNull(next);
+        db.ChangeTracker.Clear();
+        var old = await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == stale!.Id);
+        Assert.Equal(InvoiceStatus.Void, old.Status);
+        Assert.Null(old.PayLinkNonce);
+        Assert.Equal(1, await db.Invoices.CountAsync(i => i.LicenseId == license.Id && i.Status != InvoiceStatus.Void));
+    }
+
+    [Fact]
+    public async Task StaleRenewalInvoiceWithPayment_BlocksNextPeriod()
+    {
+        await using var db = CreateDb();
+        var expiry = Day(10);
+        var license = await SeedLicenseAsync(db, expiry);
+        var billing = CreateBilling(db);
+        var stale = await billing.CreateRenewalInvoiceAsync(license.Id, expiry, BillingService.RenewalActor);
+        await billing.RecordReceiptAsync(stale!.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = "part", AmountPaid = 100m, PaymentMethod = PaymentMethod.BankTransfer, PaymentReference = "R"
+        }, "admin");
+        var manual = Day(12);
+        db.ChangeTracker.Clear();
+        var tracked = await db.Licenses.SingleAsync(l => l.Id == license.Id);
+        tracked.ExpiresAt = manual;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        Assert.Null(await billing.CreateRenewalInvoiceAsync(license.Id, manual, BillingService.RenewalActor));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            billing.CreateRenewalInvoiceAsync(license.Id, null, "admin", explicitRequest: true));
+        Assert.Equal(InvoiceStatus.PartiallyPaid,
+            (await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == stale.Id)).Status);
+    }
+
+    [Fact]
     public async Task PartialPayment_DoesNotRenew()
     {
         await using var db = CreateDb();

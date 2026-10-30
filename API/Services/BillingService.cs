@@ -834,6 +834,48 @@ public class BillingService(
                 return null; // voided by an admin: don't re-create automatically
 
             var now = DateTime.UtcNow;
+
+            // Older renewal invoices still open for a period the license has already moved past (an admin changed
+            // the expiry by hand). Paying one would not extend anything, and the overdue worker could suspend the
+            // license over it, so unpaid ones are voided as superseded. One with money on it, or an online checkout
+            // in flight, blocks the new invoice until an admin sorts it out.
+            var stale = await db.Invoices
+                .IgnoreQueryFilters()
+                .Include(i => i.PaymentTransactions)
+                .Include(i => i.Receipts)
+                .Where(i => i.LicenseId == licenseId
+                    && i.RenewalForExpiresAt != null
+                    && i.RenewalForExpiresAt < periodStart
+                    && (i.Status == InvoiceStatus.Draft || i.Status == InvoiceStatus.Sent
+                        || i.Status == InvoiceStatus.Overdue || i.Status == InvoiceStatus.PartiallyPaid))
+                .ToListAsync(ct);
+            if (stale.Count > 0)
+            {
+                var staleIds = stale.Select(i => i.Id).ToList();
+                var checkoutPending = await db.PaymentCheckouts
+                    .IgnoreQueryFilters()
+                    .AnyAsync(c => staleIds.Contains(c.InvoiceId) && c.Status == PaymentCheckoutStatus.Pending, ct);
+                var blocked = checkoutPending || stale.Any(i => GetNetPaid(i) != 0 || i.Receipts.Any(r => r.Status == ReceiptStatus.Posted));
+                if (blocked)
+                {
+                    const string blockedReason = "An earlier renewal invoice for this license is still open with a payment on it; settle or void it first.";
+                    if (explicitRequest)
+                        throw new InvalidOperationException(blockedReason);
+                    return null;
+                }
+
+                foreach (var old in stale)
+                {
+                    old.Status = InvoiceStatus.Void;
+                    old.UpdatedAt = now;
+                    PayLinkService.Revoke(old);
+                    await auditLog.WriteAsync(AuditAction.InvoiceVoided, performedBy, old.CustomerId, old.LicenseId, old.Id,
+                        AuditJson.Serialize(new { invoiceNumber = old.InvoiceNumber, reason = "superseded by a later renewal period" }),
+                        ipAddress, ct);
+                }
+                await db.SaveChangesAsync(ct);
+            }
+
             var months = Math.Clamp(license.BillingPeriodMonths, 1, 36);
             var periodEnd = PeriodMath.AddMonths(periodStart, months, license.BillingAnchorDay);
             var subtotal = license.BillingAmount!.Value;
@@ -1059,7 +1101,21 @@ public class BillingService(
             return null;
         var invoice = await db.Invoices.IgnoreQueryFilters().FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken)
             ?? throw new NotFoundException("Invoice not found.");
-        var url = payLinks.EnsureUrl(invoice, DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        if (invoice.PayLinkNonce is null && payLinks.IsOfferedFor(invoice) && db.Database.IsRelational())
+        {
+            // Two admins (or an admin and an invoice email) issuing the first nonce at once must not end up with
+            // different links where the loser's is dead: only the first conditional write wins, then re-read.
+            var nonce = PayLinkService.NewNonce();
+            var expires = payLinks.NewExpiry(now);
+            await db.Invoices.IgnoreQueryFilters()
+                .Where(i => i.Id == invoiceId && i.PayLinkNonce == null)
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(i => i.PayLinkNonce, nonce)
+                    .SetProperty(i => i.PayLinkExpiresAt, expires), cancellationToken);
+            await db.Entry(invoice).ReloadAsync(cancellationToken);
+        }
+        var url = payLinks.EnsureUrl(invoice, now);
         if (db.Entry(invoice).State == EntityState.Modified)
             await db.SaveChangesAsync(cancellationToken);
         return url;

@@ -65,7 +65,9 @@ public sealed class RenewalInvoiceWorker(
                     if (await billing.CreateRenewalInvoiceAsync(licenseId, expiresAt, BillingService.RenewalActor,
                             cancellationToken: cancellationToken) is not null)
                         created++;
-                    progressed = true; // created, or found ineligible/already invoiced — either way not returned again
+                    else
+                        failed.Add(licenseId); // skipped (e.g. blocked by an open earlier invoice): don't re-scan it this run
+                    progressed = true;
                 }
                 catch (ConflictException)
                 {
