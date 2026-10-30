@@ -21,7 +21,7 @@ public static class PublicSiteExtensions
     // Text assets compressed on the fly (small, no secrets, so no BREACH concern).
     private static readonly HashSet<string> CompressibleAssets = new(StringComparer.OrdinalIgnoreCase)
     {
-        LandingFile, "/robots.txt", "/sitemap.xml", "/favicon.svg", "/site.webmanifest",
+        LandingFile, "/js/landing.js", "/robots.txt", "/sitemap.xml", "/favicon.svg", "/site.webmanifest",
     };
 
     internal static bool IsLandingRequest(HttpRequest request) =>

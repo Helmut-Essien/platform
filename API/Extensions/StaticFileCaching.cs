@@ -32,7 +32,7 @@ public static class StaticFileCaching
     internal static string? CacheControlFor(string fileName) => fileName.ToLowerInvariant() switch
     {
         "index.html" => "no-cache",
-        "landing.html" => "public, max-age=300, must-revalidate",
+        "landing.html" or "landing.js" => "public, max-age=300, must-revalidate",
         "robots.txt" or "sitemap.xml" or "site.webmanifest" => "public, max-age=3600",
         "og-image.png" or "favicon.ico" or "favicon.svg" or "favicon.png" or "favicon-32.png"
             or "apple-touch-icon.png" or "icon-192.png" or "icon-512.png" => "public, max-age=86400",

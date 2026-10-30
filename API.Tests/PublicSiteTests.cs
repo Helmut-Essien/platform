@@ -189,17 +189,32 @@ public class LandingPageContentTests
     [InlineData("<meta property=\"og:image\" content=\"https://helmutcode.runasp.net/og-image.png\">")]
     [InlineData("<meta name=\"twitter:card\" content=\"summary_large_image\">")]
     [InlineData("<link rel=\"manifest\" href=\"/site.webmanifest\">")]
-    [InlineData("href=\"/dashboard\"")]
+    [InlineData("href=\"/login\" rel=\"nofollow\">Client login")]
     public void HasSeoTags(string fragment) => Assert.Contains(fragment, Html);
 
     [Fact]
-    public void NoScripts_OrExternalResources()
+    public void OnlyDeferredFirstPartyScript_NoExternalResources()
     {
-        // Only JSON-LD; no render-blocking JS, no third-party fonts or CSS.
-        Assert.DoesNotMatch("<script(?![^>]*application/ld\\+json)", Html);
+        // JSON-LD plus one same-origin module script (modules are deferred, so never render-blocking).
+        var scripts = Regex.Matches(Html, "<script(?![^>]*application/ld\\+json)[^>]*>").Select(m => m.Value).ToList();
+        Assert.Equal(["<script type=\"module\" src=\"/js/landing.js\">"], scripts);
         Assert.DoesNotContain("<link rel=\"stylesheet\"", Html);
         Assert.DoesNotContain("fonts.googleapis", Html);
+        Assert.DoesNotMatch("(src|href)=\"https?://(?!helmutcode\\.runasp\\.net)", Html);
     }
+
+    [Fact]
+    public void HeaderHasNoLoginCta_FooterHasLogin()
+    {
+        var header = Regex.Match(Html, "<header.*?</header>", RegexOptions.Singleline).Value;
+        Assert.DoesNotContain("login", header, StringComparison.OrdinalIgnoreCase);
+        var footer = Regex.Match(Html, "<footer.*?</footer>", RegexOptions.Singleline).Value;
+        Assert.Contains("href=\"/login\"", footer);
+    }
+
+    [Fact]
+    public void SceneCanvas_IsDecorative() =>
+        Assert.Contains("<canvas id=\"scene\" aria-hidden=\"true\"", Html);
 
     [Fact]
     public void JsonLd_IsValid_AndFaqMatchesVisibleText()
