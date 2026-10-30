@@ -31,6 +31,13 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Paystack__SecretKey` | no | Enables online payments (`sk_test_…` or `sk_live_…`). Unset = feature hidden, endpoints return 503. See §9. |
 | `Paystack__PublicKey` | no | `pk_test_…` / `pk_live_…`. Stored for completeness; checkout uses Paystack's hosted page. |
 | `Paystack__CollectionCap` | no | Starter Business limit in GHS for the dashboard card (default `30000`; `0` hides it). |
+| `Billing__RenewalInvoicesEnabled` | no | Automatic renewal invoices on/off (default `true`). See §10. |
+| `Billing__RenewalInvoiceDaysBefore` | no | Days before expiry the renewal invoice is created and emailed (default `14`, 1–90). |
+| `Billing__RenewalExtendFrom` | no | `Auto` (default), `PreviousExpiry` or `PaymentDate` — basis for the extension when a renewal invoice is paid. |
+| `Billing__RenewalGraceDays` | no | `Auto` keeps the old expiry as basis unless it lapsed more than this many days (default `7`); also the due-date grace for already-lapsed licenses. |
+| `Billing__PayLinkEnabled` | no | Public `/pay/{token}` links in invoice emails/PDFs (default `true`; needs Paystack). |
+| `Billing__PayLinkValidDays` | no | Pay-link lifetime, re-extended when the invoice is re-sent (default `60`, 7–365). |
+| `Billing__PayLinkSigningKey` | no | Dedicated 32+ char secret for pay-link signatures. Unset = derived from `Jwt__Key` (rotating either invalidates links already sent). |
 
 ## 2. Create the site and database
 
@@ -190,3 +197,37 @@ Never put the secret key in `appsettings*.json` or the client; it is only read f
 - **Key switch.** After switching from `sk_test_` to `sk_live_` (or back), pending checkouts from the other mode are expired without calling Paystack. Tell customers to start a new payment.
 - **Backoff.** Reconcile stops a run after 3 consecutive Paystack failures (for example HTTP 429 or an outage) and retries on the next interval.
 - **Client.** Each confirmation check times out after 10 s, and polling stops after about 30 s. Refreshing the page re-checks.
+
+
+## 10. Automatic renewals and pay links
+
+**What happens**
+
+1. Give a license a *Recurring billing* price (Issue / Edit / Renew dialogs: price, tax, currency, period, "send renewal invoices automatically").
+   Existing licenses have no price after the migration, so nothing is billed until you set one.
+2. `RenewalInvoiceWorker` (hourly, `Billing__RenewalPollMinutes`, min 5) finds Active/Expired licenses of non-suspended customers with a
+   price, auto-invoice on, and an expiry within `RenewalInvoiceDaysBefore` days (or lapsed ≤ `RenewalLookbackDays`, default 30), with no
+   renewal invoice yet for that expiry. It creates one `Sent` invoice per license and period (due on the expiry date; lapsed licenses get
+   today + grace days) and emails it with a **Pay online** button; the PDF carries the same link.
+   One indexed query per 100 licenses; an advisory lock plus the unique index `IX_Invoices_OneRenewalPerPeriod` make overlapping runs
+   (IIS overlapped recycle) safe.
+3. When that invoice is fully paid (manual receipt or Paystack), the license is extended by one period in the same transaction:
+   Expired → Active, a manual suspension stays, month-end dates keep their anniversary day (Jan 31 → Feb 28/29 → Mar 31).
+   If the license was already renewed by hand, the payment does not extend it again (audit: *Renewal skipped*).
+4. Reversing the payment restores the old expiry only if nothing else changed it; otherwise it is left and flagged
+   (audit: *Renewal reversal needs review*).
+5. A voided renewal invoice is **not** re-created automatically. Use Licenses → ⋮ → *Create renewal invoice* to issue it again.
+
+**Pay links**: `/pay/{token}` needs no login, shows only invoice number, customer name, amounts and due date, and opens Paystack for the
+balance. Tokens are HMAC-signed; void kills the link, a paid link stays readable for 1 day; invalid links all return the same 404,
+expired ones 410; `api/public/pay/*` is rate limited (40/min per IP) and `no-store`. With Paystack off the page says online payment is
+unavailable. Invoice page → *Copy pay link* gives the same URL.
+
+**Manual test (Paystack test keys)**
+
+1. Edit a test license: expiry within 14 days, price 1.00 GHS, yearly, auto on. Wait for the worker (≤ 1 h after start, 30 s after a
+   restart) or use *Create renewal invoice*.
+2. Check the email (Email deliveries) and PDF for the pay link; open it in a private window — no login prompt.
+3. Pay with Paystack test card `4084 0840 8408 4081`; the page confirms, the license expiry moves one year, a renewal confirmation is queued.
+4. Reopen the link the next day → 404/“no longer payable”; void another renewal invoice → its link returns 404 immediately.
+5. Reverse the receipt → expiry restored (audit shows *Renewal reverted*).
