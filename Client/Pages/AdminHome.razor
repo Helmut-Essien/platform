@@ -1,0 +1,10 @@
+@page "/"
+@inject NavigationManager Navigation
+
+@* "/" is served by the server as the static landing page (landing.html). This route is only reached by
+   in-app navigation to "/" (e.g. an old link or bookmark inside the SPA): send it to the dashboard. *@
+
+@code {
+    protected override void OnInitialized() =>
+        Navigation.NavigateTo(Platform.Client.Helpers.ReturnUrl.Default, replace: true);
+}

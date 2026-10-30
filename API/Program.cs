@@ -198,6 +198,9 @@ if (!app.Environment.IsDevelopment())
         app.UseHttpsRedirection();
 }
 
+// "/" is the static SEO landing page; all other paths stay the admin SPA. Adds X-Robots-Tag noindex.
+app.UsePublicSite();
+
 // Hosted Blazor WASM client (same origin as the API). Unknown file types are not served.
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles(StaticFileCaching.Options());
@@ -226,9 +229,6 @@ app.MapGet("/health/db", async (AppDbContext db, CancellationToken ct) =>
 
 // Unknown /api/* routes must stay 404s instead of returning the SPA shell.
 app.MapFallback("/api/{**slug}", () => Results.NotFound());
-// The default SPA fallback skips paths whose last segment looks like a file name; pay-link tokens
-// ("{invoiceId}.{mac}") contain a dot, so /pay/{token} needs its own fallback or it 404s.
-app.MapFallbackToFile("/pay/{**token}", "index.html", StaticFileCaching.Options());
-app.MapFallbackToFile("index.html", StaticFileCaching.Options());
+app.MapPublicSiteFallbacks();
 
 app.Run();

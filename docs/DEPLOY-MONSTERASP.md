@@ -231,3 +231,40 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 3. Pay with Paystack test card `4084 0840 8408 4081`; the page confirms, the license expiry moves one year, a renewal confirmation is queued.
 4. Reopen the link the next day → 404/“no longer payable”; void another renewal invoice → its link returns 404 immediately.
 5. Reverse the receipt → expiry restored (audit shows *Renewal reverted*).
+
+## 11. Public landing page and SEO
+
+**Routing.** `GET /` (and `HEAD /`) serves the static, server-rendered `wwwroot/landing.html` (no WASM; critical CSS inline; one small deferred module, `wwwroot/js/landing.js`, adds the decorative WebGL hero, 3D tilt and scroll reveal after load, and the page is complete without it). Every other path is unchanged and still gets the admin SPA: `/login`, `/reset-password`, `/invoices/...`, `/pay/{token}`, and so on. Links already sent in emails, `Auth:ClientBaseUrl` and the Paystack `callback_url` keep working. The admin home moved from `/` to **`/dashboard`**. After login (or for an unsafe `returnUrl`) the app goes to `/dashboard`, and an in-app navigation to `/` redirects there. "Client login" is in the landing page footer only and links to `/login`, which goes to `/dashboard` after sign-in. The middleware is `PublicSiteExtensions.UsePublicSite()`, and it must stay before `UseBlazorFrameworkFiles/UseStaticFiles`.
+
+**Fix included.** Pay-link tokens contain a dot (`{invoiceId}.{mac}`), so the default SPA fallback treated `/pay/{token}` as a file name and returned **404** on a direct load, e.g. from an email or the Paystack return. `MapPublicSiteFallbacks()` adds a dedicated `/pay/{**token}` fallback.
+
+**Indexing.**
+- Only `/` and its public assets are indexable: `robots.txt`, `sitemap.xml`, `og-image.png`, the favicons, the icons and `site.webmanifest`.
+- Every other response (SPA, `/pay`, `/api`, `/health`, `_framework`) gets `X-Robots-Tag: noindex, nofollow`.
+- `robots.txt` allows only `/$` and the public assets, and disallows everything else.
+
+**Caching and compression.**
+- `landing.html`: `public, max-age=300, must-revalidate` + ETag.
+- `robots.txt`, `sitemap.xml`, `site.webmanifest`: 1 h.
+- Icons and the social image: 1 day.
+- The SPA `index.html`: `no-cache` (as before).
+- The landing page, robots, sitemap, the SVG favicon and the manifest are Brotli/gzip compressed.
+
+**Placeholders.** Contact details are filled in (Oct 2026). Only the optional product-names comment remains; run `grep -rn "TODO-HELMUT" Client/wwwroot/landing.html` and replace:
+- the contact email (the `mailto:` links, the footer and the JSON-LD);
+- the phone (the `tel:` link, the button text and the JSON-LD);
+- the street, city and region (the JSON-LD and the footer);
+- optionally, your product names (the comment in "What we do").
+
+Then update `<lastmod>` in `sitemap.xml`. Keep the FAQ answers identical to the `FAQPage` JSON-LD; a test enforces this.
+
+**Custom domain.** If the site moves off `helmutcode.runasp.net`:
+- replace that host in `landing.html` (canonical, `og:*`, `twitter:*`, JSON-LD), `robots.txt` and `sitemap.xml`;
+- set `Auth__ClientBaseUrl` and `Cors__AllowedOrigins` to the new origin.
+
+**Manual check after deploy.**
+1. `curl -sI https://helmutcode.runasp.net/` should return `200`, `text/html`, and no `X-Robots-Tag`.
+2. `curl -sI https://helmutcode.runasp.net/dashboard` should include `X-Robots-Tag: noindex, nofollow`.
+3. Open a real pay link from an invoice email; it should load the pay page, not a 404.
+4. Validate with Google's Rich Results Test and the opengraph.xyz preview.
+5. Add the property in Google Search Console and submit `/sitemap.xml`.
