@@ -16,21 +16,17 @@ public static class PaystackSignature
         if (string.IsNullOrWhiteSpace(secretKey) || string.IsNullOrWhiteSpace(signatureHeader))
             return false;
 
-        var header = signatureHeader.Trim();
+        var header = signatureHeader.AsSpan().Trim();
         if (header.Length != HMACSHA512.HashSizeInBytes * 2)
             return false;
 
-        byte[] provided;
-        try
-        {
-            provided = Convert.FromHexString(header);
-        }
-        catch (FormatException)
-        {
+        Span<byte> provided = stackalloc byte[HMACSHA512.HashSizeInBytes];
+        if (Convert.FromHexString(header, provided, out _, out var written) != System.Buffers.OperationStatus.Done
+            || written != provided.Length)
             return false;
-        }
 
-        var expected = HMACSHA512.HashData(Encoding.UTF8.GetBytes(secretKey.Trim()), body);
+        Span<byte> expected = stackalloc byte[HMACSHA512.HashSizeInBytes];
+        HMACSHA512.HashData(Encoding.UTF8.GetBytes(secretKey.Trim()), body, expected);
         return CryptographicOperations.FixedTimeEquals(expected, provided);
     }
 }
