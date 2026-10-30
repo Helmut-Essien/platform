@@ -32,6 +32,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<EmailOutboxMessage> EmailOutboxMessages => Set<EmailOutboxMessage>();
 
+    public DbSet<PaymentCheckout> PaymentCheckouts => Set<PaymentCheckout>();
+
     public override int SaveChanges()
     {
         IncrementLicenseVersions();
@@ -70,5 +72,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
         modelBuilder.Entity<PaymentTransaction>()
             .HasQueryFilter(p => !p.Invoice.Customer.IsSuspended);
+
+        // Matches the Invoice filter (required end). Payment code always uses IgnoreQueryFilters:
+        // money collected for a suspended customer's invoice must still be applied.
+        modelBuilder.Entity<PaymentCheckout>()
+            .HasQueryFilter(c => !c.Invoice.Customer.IsSuspended);
     }
 }

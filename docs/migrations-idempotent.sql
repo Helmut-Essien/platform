@@ -988,5 +988,63 @@ BEGIN
     VALUES ('20261029110451_AddDataProtectionKeys', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030063021_AddPaymentCheckouts') THEN
+    CREATE TABLE "PaymentCheckouts" (
+        "Id" character varying(26) NOT NULL,
+        "InvoiceId" character varying(26) NOT NULL,
+        "Provider" character varying(20) NOT NULL,
+        "Reference" character varying(100) NOT NULL,
+        "Amount" numeric(18,2) NOT NULL,
+        "AmountMinor" bigint NOT NULL,
+        "Currency" character varying(3) NOT NULL,
+        "Status" character varying(20) NOT NULL,
+        "AuthorizationUrl" character varying(500),
+        "Channel" character varying(50),
+        "ProviderTransactionId" character varying(100),
+        "ReceiptId" character varying(26),
+        "LastError" character varying(500),
+        "CreatedBy" character varying(256) NOT NULL,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "LastCheckedAt" timestamp with time zone,
+        "PaidAt" timestamp with time zone,
+        "CompletedAt" timestamp with time zone,
+        CONSTRAINT "PK_PaymentCheckouts" PRIMARY KEY ("Id"),
+        CONSTRAINT "CK_PaymentCheckouts_AmountPositive" CHECK ("Amount" > 0 AND "AmountMinor" > 0),
+        CONSTRAINT "FK_PaymentCheckouts_Invoices_InvoiceId" FOREIGN KEY ("InvoiceId") REFERENCES "Invoices" ("Id") ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030063021_AddPaymentCheckouts') THEN
+    CREATE INDEX "IX_PaymentCheckouts_InvoiceId_Status" ON "PaymentCheckouts" ("InvoiceId", "Status");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030063021_AddPaymentCheckouts') THEN
+    CREATE UNIQUE INDEX "IX_PaymentCheckouts_Reference" ON "PaymentCheckouts" ("Reference");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030063021_AddPaymentCheckouts') THEN
+    CREATE INDEX "IX_PaymentCheckouts_Status_CreatedAt" ON "PaymentCheckouts" ("Status", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030063021_AddPaymentCheckouts') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261030063021_AddPaymentCheckouts', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 

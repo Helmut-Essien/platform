@@ -70,6 +70,7 @@ builder.Services.Configure<LifecycleSettings>(
     builder.Configuration.GetSection(LifecycleSettings.SectionName));
 builder.Services.AddHostedService<LicenseExpiryReminderWorker>();
 builder.Services.AddHostedService<OverdueInvoiceLifecycleWorker>();
+builder.Services.AddPlatformPayments(builder.Configuration);
 
 builder.Services.AddCors(options =>
 {
@@ -174,6 +175,8 @@ if (!app.Environment.IsDevelopment())
             clientBaseUrl);
     }
 }
+
+app.LogPaymentsConfiguration();
 
 if (app.Environment.IsDevelopment())
 {

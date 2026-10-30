@@ -14,6 +14,8 @@ public sealed class PlatformExceptionHandler(ILogger<PlatformExceptionHandler> l
     {
         var (status, title) = exception switch
         {
+            Platform.Api.Services.Payments.OnlinePaymentsDisabledException => (StatusCodes.Status503ServiceUnavailable, "Service Unavailable"),
+            Platform.Api.Services.Payments.PaymentGatewayException => (StatusCodes.Status502BadGateway, "Bad Gateway"),
             NotFoundException => (StatusCodes.Status404NotFound, "Not Found"),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
             DbUpdateConcurrencyException => (StatusCodes.Status409Conflict, "Conflict"),
@@ -26,12 +28,13 @@ public sealed class PlatformExceptionHandler(ILogger<PlatformExceptionHandler> l
             ? "The record was updated by someone else. Refresh and try again."
             : exception.Message;
 
-        if (status >= StatusCodes.Status500InternalServerError)
+        var isPaymentProblem = status is StatusCodes.Status502BadGateway or StatusCodes.Status503ServiceUnavailable;
+        if (status >= StatusCodes.Status500InternalServerError && !isPaymentProblem)
             logger.LogError(exception, "Unhandled exception");
         else
             logger.LogInformation(exception, "Request failed with {StatusCode}: {Message}", status, detail);
 
-        if (status >= StatusCodes.Status500InternalServerError)
+        if (status >= StatusCodes.Status500InternalServerError && !isPaymentProblem)
         {
             var serverProblem = new ProblemDetails
             {
