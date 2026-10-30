@@ -19,6 +19,7 @@
                            For="@(() => _model.ExpiresAt)"
                            Label="Expires"
                            Variant="Variant.Outlined" />
+            <LicenseBillingFields Billing="_billing" />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -46,6 +47,7 @@
     private MudForm? _form;
     private bool _formValid;
     private UpdateLicenseRequest _model = new() { PlanName = "" };
+    private LicenseBillingDto _billing = new();
 
     protected override void OnInitialized()
     {
@@ -54,6 +56,8 @@
             PlanName = License.PlanName,
             ExpiresAt = License.ExpiresAt
         };
+        _billing = LicenseBillingFields.Copy(License.Billing);
+        _model.Billing = _billing;
     }
 
     private void Cancel()

@@ -1,0 +1,43 @@
+@* Recurring price used for automatic renewal invoices (edited in place on the passed DTO). *@
+<MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Recurring billing</MudText>
+<MudText Typo="Typo.caption" Class="d-block mb-2">
+    With a price set, a renewal invoice (with a pay-online link) is emailed before the license expires,
+    and paying it extends the license by one period. Leave the price empty for no automatic invoices.
+</MudText>
+<MudGrid Spacing="2">
+    <MudItem xs="6" sm="4">
+        <MudNumericField T="decimal?" @bind-Value="Billing.Amount" Label="Price per period" Min="0" Format="N2"
+                         Variant="Variant.Outlined" Clearable="true" />
+    </MudItem>
+    <MudItem xs="6" sm="3">
+        <MudNumericField T="decimal" @bind-Value="Billing.TaxAmount" Label="Tax" Min="0" Format="N2" Variant="Variant.Outlined" />
+    </MudItem>
+    <MudItem xs="6" sm="2">
+        <MudTextField @bind-Value="Billing.Currency" Label="Currency" MaxLength="3" Variant="Variant.Outlined" />
+    </MudItem>
+    <MudItem xs="6" sm="3">
+        <MudSelect T="int" @bind-Value="Billing.PeriodMonths" Label="Period" Variant="Variant.Outlined">
+            <MudSelectItem Value="1">Monthly</MudSelectItem>
+            <MudSelectItem Value="3">Quarterly</MudSelectItem>
+            <MudSelectItem Value="6">6 months</MudSelectItem>
+            <MudSelectItem Value="12">Yearly</MudSelectItem>
+            <MudSelectItem Value="24">2 years</MudSelectItem>
+            <MudSelectItem Value="36">3 years</MudSelectItem>
+        </MudSelect>
+    </MudItem>
+</MudGrid>
+<MudCheckBox @bind-Value="Billing.AutoRenewInvoice" Label="Send renewal invoices automatically" Color="Color.Primary"
+             Disabled="@(Billing.Amount is not > 0)" />
+
+@code {
+    [Parameter, EditorRequired] public required LicenseBillingDto Billing { get; set; }
+
+    public static LicenseBillingDto Copy(LicenseBillingDto? source, string defaultCurrency = "GHS") => new()
+    {
+        Amount = source?.Amount,
+        TaxAmount = source?.TaxAmount ?? 0m,
+        Currency = source?.Currency ?? defaultCurrency,
+        PeriodMonths = source?.PeriodMonths is >= 1 and <= 36 ? source.PeriodMonths : 12,
+        AutoRenewInvoice = source?.AutoRenewInvoice ?? true
+    };
+}

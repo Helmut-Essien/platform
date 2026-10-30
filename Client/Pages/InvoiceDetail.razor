@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 @implements IDisposable
 <PageTitle>@(_invoice?.InvoiceNumber is { Length: > 0 } num ? $"Invoice {num}" : "Invoice") · HelmutCode Admin</PageTitle>
 
@@ -89,6 +90,11 @@ else
                                 title="Open Paystack checkout (card or mobile money) for the outstanding balance">
                             <MudIcon Icon="@Icons.Material.Filled.CreditCard" Size="Size.Small" />
                             Pay with Paystack
+                        </button>
+                        <button type="button" class="btn-secondary-cta" @onclick="() => RunExclusiveAsync(CopyPayLinkAsyncCore)" disabled="@(_busy || _confirming)"
+                                title="Copy the customer's pay-online link (no login needed)">
+                            <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" />
+                            Copy pay link
                         </button>
                     }
                 }
@@ -300,6 +306,32 @@ else
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    private async Task CopyPayLinkAsyncCore()
+    {
+        if (_invoice is null)
+            return;
+        var result = await Api.GetPayLinkAsync(_invoice.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.ErrorMessage ?? "Couldn't get the pay link.", Severity.Error);
+            return;
+        }
+        if (result.Data is null)
+        {
+            Snackbar.Add("Online payment isn't available for this invoice.", Severity.Info);
+            return;
+        }
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", result.Data);
+            Snackbar.Add("Pay link copied. Anyone with it can view the amount due and pay.", Severity.Success);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add($"Copy failed. Link: {result.Data}", Severity.Warning, o => o.RequireInteraction = true);
         }
     }
 

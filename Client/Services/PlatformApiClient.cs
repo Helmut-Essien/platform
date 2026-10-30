@@ -352,6 +352,22 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         return await ToApiResultAsync<InvoiceDto>(response, ct);
     }
 
+    /// <summary>The customer-facing pay link; Ok(null) when online payment isn't offered for the invoice.</summary>
+    public async Task<ApiResult<string?>> GetPayLinkAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.GetAsync($"api/invoices/{id}/pay-link", ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+            return ApiResult<string?>.Ok(null);
+        var result = await ToApiResultAsync<PayLinkDto>(response, ct);
+        return result.IsSuccess ? ApiResult<string?>.Ok(result.Data!.Url) : ApiResult<string?>.Fail(result.ErrorMessage ?? "Request failed.");
+    }
+
+    public async Task<ApiResult<InvoiceDto>> CreateRenewalInvoiceAsync(string licenseId, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/licenses/{licenseId}/renewal-invoice", null, ct);
+        return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
     public async Task<ApiResult<InvoiceDto>> VoidInvoiceAsync(string id, CancellationToken ct = default)
     {
         var response = await http.PostAsync($"api/invoices/{id}/void", null, ct);
