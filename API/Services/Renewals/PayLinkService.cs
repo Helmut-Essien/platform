@@ -63,11 +63,15 @@ public sealed class PayLinkService
         if (!IsOfferedFor(invoice))
             return null;
         if (invoice.PayLinkNonce is null)
-            invoice.PayLinkNonce = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16));
+            invoice.PayLinkNonce = NewNonce();
         if (invoice.PayLinkExpiresAt is null || invoice.PayLinkExpiresAt <= now.AddDays(7))
-            invoice.PayLinkExpiresAt = now.AddDays(Math.Clamp(_settings.PayLinkValidDays, 7, 365));
+            invoice.PayLinkExpiresAt = NewExpiry(now);
         return BuildUrl(invoice, now);
     }
+
+    public static string NewNonce() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(16));
+
+    public DateTime NewExpiry(DateTime now) => now.AddDays(Math.Clamp(_settings.PayLinkValidDays, 7, 365));
 
     /// <summary>Read-only: the current URL if the link is valid now.</summary>
     public string? BuildUrl(Invoice invoice, DateTime now)
