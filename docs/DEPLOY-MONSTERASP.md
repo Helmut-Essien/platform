@@ -182,3 +182,11 @@ Never put the secret key in `appsettings*.json` or the client; it is only read f
 - **Auth__ClientBaseUrl** must be the public site URL; the API logs a warning at startup if it is empty or points at localhost.
 - **Secrets with commas:** msdeploy cannot parse commas in `MONSTER_SITE`/`MONSTER_USER`/`MONSTER_PASSWORD`; the job fails fast if one does.
 - The `logs` folder is hidden from HTTP via IIS `requestFiltering/hiddenSegments`.
+
+### 9.x Refunds, disputes, mode switches and backoff
+
+- **Refunds and disputes.** `refund.processed` marks the checkout *Refunded*, and `charge.dispute.create`/`remind` mark it *Disputed*. The receipt is **not** reversed automatically. Review the invoice and reverse it by hand if needed. Flagged checkouts still count toward the monthly cap. Enable these events on the Paystack webhook.
+- **Test/live domain.** A webhook whose `domain` doesn't match the configured key mode is ignored.
+- **Key switch.** After switching from `sk_test_` to `sk_live_` (or back), pending checkouts from the other mode are expired without calling Paystack. Tell customers to start a new payment.
+- **Backoff.** Reconcile stops a run after 3 consecutive Paystack failures (for example HTTP 429 or an outage) and retries on the next interval.
+- **Client.** Each confirmation check times out after 10 s, and polling stops after about 30 s. Refreshing the page re-checks.
