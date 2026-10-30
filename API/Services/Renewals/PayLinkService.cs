@@ -9,7 +9,7 @@ using Platform.Shared.Enums;
 namespace Platform.Api.Services.Renewals;
 
 /// <summary>
-/// Signed public pay links: <c>{invoiceId}.{base64url(HMAC-SHA256(key, invoiceId|nonce|expiryTicks))}</c>.
+/// Signed public pay links: <c>{invoiceId}.{base64url(HMAC-SHA256(key, invoiceId|nonce))}</c>.
 /// Deterministic for a given nonce, so the email, the PDF and the admin "copy link" all show the same URL
 /// without storing the token. Clearing or rotating <see cref="Invoice.PayLinkNonce"/> revokes it.
 /// </summary>
