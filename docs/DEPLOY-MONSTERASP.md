@@ -250,7 +250,7 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 - The SPA `index.html`: `no-cache` (as before).
 - The landing page, robots, sitemap, the SVG favicon and the manifest are Brotli/gzip compressed.
 
-**Before going live, fill the placeholders.** Run `grep -rn "TODO-HELMUT" Client/wwwroot/landing.html` and replace:
+**Placeholders.** Contact details are filled in (Oct 2026). Only the optional product-names comment remains; run `grep -rn "TODO-HELMUT" Client/wwwroot/landing.html` and replace:
 - the contact email (the `mailto:` links, the footer and the JSON-LD);
 - the phone (the `tel:` link, the button text and the JSON-LD);
 - the street, city and region (the JSON-LD and the footer);
