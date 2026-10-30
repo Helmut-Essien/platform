@@ -159,6 +159,10 @@
                                 {
                                     <MudMenuItem OnClick="@(() => RenewAsync(license))">Renew</MudMenuItem>
                                 }
+                                @if (license.Status is LicenseStatus.Active or LicenseStatus.Expired && license.Billing?.Amount is > 0)
+                                {
+                                    <MudMenuItem OnClick="@(() => CreateRenewalInvoiceAsync(license))">Create renewal invoice</MudMenuItem>
+                                }
                                 @if (license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired)
                                 {
                                     <MudMenuItem OnClick="@(() => EditAsync(license))">Edit</MudMenuItem>
@@ -378,7 +382,8 @@
         var dialog = await DialogService.ShowAsync<RenewLicenseDialog>("Renew License", new DialogParameters
         {
             [nameof(RenewLicenseDialog.LicenseId)] = license.Id,
-            [nameof(RenewLicenseDialog.CurrentExpiresAt)] = license.ExpiresAt
+            [nameof(RenewLicenseDialog.CurrentExpiresAt)] = license.ExpiresAt,
+            [nameof(RenewLicenseDialog.Billing)] = license.Billing
         });
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto renewed)
@@ -386,6 +391,18 @@
 
         await ShowResultDialog(renewed, "License Renewed");
         await ReloadGrid();
+    }
+
+    private async Task CreateRenewalInvoiceAsync(LicenseDto license)
+    {
+        var result = await Api.CreateRenewalInvoiceAsync(license.Id);
+        if (!result.IsSuccess || result.Data is null)
+        {
+            Snackbar.Add(result.ErrorMessage ?? "Couldn't create the renewal invoice.", Severity.Error);
+            return;
+        }
+        Snackbar.Add($"Renewal invoice {result.Data.InvoiceNumber} created and emailed.", Severity.Success);
+        Navigation.NavigateTo($"/invoices/{result.Data.Id}");
     }
 
     private async Task EditAsync(LicenseDto license)

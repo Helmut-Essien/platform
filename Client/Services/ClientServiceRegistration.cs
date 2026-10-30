@@ -32,6 +32,9 @@ public static class ClientServiceRegistration
             .AddHttpMessageHandler<ApiErrorHandler>()
             .AddHttpMessageHandler<NetworkFailureHandler>();
 
+        // Anonymous pay page: no JWT, no login redirect on 401, no admin failure snackbars.
+        services.AddHttpClient<PublicPayClient>(client => client.BaseAddress = new Uri(baseUrl));
+
         return services;
     }
 }

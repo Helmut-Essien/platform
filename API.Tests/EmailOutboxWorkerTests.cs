@@ -271,7 +271,7 @@ public class EmailOutboxWorkerTests
 
     private sealed class StubPdf : IInvoicePdfGenerator
     {
-        public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead) => [1, 2, 3];
+        public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead, string? payUrl = null) => [1, 2, 3];
     }
 
     private sealed class StubBrand : IInvoiceBrandService

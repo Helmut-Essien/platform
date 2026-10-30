@@ -166,4 +166,21 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
 
         return Ok(license);
     }
+
+    /// <summary>Creates (and emails) the next-period invoice now. Allowed after the automatic one was voided.</summary>
+    [HttpPost("{id}/renewal-invoice")]
+    public async Task<ActionResult<Platform.Shared.Dtos.Billing.InvoiceDto>> CreateRenewalInvoice(
+        string id,
+        [FromServices] IBillingService billing,
+        CancellationToken cancellationToken)
+    {
+        var invoice = await billing.CreateRenewalInvoiceAsync(
+            id,
+            null,
+            AdminRequestContext.GetPerformedBy(HttpContext),
+            explicitRequest: true,
+            AdminRequestContext.GetIpAddress(HttpContext),
+            cancellationToken);
+        return Ok(invoice);
+    }
 }

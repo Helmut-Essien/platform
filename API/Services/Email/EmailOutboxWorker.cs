@@ -202,7 +202,9 @@ public class EmailOutboxWorker(
                 var letterhead = new InvoiceLetterhead(
                     profile.CompanyName, profile.AddressLine1, profile.AddressLine2,
                     profile.Phone, profile.Website, profile.LogoBytes, paymentOptions);
-                var pdf = pdfGenerator.Generate(invoice, invoice.Customer, letterhead);
+                var payUrl = scope.ServiceProvider.GetService<Platform.Api.Services.Renewals.PayLinkService>()
+                    ?.BuildUrl(invoice, DateTime.UtcNow);
+                var pdf = pdfGenerator.Generate(invoice, invoice.Customer, letterhead, payUrl);
                 attachments = [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", "application/pdf", pdf)];
             }
 

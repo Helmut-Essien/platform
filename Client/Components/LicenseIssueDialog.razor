@@ -76,6 +76,7 @@
                                Variant="Variant.Outlined"
                                Class="mb-2" />
             }
+            <LicenseBillingFields Billing="_model.Billing!" />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -104,7 +105,10 @@
     private string? _error;
     private MudForm? _form;
     private bool _formValid;
-    private CreateLicenseRequest _model = new() { CustomerId = "", ServiceProductId = "", PlanName = "Pro" };
+    private CreateLicenseRequest _model = new()
+    {
+        CustomerId = "", ServiceProductId = "", PlanName = "Pro", Billing = LicenseBillingFields.Copy(null)
+    };
 
     protected override void OnInitialized()
     {

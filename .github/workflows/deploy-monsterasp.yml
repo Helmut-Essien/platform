@@ -77,12 +77,16 @@ jobs:
           Https__Redirect: ${{ secrets.Https__Redirect }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
           ForwardedHeaders__Enabled: ${{ secrets.ForwardedHeaders__Enabled }}
+          Paystack__SecretKey: ${{ secrets.Paystack__SecretKey }}
+          Paystack__PublicKey: ${{ secrets.Paystack__PublicKey }}
+          Paystack__CollectionCap: ${{ secrets.Paystack__CollectionCap }}
         run: |
           $ErrorActionPreference = 'Stop'
           $required = @('ConnectionStrings__DefaultConnection', 'Jwt__Key', 'Email__Outbox__EncryptionKey', 'Auth__ClientBaseUrl')
           $optional = @('AdminSeed__Email', 'AdminSeed__Password', 'Email__Provider', 'Email__FromAddress', 'Email__FromName',
             'Email__ResendApiKey', 'Email__Host', 'Email__Port', 'Email__EnableSsl', 'Email__Username', 'Email__Password',
-            'Redis__ConnectionString', 'Database__MigrateOnStartup', 'Https__Redirect', 'CORS_ORIGINS', 'ForwardedHeaders__Enabled')
+            'Redis__ConnectionString', 'Database__MigrateOnStartup', 'Https__Redirect', 'CORS_ORIGINS', 'ForwardedHeaders__Enabled',
+            'Paystack__SecretKey', 'Paystack__PublicKey', 'Paystack__CollectionCap')
 
           $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
           if ($missing) { throw "Missing required secrets: $($missing -join ', ')" }

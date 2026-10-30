@@ -71,6 +71,10 @@
                               Variant="Variant.Outlined"
                               Lines="2" />
                 }
+                @if (_model.Billing is not null)
+                {
+                    <LicenseBillingFields Billing="_model.Billing" />
+                }
             </MudForm>
         }
     </DialogContent>
@@ -100,6 +104,9 @@
 
     [Parameter] public DateTime? CurrentExpiresAt { get; set; }
 
+    /// <summary>The license's current recurring price; shown for editing when provided.</summary>
+    [Parameter] public LicenseBillingDto? Billing { get; set; }
+
     [Inject] private PlatformApiClient Api { get; set; } = default!;
 
     private MudForm? _form;
@@ -116,6 +123,18 @@
     protected override void OnInitialized()
     {
         _model.ExpiresAt = CurrentExpiresAt?.AddYears(1) ?? DateTime.UtcNow.AddYears(1);
+        if (Billing is not null)
+        {
+            _model.Billing = LicenseBillingFields.Copy(Billing);
+            if (Billing.Amount is > 0)
+            {
+                // Pre-fill the one-off invoice and the new term from the stored price and period.
+                _model.Subtotal = Billing.Amount.Value;
+                _model.TaxAmount = Billing.TaxAmount;
+                _model.Currency = Billing.Currency ?? _model.Currency;
+                _model.ExpiresAt = (CurrentExpiresAt ?? DateTime.UtcNow).AddMonths(Billing.PeriodMonths);
+            }
+        }
     }
 
     private void Cancel()

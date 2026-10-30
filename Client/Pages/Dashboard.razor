@@ -132,6 +132,29 @@
             </section>
 
             <aside class="dashboard-sidebar">
+                @if (_payments is { Enabled: true, CollectionCap: > 0 } payments)
+                {
+                    var used = Math.Min(100d, (double)(payments.CollectedTotal / payments.CollectionCap * 100m));
+                    <div class="dashboard-sidebar-card">
+                        <h2 class="sidebar-card-title">
+                            Paystack collections
+                            @if (payments.TestMode)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Test mode</MudChip>
+                            }
+                        </h2>
+                        <p class="sidebar-card-copy">
+                            <strong class="mono">GH₵@payments.CollectedTotal.ToString("N2")</strong>
+                            of <span class="mono">GH₵@payments.CollectionCap.ToString("N2")</span> starter limit
+                        </p>
+                        <MudProgressLinear Value="used" Color="@(used >= 80 ? Color.Warning : Color.Primary)" Rounded="true" Size="Size.Medium"
+                                           aria-label="@($"{used:0}% of the Paystack starter limit used")" />
+                        @if (used >= 80)
+                        {
+                            <p class="sidebar-card-copy">Close to the limit — upgrade the Paystack account to a registered business to keep collecting.</p>
+                        }
+                    </div>
+                }
                 <div class="dashboard-sidebar-card dashboard-ops-note">
                     <h2 class="sidebar-card-title">Operational notes</h2>
                     <p class="sidebar-card-copy">
@@ -169,6 +192,7 @@
     private int _expiringSoon;
     private int _unpaidInvoices;
     private List<AuditLogDto> _recentAudit = [];
+    private OnlinePaymentsStatusDto? _payments;
 
     private bool _statsFailed;
     private bool _auditFailed;
@@ -186,7 +210,9 @@
         var statsTask = LoadStatsSafeAsync();
         var auditTask = LoadAuditSafeAsync();
 
-        await Task.WhenAll(statsTask, auditTask);
+        var paymentsTask = LoadPaymentsSafeAsync();
+
+        await Task.WhenAll(statsTask, auditTask, paymentsTask);
 
         var stats = await statsTask;
         _statsFailed = stats is null;
@@ -210,6 +236,18 @@
         catch
         {
             return null;
+        }
+    }
+
+    private async Task LoadPaymentsSafeAsync()
+    {
+        try
+        {
+            _payments = await Api.GetOnlinePaymentsStatusAsync();
+        }
+        catch
+        {
+            _payments = null; // optional card; never blocks the dashboard
         }
     }
 

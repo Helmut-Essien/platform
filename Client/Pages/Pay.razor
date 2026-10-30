@@ -1,0 +1,196 @@
+@page "/pay/{Token}"
+@layout PublicLayout
+@attribute [AllowAnonymous]
+@implements IDisposable
+@inject PublicPayClient PayApi
+@inject NavigationManager Navigation
+@using Platform.Shared.Dtos.Payments
+@using Platform.Shared.Enums
+
+<PageTitle>Pay invoice</PageTitle>
+
+<MudPaper Class="login-card pa-5 pa-sm-8" Elevation="0">
+    @if (_loading)
+    {
+        <div class="d-flex justify-center pa-6"><MudProgressCircular Indeterminate="true" /></div>
+    }
+    else if (_fatal is not null)
+    {
+        <MudText Typo="Typo.h6" Class="mb-2">@_fatalTitle</MudText>
+        <MudText Typo="Typo.body2">@_fatal</MudText>
+    }
+    else if (_summary is not null)
+    {
+        @if (!string.IsNullOrEmpty(_summary.IssuerName))
+        {
+            <MudText Typo="Typo.overline">@_summary.IssuerName</MudText>
+        }
+        <MudText Typo="Typo.h5" Class="mb-1">Invoice @_summary.InvoiceNumber</MudText>
+        <MudText Typo="Typo.body2" Class="mb-4">Billed to @_summary.CustomerName</MudText>
+
+        <MudSimpleTable Dense="true" Class="mb-4" Elevation="0">
+            <tbody>
+                <tr><td>Total</td><td class="text-right">@Money(_summary.TotalAmount)</td></tr>
+                @if (_summary.AmountPaid > 0)
+                {
+                    <tr><td>Paid</td><td class="text-right">@Money(_summary.AmountPaid)</td></tr>
+                }
+                <tr><td><b>Amount due</b></td><td class="text-right"><b>@Money(_summary.AmountDue)</b></td></tr>
+                <tr><td>Due date</td><td class="text-right">@_summary.DueDate.ToString("dd MMM yyyy")</td></tr>
+            </tbody>
+        </MudSimpleTable>
+
+        @if (_status is not null)
+        {
+            <MudAlert Severity="@StatusSeverity" Variant="Variant.Outlined" Class="mb-3">@StatusText</MudAlert>
+        }
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">@_error</MudAlert>
+        }
+
+        @if (_summary.State == "paid")
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">This invoice is paid. Thank you!</MudAlert>
+        }
+        else if (_summary.State != "payable")
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">This invoice can no longer be paid online.</MudAlert>
+        }
+        else if (!_summary.OnlinePaymentAvailable)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Online payment is unavailable right now. Please use the payment details on your invoice PDF.
+            </MudAlert>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large"
+                       Disabled="@(_starting || _polling)" OnClick="StartAsync">
+                @(_starting ? "Opening secure checkout…" : $"Pay {Money(_summary.AmountDue)}")
+            </MudButton>
+            <MudText Typo="Typo.caption" Class="d-block mt-2">
+                Card or mobile money via Paystack.@(_summary.TestMode ? " (Test mode — no real money is charged.)" : "")
+            </MudText>
+        }
+    }
+</MudPaper>
+
+@code {
+    private const int MaxPolls = 20;
+
+    [Parameter] public string Token { get; set; } = "";
+
+    private PublicInvoiceSummaryDto? _summary;
+    private PublicCheckoutStatusDto? _status;
+    private bool _loading = true, _starting, _polling;
+    private string? _fatal, _fatalTitle, _error;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _loading = false;
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(Navigation.Uri).Query);
+        var payment = query["payment"];
+        if (_summary is not null && payment == "return")
+            _ = PollAsync(query["reference"] ?? query["trxref"]);
+        else if (payment == "cancelled")
+            _error = "Payment was cancelled. You can try again.";
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await PayApi.GetSummaryAsync(Token, _cts.Token);
+        switch (result.Outcome)
+        {
+            case PublicPayClient.Outcome.Ok:
+                _summary = result.Data;
+                break;
+            case PublicPayClient.Outcome.Expired:
+                (_fatalTitle, _fatal) = ("Link expired", "This payment link has expired. Please contact us for a new one.");
+                break;
+            case PublicPayClient.Outcome.Invalid:
+                (_fatalTitle, _fatal) = ("Link not valid", "This payment link is not valid. Check that you copied the whole link.");
+                break;
+            default:
+                (_fatalTitle, _fatal) = ("Something went wrong", result.Message ?? "Please try again in a moment.");
+                break;
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        _starting = true;
+        _error = null;
+        var result = await PayApi.StartCheckoutAsync(Token, _cts.Token);
+        if (result.Outcome == PublicPayClient.Outcome.Ok && result.Data is { } session)
+        {
+            Navigation.NavigateTo(session.AuthorizationUrl, forceLoad: true);
+            return;
+        }
+        _starting = false;
+        _error = result.Outcome == PublicPayClient.Outcome.Unavailable
+            ? "Online payment is unavailable right now. Please use the payment details on your invoice PDF."
+            : result.Message ?? "Could not start the payment. Please try again.";
+    }
+
+    /// <summary>Bounded backoff poll (≈2 minutes max) while Paystack confirms; the webhook usually wins first.</summary>
+    private async Task PollAsync(string? reference)
+    {
+        _polling = true;
+        StateHasChanged();
+        try
+        {
+            for (var i = 0; i < MaxPolls && !_cts.IsCancellationRequested; i++)
+            {
+                var result = await PayApi.GetStatusAsync(Token, reference, _cts.Token);
+                if (result.Outcome == PublicPayClient.Outcome.Ok)
+                {
+                    _status = result.Data;
+                    if (_status!.Status != PaymentCheckoutStatus.Pending)
+                        break;
+                }
+                else if (result.Outcome is PublicPayClient.Outcome.Invalid or PublicPayClient.Outcome.Expired)
+                {
+                    break;
+                }
+                StateHasChanged();
+                await Task.Delay(TimeSpan.FromSeconds(Math.Min(2 + i, 10)), _cts.Token);
+            }
+            await LoadAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _polling = false;
+            if (!_cts.IsCancellationRequested)
+                StateHasChanged();
+        }
+    }
+
+    private string Money(decimal amount) => $"{_summary?.Currency} {amount:N2}";
+
+    private Severity StatusSeverity => _status?.Status switch
+    {
+        PaymentCheckoutStatus.Paid => Severity.Success,
+        PaymentCheckoutStatus.Pending => Severity.Info,
+        _ => Severity.Warning
+    };
+
+    private string StatusText => _status?.Status switch
+    {
+        PaymentCheckoutStatus.Paid => "Payment received. Thank you! A receipt is on its way by email.",
+        PaymentCheckoutStatus.Pending => "Confirming your payment with Paystack…",
+        PaymentCheckoutStatus.NeedsReview => "Payment received and is being reviewed. We'll be in touch if anything is needed.",
+        _ => _status?.Message ?? "The payment did not go through. You can try again."
+    };
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

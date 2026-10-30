@@ -4,6 +4,8 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@implements IDisposable
 <PageTitle>@(_invoice?.InvoiceNumber is { Length: > 0 } num ? $"Invoice {num}" : "Invoice") · HelmutCode Admin</PageTitle>
 
 <div class="invoice-detail-page page-content">
@@ -82,6 +84,19 @@ else
                         <MudIcon Icon="@Icons.Material.Filled.Payments" Size="Size.Small" />
                         Record payment
                     </button>
+                    @if (CanPayOnline)
+                    {
+                        <button type="button" class="btn-secondary-cta" @onclick="() => RunExclusiveAsync(PayOnlineAsyncCore)" disabled="@(_busy || _confirming)"
+                                title="Open Paystack checkout (card or mobile money) for the outstanding balance">
+                            <MudIcon Icon="@Icons.Material.Filled.CreditCard" Size="Size.Small" />
+                            Pay with Paystack
+                        </button>
+                        <button type="button" class="btn-secondary-cta" @onclick="() => RunExclusiveAsync(CopyPayLinkAsyncCore)" disabled="@(_busy || _confirming)"
+                                title="Copy the customer's pay-online link (no login needed)">
+                            <MudIcon Icon="@Icons.Material.Filled.Link" Size="Size.Small" />
+                            Copy pay link
+                        </button>
+                    }
                 }
             }
             @if (_invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue
@@ -94,6 +109,19 @@ else
             }
         </div>
     </header>
+
+    @if (_confirming)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4" Icon="@Icons.Material.Filled.HourglassTop">
+            Confirming payment with Paystack…
+        </MudAlert>
+    }
+    else if (_paymentNotice is not null)
+    {
+        <MudAlert Severity="_paymentNoticeSeverity" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="() => _paymentNotice = null">
+            @_paymentNotice
+        </MudAlert>
+    }
 
     <section class="invoice-detail-summary-grid" aria-label="Invoice summary">
         <article class="invoice-detail-panel">
@@ -238,11 +266,195 @@ else
 @code {
     [Parameter] public string Id { get; set; } = "";
 
+    /// <summary>"return" when Paystack sends the payer back; "cancelled" when they cancel checkout.</summary>
+    [SupplyParameterFromQuery(Name = "payment")] public string? PaymentQuery { get; set; }
+
+    /// <summary>Paystack appends ?reference=… (and trxref) to the callback URL.</summary>
+    [SupplyParameterFromQuery(Name = "reference")] public string? ReferenceQuery { get; set; }
+
+    private readonly CancellationTokenSource _disposeCts = new();
+    private OnlinePaymentsStatusDto? _onlinePayments;
+    private bool _confirming;
+    private string? _paymentNotice;
+    private Severity _paymentNoticeSeverity = Severity.Info;
+    private string? _handledPaymentQuery;
+
+    private bool CanPayOnline =>
+        _onlinePayments?.Enabled == true
+        && _invoice is { AmountDue: > 0 } inv
+        && string.Equals(inv.Currency, _onlinePayments.Currency, StringComparison.OrdinalIgnoreCase)
+        && inv.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue;
+
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        _disposeCts.Cancel();
+        _disposeCts.Dispose();
+    }
+
+    private async Task LoadOnlinePaymentsAsync()
+    {
+        if (_onlinePayments is not null || _disposed)
+            return;
+        try
+        {
+            _onlinePayments = await Api.GetOnlinePaymentsStatusAsync(_disposeCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task CopyPayLinkAsyncCore()
+    {
+        if (_invoice is null)
+            return;
+        var result = await Api.GetPayLinkAsync(_invoice.Id);
+        if (!result.IsSuccess)
+        {
+            Snackbar.Add(result.ErrorMessage ?? "Couldn't get the pay link.", Severity.Error);
+            return;
+        }
+        if (result.Data is null)
+        {
+            Snackbar.Add("Online payment isn't available for this invoice.", Severity.Info);
+            return;
+        }
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", result.Data);
+            Snackbar.Add("Pay link copied. Anyone with it can view the amount due and pay.", Severity.Success);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add($"Copy failed. Link: {result.Data}", Severity.Warning, o => o.RequireInteraction = true);
+        }
+    }
+
+    private async Task PayOnlineAsyncCore()
+    {
+        if (_invoice is null)
+            return;
+
+        var result = await Api.StartCheckoutAsync(_invoice.Id);
+        if (!result.IsSuccess || result.Data is null)
+        {
+            Snackbar.Add(result.ErrorMessage ?? "Couldn't start the Paystack checkout.", Severity.Error);
+            return;
+        }
+
+        // Full page load: Paystack checkout is an external site and returns to ?payment=return.
+        Navigation.NavigateTo(result.Data.AuthorizationUrl, forceLoad: true);
+    }
+
+    /// <summary>Handles the Paystack return (?payment=return / cancelled) once, then cleans the URL.</summary>
+    private async Task HandlePaymentReturnAsync()
+    {
+        var payment = PaymentQuery?.Trim().ToLowerInvariant();
+        if (payment is not ("return" or "cancelled") || _invoice is null || _disposed)
+            return;
+
+        var key = $"{_invoice.Id}|{payment}|{ReferenceQuery}";
+        if (_handledPaymentQuery == key)
+            return;
+        _handledPaymentQuery = key;
+
+        var invoiceId = _invoice.Id;
+        var reference = ReferenceQuery;
+        Navigation.NavigateTo($"invoices/{Uri.EscapeDataString(invoiceId)}", replace: true);
+
+        if (payment == "cancelled")
+        {
+            ShowPaymentNotice("Paystack checkout was cancelled. No payment was taken.", Severity.Warning);
+            return;
+        }
+
+        _confirming = true;
+        StateHasChanged();
+        // Captured once: reading Token after Dispose() would throw ObjectDisposedException.
+        var token = _disposeCts.Token;
+        try
+        {
+            CheckoutStatusDto? last = null;
+            // Bounded on slow networks: each check gets 10 s, the whole confirmation at most ~40 s.
+            var started = DateTime.UtcNow;
+            for (var attempt = 0; attempt < 6 && DateTime.UtcNow - started < TimeSpan.FromSeconds(30); attempt++)
+            {
+                if (attempt > 0)
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(2 * attempt, 6)), token);
+
+                using var perRequest = CancellationTokenSource.CreateLinkedTokenSource(token);
+                perRequest.CancelAfter(TimeSpan.FromSeconds(10));
+                ApiResult<CheckoutStatusDto> result;
+                try
+                {
+                    result = await Api.GetCheckoutStatusAsync(invoiceId, reference, perRequest.Token);
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                {
+                    continue; // this check timed out; try again
+                }
+                if (result.IsSuccess && result.Data is not null)
+                {
+                    last = result.Data;
+                    if (last.Status != PaymentCheckoutStatus.Pending)
+                        break;
+                }
+            }
+
+            _confirming = false;
+            if (token.IsCancellationRequested)
+                return;
+            Api.InvalidateOnlinePaymentsStatus();
+            await LoadAsync();
+            switch (last?.Status)
+            {
+                case PaymentCheckoutStatus.Paid:
+                    ShowPaymentNotice($"Payment of {FormatMoney(last.Amount, last.Currency)} received via Paystack. Receipt recorded.", Severity.Success);
+                    break;
+                case PaymentCheckoutStatus.Failed:
+                    ShowPaymentNotice($"The Paystack payment failed{(string.IsNullOrWhiteSpace(last.Message) ? "." : $": {last.Message}")}", Severity.Error);
+                    break;
+                case PaymentCheckoutStatus.Refunded or PaymentCheckoutStatus.Disputed:
+                    ShowPaymentNotice($"This Paystack payment was {(last.Status == PaymentCheckoutStatus.Refunded ? "refunded" : "disputed")}. {last.Message}", Severity.Warning);
+                    break;
+                case PaymentCheckoutStatus.NeedsReview:
+                    ShowPaymentNotice("Paystack reported a payment that doesn't match this invoice (amount, currency or status changed). Check the Paystack dashboard and record it manually.", Severity.Warning);
+                    break;
+                default:
+                    ShowPaymentNotice("Paystack hasn't confirmed the payment yet. It will be recorded automatically once confirmed — refresh in a minute.", Severity.Info);
+                    break;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Left the page while polling.
+        }
+        finally
+        {
+            _confirming = false;
+        }
+    }
+
+    private void ShowPaymentNotice(string message, Severity severity)
+    {
+        _paymentNotice = message;
+        _paymentNoticeSeverity = severity;
+    }
+
     private bool _loading = true;
     private bool _loaded;
     private InvoiceDto? _invoice;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadAsync(), LoadOnlinePaymentsAsync());
+        await HandlePaymentReturnAsync();
+    }
 
     protected override async Task OnParametersSetAsync()
     {

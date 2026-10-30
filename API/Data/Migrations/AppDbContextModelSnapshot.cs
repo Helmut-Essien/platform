@@ -17,7 +17,7 @@ namespace Platform.Api.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.16")
+                .HasAnnotation("ProductVersion", "9.0.22")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -443,9 +443,31 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
 
+                    b.Property<DateTime?>("PayLinkExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayLinkNonce")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("PlanName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("RenewalAppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RenewalForExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RenewalNewExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("RenewalPeriodMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("RenewalPreviousExpiresAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ServiceProductId")
                         .HasMaxLength(26)
@@ -485,6 +507,11 @@ namespace Platform.Api.Data.Migrations
                     b.HasIndex("ServiceProductId");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("LicenseId", "RenewalForExpiresAt")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Invoices_OneRenewalPerPeriod")
+                        .HasFilter("\"RenewalForExpiresAt\" IS NOT NULL AND \"Status\" <> 'Void'");
 
                     b.HasIndex("Status", "DueDate");
 
@@ -542,9 +569,36 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
 
+                    b.Property<bool>("AutoRenewInvoice")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("AutoSuspendedForOverdueInvoiceId")
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
+
+                    b.Property<decimal?>("BillingAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("BillingAnchorDay")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("BillingCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("BillingPeriodMonths")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(12);
+
+                    b.Property<decimal>("BillingTaxAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -610,6 +664,106 @@ namespace Platform.Api.Data.Migrations
                     b.HasIndex("Status", "ExpiresAt");
 
                     b.ToTable("Licenses", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Api.Entities.PaymentCheckout", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<long>("AmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AuthorizationUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Channel")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("InvoiceId")
+                        .IsRequired()
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("LiveMode")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("PaidAmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ProviderTransactionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ReceiptId")
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Reference")
+                        .IsUnique();
+
+                    b.HasIndex("InvoiceId", "Status");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("PaymentCheckouts", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PaymentCheckouts_AmountPositive", "\"Amount\" > 0 AND \"AmountMinor\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("Platform.Api.Entities.PaymentTransaction", b =>
@@ -1007,6 +1161,17 @@ namespace Platform.Api.Data.Migrations
                     b.Navigation("Customer");
 
                     b.Navigation("ServiceProduct");
+                });
+
+            modelBuilder.Entity("Platform.Api.Entities.PaymentCheckout", b =>
+                {
+                    b.HasOne("Platform.Api.Entities.Invoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Invoice");
                 });
 
             modelBuilder.Entity("Platform.Api.Entities.PaymentTransaction", b =>

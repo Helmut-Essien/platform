@@ -1,3 +1,4 @@
+using Platform.Shared.Dtos.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Platform.Api.Extensions;
@@ -67,6 +68,14 @@ public class InvoicesController(IBillingService billing) : ControllerBase
                 cancellationToken);
 
         return CreatedAtAction(nameof(Get), new { id = invoice.Id }, invoice);
+    }
+
+    /// <summary>The customer-facing pay link (issued on demand). 204 when online payment isn't offered for it.</summary>
+    [HttpGet("{id}/pay-link")]
+    public async Task<ActionResult<PayLinkDto>> PayLink(string id, CancellationToken cancellationToken)
+    {
+        var url = await billing.GetPayLinkAsync(id, cancellationToken);
+        return url is null ? NoContent() : Ok(new PayLinkDto { Url = url });
     }
 
     [HttpPost("{id}/void")]

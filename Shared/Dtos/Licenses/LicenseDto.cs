@@ -27,4 +27,6 @@ public class LicenseDto
     public DateTime UpdatedAt { get; set; }
 
     public string? LatestInvoiceId { get; set; }
+
+    public LicenseBillingDto? Billing { get; set; }
 }

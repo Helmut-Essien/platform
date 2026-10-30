@@ -142,8 +142,14 @@ public class EmailTemplateService
                 <p style="margin:16px 0 0;">Keep this email for your records. If you have a billing question, contact {WebUtility.HtmlEncode(VendorName)} and quote the invoice number above.</p>
                 """));
 
-    public (string Subject, string Html) Invoice(Customer customer, Invoice invoice)
+    public (string Subject, string Html) Invoice(Customer customer, Invoice invoice, string? payUrl = null)
     {
+        var payHtml = string.IsNullOrEmpty(payUrl)
+            ? string.Empty
+            : $"""
+              <p style="margin:20px 0 8px;"><a href="{WebUtility.HtmlEncode(payUrl)}" style="display:inline-block;padding:12px 20px;background:#5c9f24;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Pay online</a></p>
+              <p style="margin:0 0 8px;font-size:13px;color:#55604e;">Pay securely by card or mobile money. If the button does not work, copy this link:<br /><span style="word-break:break-all;">{WebUtility.HtmlEncode(payUrl)}</span></p>
+              """;
         var dueDate = invoice.DueDate?.ToString("MMMM dd, yyyy") ?? "Upon receipt";
         var subject = $"Invoice {invoice.InvoiceNumber} from {VendorName}";
         var html = Wrap(
@@ -161,6 +167,7 @@ public class EmailTemplateService
               {DetailRow("Tax", FormatMoney(invoice.TaxAmount, invoice.Currency), encodeValue: false)}
               {DetailRow("Total", FormatMoney(invoice.TotalAmount, invoice.Currency), encodeValue: false, emphasize: true)}
             </table>
+            {payHtml}
             <p style="margin:16px 0 0;">Please arrange payment by the due date using the details in the attached PDF. For questions about this invoice, contact us and quote the invoice number above.</p>
             """);
         return (subject, html);

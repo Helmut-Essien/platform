@@ -54,6 +54,8 @@ public class LicenseService(
             CreatedAt = now,
             UpdatedAt = now
         };
+        ApplyBilling(license, request.Billing);
+        SetAnchor(license);
 
         db.Licenses.Add(license);
         try
@@ -323,6 +325,8 @@ public class LicenseService(
         }
         license.ExpiresAt = renewedExpiry;
         license.UpdatedAt = now;
+        SetAnchor(license);
+        ApplyBilling(license, request.Billing);
 
         if (request.RotateLicenseKey)
         {
@@ -388,7 +392,13 @@ public class LicenseService(
             throw new InvalidOperationException("Cannot update a revoked license.");
 
         license.PlanName = request.PlanName.Trim();
-        license.ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt);
+        var newExpiry = DateTimeNormalizer.ToUtc(request.ExpiresAt);
+        if (newExpiry != license.ExpiresAt)
+        {
+            license.ExpiresAt = newExpiry;
+            SetAnchor(license);
+        }
+        ApplyBilling(license, request.Billing);
         license.UpdatedAt = DateTime.UtcNow;
         var becameExpired = license.Status == LicenseStatus.Active
             && DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, license.UpdatedAt);
@@ -702,6 +712,42 @@ public class LicenseService(
         LicenseKeySentAt = license.LicenseKeySentAt,
         CreatedAt = license.CreatedAt,
         UpdatedAt = license.UpdatedAt,
-        LatestInvoiceId = latestInvoiceId
+        LatestInvoiceId = latestInvoiceId,
+        Billing = new LicenseBillingDto
+        {
+            Amount = license.BillingAmount,
+            TaxAmount = license.BillingTaxAmount,
+            Currency = license.BillingCurrency,
+            PeriodMonths = license.BillingPeriodMonths,
+            AutoRenewInvoice = license.AutoRenewInvoice
+        }
     };
+
+    /// <summary>Validates and applies a billing price (null = unchanged). Amount null/0 clears the price.</summary>
+    internal static void ApplyBilling(License license, LicenseBillingDto? billing)
+    {
+        if (billing is null)
+            return;
+        if (billing.PeriodMonths is < 1 or > 36)
+            throw new InvalidOperationException("Billing period must be 1 to 36 months.");
+        license.BillingPeriodMonths = billing.PeriodMonths;
+        license.AutoRenewInvoice = billing.AutoRenewInvoice;
+        if (billing.Amount is not > 0)
+        {
+            license.BillingAmount = null;
+            license.BillingTaxAmount = 0;
+            license.BillingCurrency = null;
+            return;
+        }
+
+        BillingService.EnsureValidMoney(billing.Amount.Value, "Billing price");
+        BillingService.EnsureValidMoney(billing.TaxAmount, "Billing tax");
+        license.BillingAmount = billing.Amount;
+        license.BillingTaxAmount = billing.TaxAmount;
+        license.BillingCurrency = BillingService.NormalizeCurrency(billing.Currency);
+    }
+
+    /// <summary>An admin-set expiry defines the renewal anniversary day (so Jan 31 renewals return to the 31st).</summary>
+    private static void SetAnchor(License license) =>
+        license.BillingAnchorDay = license.ExpiresAt?.Day;
 }

@@ -1,3 +1,4 @@
+using Platform.Shared.Dtos.Payments;
 using System.Net.Http.Json;
 using Platform.Shared.Dtos.Audit;
 using Platform.Shared.Dtos.Auth;
@@ -351,10 +352,75 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         return await ToApiResultAsync<InvoiceDto>(response, ct);
     }
 
+    /// <summary>The customer-facing pay link; Ok(null) when online payment isn't offered for the invoice.</summary>
+    public async Task<ApiResult<string?>> GetPayLinkAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.GetAsync($"api/invoices/{id}/pay-link", ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+            return ApiResult<string?>.Ok(null);
+        var result = await ToApiResultAsync<PayLinkDto>(response, ct);
+        return result.IsSuccess ? ApiResult<string?>.Ok(result.Data!.Url) : ApiResult<string?>.Fail(result.ErrorMessage ?? "Request failed.");
+    }
+
+    public async Task<ApiResult<InvoiceDto>> CreateRenewalInvoiceAsync(string licenseId, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/licenses/{licenseId}/renewal-invoice", null, ct);
+        return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
     public async Task<ApiResult<InvoiceDto>> VoidInvoiceAsync(string id, CancellationToken ct = default)
     {
         var response = await http.PostAsync($"api/invoices/{id}/void", null, ct);
         return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
+    /// <summary>Whether online (Paystack) payments are enabled; null if the server could not be reached.</summary>
+    /// <remarks>Cached for a minute (it only changes on deploy or a payment), so invoice pages don't re-fetch it.</remarks>
+    public async Task<OnlinePaymentsStatusDto?> GetOnlinePaymentsStatusAsync(CancellationToken ct = default)
+    {
+        if (_paymentsStatus is { } cached && DateTime.UtcNow - _paymentsStatusAt < PaymentsStatusTtl)
+            return cached;
+
+        var status = await GetJsonAsync<OnlinePaymentsStatusDto>("api/payments/status", ct);
+        if (status is not null)
+        {
+            _paymentsStatus = status;
+            _paymentsStatusAt = DateTime.UtcNow;
+        }
+        return status;
+    }
+
+    /// <summary>Drops the cached payments status (e.g. after a payment so the dashboard total is fresh).</summary>
+    public void InvalidateOnlinePaymentsStatus() => _paymentsStatus = null;
+
+    private static readonly TimeSpan PaymentsStatusTtl = TimeSpan.FromMinutes(1);
+    private OnlinePaymentsStatusDto? _paymentsStatus;
+    private DateTime _paymentsStatusAt;
+
+    public async Task<ApiResult<CheckoutSessionDto>> StartCheckoutAsync(string invoiceId, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/invoices/{Uri.EscapeDataString(invoiceId)}/checkout", null, ct);
+        return await ToApiResultAsync<CheckoutSessionDto>(response, ct);
+    }
+
+    /// <summary>Asks the API to verify a checkout with Paystack. Quiet on failure (used for polling).</summary>
+    public async Task<ApiResult<CheckoutStatusDto>> GetCheckoutStatusAsync(
+        string invoiceId,
+        string? reference,
+        CancellationToken ct = default)
+    {
+        var url = $"api/invoices/{Uri.EscapeDataString(invoiceId)}/checkout/status";
+        if (!string.IsNullOrWhiteSpace(reference))
+            url += $"?reference={Uri.EscapeDataString(reference)}";
+        try
+        {
+            var response = await http.GetAsync(url, ct);
+            return await ToApiResultAsync<CheckoutStatusDto>(response, ct);
+        }
+        catch (HttpRequestException)
+        {
+            return ApiResult<CheckoutStatusDto>.Fail("Couldn't reach the server.");
+        }
     }
 
     public async Task<ApiResult<InvoiceDto>> SendInvoiceAsync(string id, CancellationToken ct = default)

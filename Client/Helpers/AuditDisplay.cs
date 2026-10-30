@@ -35,6 +35,11 @@ public static class AuditDisplay
         AuditAction.EmailDeliveryRetried => "Email delivery retried",
         AuditAction.LicenseAutoSuspendedOverdue => "License auto-suspended (overdue invoice)",
         AuditAction.LicenseAutoReactivatedPaid => "License reactivated after payment",
+        AuditAction.RenewalInvoiceCreated => "Renewal invoice created",
+        AuditAction.LicenseAutoRenewedPaid => "License renewed after payment",
+        AuditAction.LicenseRenewalSkipped => "Renewal not applied (already renewed)",
+        AuditAction.LicenseRenewalReverted => "Renewal reverted (payment reversed)",
+        AuditAction.LicenseRenewalReversalConflict => "Renewal kept: license changed since (review)",
         _ => SplitPascal(action.ToString())
     };
 

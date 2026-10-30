@@ -34,5 +34,10 @@ public interface IBillingService
 
     Task<ReceiptDto> RecordReceiptAsync(string invoiceId, RecordReceiptRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
+    /// <summary>Creates the renewal invoice for the license's current period; null when nothing was created (worker mode).</summary>
+    Task<InvoiceDto?> CreateRenewalInvoiceAsync(string licenseId, DateTime? expectedExpiresAt, string performedBy, bool explicitRequest = false, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    Task<string?> GetPayLinkAsync(string invoiceId, CancellationToken cancellationToken = default);
+
     Task<ReceiptDto> ReverseReceiptAsync(string invoiceId, string receiptId, ReverseReceiptRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 }

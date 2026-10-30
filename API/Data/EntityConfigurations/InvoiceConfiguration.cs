@@ -69,6 +69,14 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.HasIndex(i => i.InvoiceNumber)
             .IsUnique();
 
+        builder.Property(i => i.PayLinkNonce).HasMaxLength(32);
+
+        // One live renewal invoice per license and period. Void ones are excluded so an admin can re-create.
+        builder.HasIndex(i => new { i.LicenseId, i.RenewalForExpiresAt })
+            .IsUnique()
+            .HasFilter("\"RenewalForExpiresAt\" IS NOT NULL AND \"Status\" <> 'Void'")
+            .HasDatabaseName("IX_Invoices_OneRenewalPerPeriod");
+
         builder.HasIndex(i => i.CustomerId);
         builder.HasIndex(i => i.LicenseId);
         builder.HasIndex(i => i.Status);
