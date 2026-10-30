@@ -1,0 +1,12 @@
+# Only the public landing page is for search engines. Everything else (admin app, /api, /pay links)
+# is blocked here and also sends "X-Robots-Tag: noindex". New admin routes are covered automatically.
+User-agent: *
+Allow: /$
+Allow: /og-image.png
+Allow: /favicon
+Allow: /icon-
+Allow: /apple-touch-icon.png
+Allow: /site.webmanifest
+Disallow: /
+
+Sitemap: https://helmutcode.runasp.net/sitemap.xml
