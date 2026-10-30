@@ -161,7 +161,7 @@ public class PaystackPaymentTests
     }
 
     [Fact]
-    public async Task StartCheckout_NewAmount_SupersedesOldCheckout()
+    public async Task StartCheckout_NewAmount_KeepsOldCheckoutPendingForReconcile()
     {
         await using var db = CreateDbContext();
         var (service, _) = CreateService(db);
@@ -178,7 +178,60 @@ public class PaystackPaymentTests
         Assert.NotEqual(first.Reference, second.Reference);
         Assert.Equal(75m, second.Amount);
         var old = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync(c => c.Reference == first.Reference);
-        Assert.Equal(PaymentCheckoutStatus.Expired, old.Status);
+        // Not expired blindly: the payer may still be on that page; reconcile verifies and expires it later.
+        Assert.Equal(PaymentCheckoutStatus.Pending, old.Status);
+    }
+
+    [Fact]
+    public async Task StartCheckout_OldOpenCheckout_IsNotReused()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var first = await service.StartCheckoutAsync(invoice.Id, "admin");
+        var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+        row.CreatedAt = DateTime.UtcNow - PaymentCheckoutService.CheckoutReuseWindow - TimeSpan.FromMinutes(1);
+        await db.SaveChangesAsync();
+
+        var second = await service.StartCheckoutAsync(invoice.Id, "admin");
+
+        Assert.False(second.Reused);
+        Assert.NotEqual(first.Reference, second.Reference);
+        Assert.Equal(2, gateway.Initialized.Count);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-an-email")]
+    [InlineData("a@b")]
+    public async Task StartCheckout_InvalidCustomerEmail_IsRejectedBeforeCallingPaystack(string email)
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var customer = await db.Customers.SingleAsync();
+        customer.ContactEmail = email;
+        customer.BillingEmail = null;
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartCheckoutAsync(invoice.Id, "admin"));
+        Assert.Contains("email", ex.Message);
+        Assert.Empty(gateway.Initialized);
+    }
+
+    [Fact]
+    public async Task StartCheckout_RecordsLiveMode()
+    {
+        await using var db = CreateDbContext();
+        var (service, _) = CreateService(db, secretKey: "sk_live_abc");
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+
+        await service.StartCheckoutAsync(invoice.Id, "admin");
+
+        Assert.True((await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).LiveMode);
     }
 
     [Fact]
@@ -263,6 +316,111 @@ public class PaystackPaymentTests
     }
 
     [Fact]
+    public async Task Webhook_Overpayment_IsFlagged()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 100m);
+        var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+        gateway.Verification = new GatewayVerification(
+            GatewayTransactionState.Success, 10001, "GHS", "card", DateTime.UtcNow, "1", null);
+
+        await service.HandleWebhookAsync(WebhookBody(checkout.Reference));
+
+        Assert.Equal(PaymentCheckoutStatus.NeedsReview, (await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Webhook_FeesPassedToCustomer_RecordsInvoiceAmount_AndCapCountsCharged()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 100m);
+        var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+        gateway.Verification = new GatewayVerification(
+            GatewayTransactionState.Success, 10195, "ghs", "card", DateTime.UtcNow.AddHours(3), "1", null,
+            RequestedAmountMinor: 10000);
+
+        await service.HandleWebhookAsync(WebhookBody(checkout.Reference));
+
+        var receipt = await db.Receipts.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(100m, receipt.AmountPaid);
+        Assert.True(receipt.PaidAt <= DateTime.UtcNow.AddSeconds(1)); // future paid_at clamped
+        Assert.Equal(101.95m, (await service.GetStatusAsync()).CollectedTotal);
+    }
+
+    [Fact]
+    public async Task Cap_CountsOnlyCurrentMode()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 50m);
+        var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+        gateway.Verification = new GatewayVerification(
+            GatewayTransactionState.Success, 5000, "GHS", "card", DateTime.UtcNow, "1", null);
+        await service.HandleWebhookAsync(WebhookBody(checkout.Reference));
+        db.ChangeTracker.Clear();
+
+        var (liveService, _) = CreateService(db, secretKey: "sk_live_abc");
+        Assert.Equal(50m, (await service.GetStatusAsync()).CollectedTotal);
+        Assert.Equal(0m, (await liveService.GetStatusAsync()).CollectedTotal);
+    }
+
+    [Fact]
+    public async Task ConcurrentConfirm_StaleCopyCannotOverwritePaid()
+    {
+        var name = NUlid.Ulid.NewUlid().ToString();
+        await using var db1 = CreateDbContext(name);
+        await using var db2 = CreateDbContext(name);
+        var (service1, gateway1) = CreateService(db1);
+        var billing = CreateBilling(db1);
+        var invoice = await CreateInvoiceAsync(db1, billing, 10m);
+        var checkout = await service1.StartCheckoutAsync(invoice.Id, "admin");
+
+        // The worker loaded the row while it was still Pending...
+        var (service2, gateway2) = CreateService(db2);
+        var stale = await db2.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+
+        // ...then the webhook applied the payment.
+        gateway1.Verification = new GatewayVerification(GatewayTransactionState.Success, 1000, "GHS", "card", DateTime.UtcNow, "1", null);
+        await service1.HandleWebhookAsync(WebhookBody(checkout.Reference));
+
+        gateway2.Verification = new GatewayVerification(GatewayTransactionState.Failed, 1000, "GHS", "card", null, "1", "reversed");
+        var result = await service2.ConfirmAsync(stale, CancellationToken.None);
+
+        Assert.Equal(PaymentCheckoutStatus.Paid, result.Status);
+        await using var db3 = CreateDbContext(name);
+        Assert.Equal(PaymentCheckoutStatus.Paid, (await db3.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).Status);
+        Assert.Single(await db3.Receipts.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentSuccess_FromTwoCallers_RecordsOneReceipt()
+    {
+        var name = NUlid.Ulid.NewUlid().ToString();
+        await using var db1 = CreateDbContext(name);
+        await using var db2 = CreateDbContext(name);
+        var (service1, gateway1) = CreateService(db1);
+        var billing = CreateBilling(db1);
+        var invoice = await CreateInvoiceAsync(db1, billing, 10m);
+        var checkout = await service1.StartCheckoutAsync(invoice.Id, "admin");
+        var (service2, gateway2) = CreateService(db2);
+        var stale = await db2.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+        var ok = new GatewayVerification(GatewayTransactionState.Success, 1000, "GHS", "card", DateTime.UtcNow, "1", null);
+        gateway1.Verification = gateway2.Verification = ok;
+
+        await service1.HandleWebhookAsync(WebhookBody(checkout.Reference));
+        var result = await service2.ConfirmAsync(stale, CancellationToken.None);
+
+        Assert.Equal(PaymentCheckoutStatus.Paid, result.Status);
+        await using var db3 = CreateDbContext(name);
+        Assert.Single(await db3.Receipts.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
     public async Task Webhook_CurrencyMismatch_IsNotRecorded()
     {
         await using var db = CreateDbContext();
@@ -326,6 +484,19 @@ public class PaystackPaymentTests
         await service.HandleWebhookAsync(Encoding.UTF8.GetBytes("not json"));
 
         Assert.Equal(0, gateway.VerifyCalls);
+    }
+
+    [Fact]
+    public async Task WebhookEndpoint_OversizedBody_Returns413()
+    {
+        await using var db = CreateDbContext();
+        var (service, _) = CreateService(db);
+        var body = new string('x', 64 * 1024 + 1);
+        var controller = CreateController(service, Secret, body, PaystackSignature.Compute(Secret, Encoding.UTF8.GetBytes(body)));
+
+        var result = await controller.PaystackWebhook(CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status413PayloadTooLarge, Assert.IsType<StatusCodeResult>(result).StatusCode);
     }
 
     [Fact]
@@ -431,6 +602,44 @@ public class PaystackPaymentTests
         Assert.DoesNotContain(Secret, ex.Message);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task Gateway_RateLimitOrServerError_ThrowsGatewayException(HttpStatusCode status)
+    {
+        var gateway = CreateGateway(new StubHandler(status, "<html>busy</html>"));
+        await Assert.ThrowsAsync<PaymentGatewayException>(() => gateway.VerifyAsync("PLT-1"));
+    }
+
+    [Fact]
+    public async Task Gateway_Timeout_IsGatewayException_ButCallerCancellationPropagates()
+    {
+        var timeout = CreateGateway(new ThrowingHandler(new TaskCanceledException("timeout")));
+        await Assert.ThrowsAsync<PaymentGatewayException>(() => timeout.VerifyAsync("PLT-1"));
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var cancelled = CreateGateway(new ThrowingHandler(new TaskCanceledException("cancelled")));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled.VerifyAsync("PLT-1", cts.Token));
+    }
+
+    [Fact]
+    public async Task Gateway_ParsesRequestedAmount_AndOddPaidAt()
+    {
+        var gateway = CreateGateway(new StubHandler(HttpStatusCode.OK, """
+            {"status":true,"message":"ok","data":{"id":1,"status":"success","amount":10195,"requested_amount":10000,
+             "currency":"ghs","channel":"Card","paid_at":"not a date"}}
+            """));
+
+        var result = await gateway.VerifyAsync("PLT-1");
+
+        Assert.Equal(10000, result.RequestedAmountMinor);
+        Assert.Equal("GHS", result.Currency);
+        Assert.Equal("card", result.Channel);
+        Assert.Null(result.PaidAt);
+    }
+
     [Fact]
     public async Task Gateway_InitializeSendsPesewasAsString()
     {
@@ -446,12 +655,66 @@ public class PaystackPaymentTests
         Assert.Contains("\"currency\":\"GHS\"", handler.LastBody);
     }
 
+    // ---- Postgres (runs only with PLATFORM_TEST_DB) ----
+
+    [Fact]
+    public async Task Postgres_ConcurrentCheckoutClicks_ShareOneCheckout()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+
+        string invoiceId;
+        await using (var seed = pg.NewContext())
+            invoiceId = (await CreateInvoiceAsync(seed, CreateBilling(seed), 75m)).Id;
+
+        var sessions = await Task.WhenAll(Enumerable.Range(0, 6).Select(async _ =>
+        {
+            await using var db = pg.NewContext();
+            var (service, _) = CreateService(db);
+            return await service.StartCheckoutAsync(invoiceId, "admin");
+        }));
+
+        Assert.Single(sessions.Select(s => s.Reference).Distinct());
+        await using var check = pg.NewContext();
+        Assert.Equal(1, await check.PaymentCheckouts.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Fact]
+    public async Task Postgres_ConcurrentWebhooks_RecordOneReceipt()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+
+        string invoiceId, reference;
+        await using (var seed = pg.NewContext())
+        {
+            invoiceId = (await CreateInvoiceAsync(seed, CreateBilling(seed), 20m)).Id;
+            var (service, _) = CreateService(seed);
+            reference = (await service.StartCheckoutAsync(invoiceId, "admin")).Reference;
+        }
+
+        await Task.WhenAll(Enumerable.Range(0, 5).Select(async _ =>
+        {
+            await using var db = pg.NewContext();
+            var (service, gateway) = CreateService(db);
+            gateway.Verification = new GatewayVerification(GatewayTransactionState.Success, 2000, "GHS", "card", DateTime.UtcNow, "1", null);
+            await service.HandleWebhookAsync(WebhookBody(reference));
+        }));
+
+        await using var check = pg.NewContext();
+        Assert.Single(await check.Receipts.IgnoreQueryFilters().Where(r => r.InvoiceId == invoiceId).ToListAsync());
+        Assert.Equal(PaymentCheckoutStatus.Paid, (await check.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).Status);
+        Assert.Equal(InvoiceStatus.Paid, (await check.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoiceId)).Status);
+    }
+
     // ---- helpers ----
 
     private static byte[] WebhookBody(string reference) =>
         Encoding.UTF8.GetBytes($$$"""{"event":"charge.success","data":{"reference":"{{{reference}}}","amount":1,"status":"success"}}""");
 
-    private static PaystackGateway CreateGateway(StubHandler handler) =>
+    private static PaystackGateway CreateGateway(HttpMessageHandler handler) =>
         new(new HttpClient(handler), Options.Create(new PaystackOptions { SecretKey = Secret }), NullLogger<PaystackGateway>.Instance);
 
     private static (PaymentCheckoutService Service, FakeGateway Gateway) CreateService(AppDbContext db, string? secretKey = Secret)
@@ -506,10 +769,19 @@ public class PaystackPaymentTests
         }, "admin");
     }
 
-    private static AppDbContext CreateDbContext() =>
+    private static AppDbContext CreateDbContext(string? name = null) =>
         new(new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase(NUlid.Ulid.NewUlid().ToString())
+            .UseInMemoryDatabase(name ?? NUlid.Ulid.NewUlid().ToString())
             .Options);
+
+    private sealed class ThrowingHandler(Exception ex) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw ex;
+        }
+    }
 
     private sealed class FakeGateway : IPaymentGateway
     {

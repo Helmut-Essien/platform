@@ -288,7 +288,7 @@ public class PostgresBehaviorTests
     }
 
     /// <summary>A uniquely named database created from the EF migrations and dropped on dispose.</summary>
-    private sealed class TempDatabase : IAsyncDisposable
+    internal sealed class TempDatabase : IAsyncDisposable
     {
         private readonly string _adminConnection;
         private readonly string _name;

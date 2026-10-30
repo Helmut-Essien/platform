@@ -307,6 +307,36 @@ public class PlatformApiClientTests
         Assert.Equal(15, result.PageSize);
     }
 
+    [Fact]
+    public async Task GetOnlinePaymentsStatusAsync_IsCachedUntilInvalidated()
+    {
+        var calls = 0;
+        var handler = new CapturingHttpMessageHandler(_ =>
+        {
+            calls++;
+            return JsonResponse(new Platform.Shared.Dtos.Payments.OnlinePaymentsStatusDto { Enabled = true });
+        });
+        var client = CreateClient(handler);
+
+        Assert.True((await client.GetOnlinePaymentsStatusAsync())!.Enabled);
+        await client.GetOnlinePaymentsStatusAsync();
+        Assert.Equal(1, calls);
+
+        client.InvalidateOnlinePaymentsStatus();
+        await client.GetOnlinePaymentsStatusAsync();
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task GetCheckoutStatusAsync_NetworkFailure_IsQuietFailure()
+    {
+        var client = CreateClient(new CapturingHttpMessageHandler(_ => throw new HttpRequestException("down")));
+
+        var result = await client.GetCheckoutStatusAsync("INV 1", "PLT-1");
+
+        Assert.False(result.IsSuccess);
+    }
+
     private static PlatformApiClient CreateClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler)
