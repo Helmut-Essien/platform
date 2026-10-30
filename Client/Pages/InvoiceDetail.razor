@@ -279,15 +279,20 @@ else
         && string.Equals(inv.Currency, _onlinePayments.Currency, StringComparison.OrdinalIgnoreCase)
         && inv.Status is InvoiceStatus.Sent or InvoiceStatus.PartiallyPaid or InvoiceStatus.Overdue;
 
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
         _disposeCts.Cancel();
         _disposeCts.Dispose();
     }
 
     private async Task LoadOnlinePaymentsAsync()
     {
-        if (_onlinePayments is not null)
+        if (_onlinePayments is not null || _disposed)
             return;
         try
         {
@@ -318,7 +323,7 @@ else
     private async Task HandlePaymentReturnAsync()
     {
         var payment = PaymentQuery?.Trim().ToLowerInvariant();
-        if (payment is not ("return" or "cancelled") || _invoice is null)
+        if (payment is not ("return" or "cancelled") || _invoice is null || _disposed)
             return;
 
         var key = $"{_invoice.Id}|{payment}|{ReferenceQuery}";
@@ -338,15 +343,17 @@ else
 
         _confirming = true;
         StateHasChanged();
+        // Captured once: reading Token after Dispose() would throw ObjectDisposedException.
+        var token = _disposeCts.Token;
         try
         {
             CheckoutStatusDto? last = null;
             for (var attempt = 0; attempt < 6; attempt++)
             {
                 if (attempt > 0)
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(2 * attempt, 6)), _disposeCts.Token);
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(2 * attempt, 6)), token);
 
-                var result = await Api.GetCheckoutStatusAsync(invoiceId, reference, _disposeCts.Token);
+                var result = await Api.GetCheckoutStatusAsync(invoiceId, reference, token);
                 if (result.IsSuccess && result.Data is not null)
                 {
                     last = result.Data;
@@ -356,6 +363,9 @@ else
             }
 
             _confirming = false;
+            if (token.IsCancellationRequested)
+                return;
+            Api.InvalidateOnlinePaymentsStatus();
             await LoadAsync();
             switch (last?.Status)
             {

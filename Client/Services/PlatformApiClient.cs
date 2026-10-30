@@ -359,8 +359,27 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
     }
 
     /// <summary>Whether online (Paystack) payments are enabled; null if the server could not be reached.</summary>
-    public Task<OnlinePaymentsStatusDto?> GetOnlinePaymentsStatusAsync(CancellationToken ct = default) =>
-        GetJsonAsync<OnlinePaymentsStatusDto>("api/payments/status", ct);
+    /// <remarks>Cached for a minute (it only changes on deploy or a payment), so invoice pages don't re-fetch it.</remarks>
+    public async Task<OnlinePaymentsStatusDto?> GetOnlinePaymentsStatusAsync(CancellationToken ct = default)
+    {
+        if (_paymentsStatus is { } cached && DateTime.UtcNow - _paymentsStatusAt < PaymentsStatusTtl)
+            return cached;
+
+        var status = await GetJsonAsync<OnlinePaymentsStatusDto>("api/payments/status", ct);
+        if (status is not null)
+        {
+            _paymentsStatus = status;
+            _paymentsStatusAt = DateTime.UtcNow;
+        }
+        return status;
+    }
+
+    /// <summary>Drops the cached payments status (e.g. after a payment so the dashboard total is fresh).</summary>
+    public void InvalidateOnlinePaymentsStatus() => _paymentsStatus = null;
+
+    private static readonly TimeSpan PaymentsStatusTtl = TimeSpan.FromMinutes(1);
+    private OnlinePaymentsStatusDto? _paymentsStatus;
+    private DateTime _paymentsStatusAt;
 
     public async Task<ApiResult<CheckoutSessionDto>> StartCheckoutAsync(string invoiceId, CancellationToken ct = default)
     {
