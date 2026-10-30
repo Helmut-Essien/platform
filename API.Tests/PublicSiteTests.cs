@@ -213,6 +213,20 @@ public class LandingPageContentTests
     }
 
     [Fact]
+    public void FeaturesNeedleBase_AndServices_NoPlaceholders()
+    {
+        Assert.Contains("<section id=\"needlebase\"", Html);
+        Assert.Contains("href=\"#needlebase\"", Html);
+        foreach (var s in new[] { "Mobile apps", "Desktop applications", "Web apps", "AI-powered", "Custom software consulting" })
+            Assert.Contains(s, Html);
+        Assert.DoesNotContain("TODO-HELMUT", Html);
+        var title = Regex.Match(Html, "<title>(.*?)</title>").Groups[1].Value;
+        Assert.InRange(title.Length, 30, 60);
+        var desc = Regex.Match(Html, "<meta name=\"description\" content=\"([^\"]*)\"").Groups[1].Value;
+        Assert.InRange(desc.Length, 100, 160);
+    }
+
+    [Fact]
     public void SceneCanvas_IsDecorative() =>
         Assert.Contains("<canvas id=\"scene\" aria-hidden=\"true\"", Html);
 
@@ -224,6 +238,12 @@ public class LandingPageContentTests
         var graph = doc.RootElement.GetProperty("@graph").EnumerateArray().ToList();
         Assert.Contains(graph, n => n.GetProperty("@type").GetString() == "Organization");
         Assert.Contains(graph, n => n.GetProperty("@type").GetString() == "ProfessionalService");
+        var app = graph.Single(n => n.GetProperty("@type").GetString() == "SoftwareApplication");
+        Assert.Equal("NeedleBase", app.GetProperty("name").GetString());
+        Assert.False(app.TryGetProperty("offers", out _));
+        Assert.False(app.TryGetProperty("aggregateRating", out _));
+        var business = graph.Single(n => n.GetProperty("@type").GetString() == "ProfessionalService");
+        Assert.True(business.GetProperty("hasOfferCatalog").GetProperty("itemListElement").GetArrayLength() >= 4);
 
         var faq = graph.Single(n => n.GetProperty("@type").GetString() == "FAQPage");
         var questions = faq.GetProperty("mainEntity").EnumerateArray().ToList();
