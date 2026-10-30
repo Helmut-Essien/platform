@@ -1046,5 +1046,34 @@ BEGIN
     VALUES ('20261030063021_AddPaymentCheckouts', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030064726_PaymentCheckoutConcurrencyAndCap') THEN
+    ALTER TABLE "PaymentCheckouts" ADD "LiveMode" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030064726_PaymentCheckoutConcurrencyAndCap') THEN
+    ALTER TABLE "PaymentCheckouts" ADD "PaidAmountMinor" bigint;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030064726_PaymentCheckoutConcurrencyAndCap') THEN
+    ALTER TABLE "PaymentCheckouts" ADD "Version" uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261030064726_PaymentCheckoutConcurrencyAndCap') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261030064726_PaymentCheckoutConcurrencyAndCap', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 

@@ -661,6 +661,12 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<bool>("LiveMode")
+                        .HasColumnType("boolean");
+
+                    b.Property<long?>("PaidAmountMinor")
+                        .HasColumnType("bigint");
+
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -686,6 +692,10 @@ namespace Platform.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 

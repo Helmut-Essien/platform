@@ -36,6 +36,7 @@ public sealed record GatewayVerification(
     string? Channel,
     DateTime? PaidAt,
     string? ProviderTransactionId,
-    string? Message);
+    string? Message,
+    long? RequestedAmountMinor = null);
 
 public sealed class PaymentGatewayException(string message, Exception? inner = null) : Exception(message, inner);

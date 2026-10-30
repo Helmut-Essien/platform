@@ -45,7 +45,10 @@ public sealed class PaymentCheckoutService(
     private static readonly TimeSpan OnDemandThrottle = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SlowRecheckAge = TimeSpan.FromHours(1);
     private static readonly TimeSpan SlowRecheckInterval = TimeSpan.FromMinutes(30);
+    /// <summary>An open checkout is reused only while young, so the payer never lands on one about to expire.</summary>
+    public static readonly TimeSpan CheckoutReuseWindow = TimeSpan.FromHours(1);
     private const int ReconcileBatchSize = 25;
+    private const int CheckoutLockClass = 0x50535431; // "PST1": advisory-lock namespace for per-invoice checkout creation
 
     private PaystackOptions Options => paystackOptions.Value;
 
@@ -61,10 +64,17 @@ public sealed class PaymentCheckoutService(
 
         if (options.Enabled && dto.CollectionCap > 0)
         {
-            dto.CollectedTotal = await db.PaymentCheckouts
+            // Gross money collected through Paystack in the current mode (test payments never count toward
+            // the live cap). Reversing a receipt in the app does not refund Paystack, so it still counts.
+            var live = !options.IsTestMode;
+            var minor = await db.PaymentCheckouts
                 .IgnoreQueryFilters()
-                .Where(c => c.Status == PaymentCheckoutStatus.Paid || c.Status == PaymentCheckoutStatus.NeedsReview)
-                .SumAsync(c => (decimal?)c.Amount, cancellationToken) ?? 0m;
+                .AsNoTracking()
+                .Where(c => (c.Status == PaymentCheckoutStatus.Paid || c.Status == PaymentCheckoutStatus.NeedsReview)
+                    && c.LiveMode == live
+                    && c.PaidAmountMinor != null)
+                .SumAsync(c => c.PaidAmountMinor, cancellationToken) ?? 0L;
+            dto.CollectedTotal = MinorUnits.ToAmount(minor);
         }
 
         return dto;
@@ -85,13 +95,18 @@ public sealed class PaymentCheckoutService(
         var customer = await db.Customers.AsNoTracking()
             .FirstOrDefaultAsync(c => c.Id == invoice.CustomerId, cancellationToken)
             ?? throw new NotFoundException("Customer not found.");
-        var email = CustomerContactResolver.Billing(customer);
+        var email = CustomerContactResolver.Billing(customer)?.Trim();
+        if (!IsValidEmail(email))
+            throw new InvalidOperationException(
+                "Paystack needs a valid billing or contact email for this customer. Add one on the customer page and try again.");
 
         return await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
-            await LockInvoiceRowAsync(invoiceId, ct);
+            // Serialises checkout creation per invoice (two tabs / double click get the same checkout) without
+            // blocking receipts on the invoice row while Paystack is called.
+            await LockCheckoutCreationAsync(invoiceId, ct);
 
-            // Re-read the balance under the lock so a payment recorded meanwhile is respected.
+            // Re-read the balance inside the lock so a payment recorded meanwhile is respected.
             var current = await billing.GetInvoiceAsync(invoiceId, ct) ?? throw new NotFoundException("Invoice not found.");
             EnsurePayable(current);
             var amount = decimal.Round(current.AmountDue, 2);
@@ -106,7 +121,8 @@ public sealed class PaymentCheckoutService(
             var reusable = open.FirstOrDefault(c =>
                 c.Amount == amount
                 && c.AuthorizationUrl is not null
-                && now - c.CreatedAt < CheckoutLifetime);
+                && now - c.CreatedAt >= TimeSpan.Zero
+                && now - c.CreatedAt < CheckoutReuseWindow);
             if (reusable is not null)
             {
                 if (transaction is not null)
@@ -114,14 +130,9 @@ public sealed class PaymentCheckoutService(
                 return ToSession(reusable, reused: true);
             }
 
-            // Checkouts for a different (stale) amount are superseded. If one is still paid later,
-            // the webhook re-verifies it and it is applied or flagged NeedsReview — never lost.
-            foreach (var stale in open)
-            {
-                stale.Status = PaymentCheckoutStatus.Expired;
-                stale.CompletedAt = now;
-                stale.LastError = "Superseded by a newer checkout.";
-            }
+            // Older open checkouts (other amount or too old to reuse) stay Pending: the payer may still be on
+            // that Paystack page, so the reconcile worker keeps verifying them and expires them after 24 h.
+            // If one is paid too, the overpayment is flagged NeedsReview rather than recorded.
 
             var reference = "PLT-" + NUlid.Ulid.NewUlid();
             var amountMinor = MinorUnits.FromAmount(amount);
@@ -150,7 +161,8 @@ public sealed class PaymentCheckoutService(
                 Currency = SupportedCurrency,
                 AuthorizationUrl = session.AuthorizationUrl,
                 CreatedBy = performedBy,
-                CreatedAt = now
+                CreatedAt = now,
+                LiveMode = !Options.IsTestMode
             };
             db.PaymentCheckouts.Add(checkout);
             await db.SaveChangesAsync(ct);
@@ -265,14 +277,20 @@ public sealed class PaymentCheckoutService(
             .Take(ReconcileBatchSize)
             .ToList();
 
+        var dueIds = due.Select(c => c.Id).ToList();
+        var loaded = await db.PaymentCheckouts.IgnoreQueryFilters().AsNoTracking()
+            .Where(c => dueIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, cancellationToken);
+
         foreach (var item in due)
         {
             try
             {
-                var checkout = await db.PaymentCheckouts.IgnoreQueryFilters()
-                    .FirstOrDefaultAsync(c => c.Id == item.Id, cancellationToken);
-                if (checkout is not null)
+                if (loaded.TryGetValue(item.Id, out var checkout))
+                {
+                    db.PaymentCheckouts.Attach(checkout);
                     await ConfirmAsync(checkout, cancellationToken);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -306,8 +324,7 @@ public sealed class PaymentCheckoutService(
         {
             checkout.LastCheckedAt = now;
             checkout.LastError = Truncate(ex.Message);
-            await db.SaveChangesAsync(cancellationToken);
-            return checkout;
+            return (await SaveCheckoutAsync(checkout, cancellationToken)).Current;
         }
 
         checkout.LastCheckedAt = now;
@@ -335,8 +352,7 @@ public sealed class PaymentCheckoutService(
                 break;
         }
 
-        await db.SaveChangesAsync(cancellationToken);
-        return checkout;
+        return (await SaveCheckoutAsync(checkout, cancellationToken)).Current;
     }
 
     private async Task<PaymentCheckout> ApplySuccessAsync(
@@ -347,10 +363,15 @@ public sealed class PaymentCheckoutService(
         var now = DateTime.UtcNow;
         checkout.Channel = Truncate(verification.Channel, 50);
         checkout.ProviderTransactionId = Truncate(verification.ProviderTransactionId, 100);
-        checkout.PaidAt = verification.PaidAt ?? now;
+        // Missing or future paid_at (clock skew) falls back to now; billing rejects dates far in the future.
+        checkout.PaidAt = verification.PaidAt is { } paid && paid <= now ? paid : now;
+        checkout.PaidAmountMinor = verification.AmountMinor;
 
-        if (!string.Equals(verification.Currency, checkout.Currency, StringComparison.OrdinalIgnoreCase)
-            || verification.AmountMinor != checkout.AmountMinor)
+        // With fees passed to the payer, amount = requested_amount + fees; what must match is the requested amount.
+        var expectedMatches = (verification.RequestedAmountMinor ?? verification.AmountMinor) == checkout.AmountMinor
+            && verification.AmountMinor >= checkout.AmountMinor;
+        if (!string.Equals(verification.Currency?.Trim(), checkout.Currency, StringComparison.OrdinalIgnoreCase)
+            || !expectedMatches)
         {
             logger.LogWarning(
                 "Paystack checkout {Reference}: paid {PaidMinor} {PaidCurrency} but expected {ExpectedMinor} {ExpectedCurrency}; flagged for review.",
@@ -362,7 +383,9 @@ public sealed class PaymentCheckoutService(
 
         // Persist the verification result first, so nothing is pending in the change tracker
         // when RecordReceiptAsync runs its own (retriable) transaction.
-        await db.SaveChangesAsync(cancellationToken);
+        var (saved, current) = await SaveCheckoutAsync(checkout, cancellationToken);
+        if (!saved)
+            return current; // another webhook/worker/status call is handling it
         var checkoutId = checkout.Id;
 
         ReceiptDto receipt;
@@ -395,7 +418,8 @@ public sealed class PaymentCheckoutService(
         fresh.ReceiptId = receipt.Id;
         fresh.CompletedAt ??= now;
         fresh.LastError = null;
-        await db.SaveChangesAsync(cancellationToken);
+        // The receipt is idempotent (paystack:{reference}); losing this race just means another caller marked it Paid.
+        fresh = (await SaveCheckoutAsync(fresh, cancellationToken)).Current;
         logger.LogInformation(
             "Paystack checkout {Reference} applied to invoice {InvoiceId} as receipt {ReceiptNumber}.",
             fresh.Reference, fresh.InvoiceId, receipt.ReceiptNumber);
@@ -407,8 +431,42 @@ public sealed class PaymentCheckoutService(
         checkout.Status = PaymentCheckoutStatus.NeedsReview;
         checkout.CompletedAt ??= DateTime.UtcNow;
         checkout.LastError = Truncate(reason);
-        await db.SaveChangesAsync(cancellationToken);
-        return checkout;
+        return (await SaveCheckoutAsync(checkout, cancellationToken)).Current;
+    }
+
+    /// <summary>
+    /// Saves a checkout guarded by its concurrency token. If another caller changed it first, the stale
+    /// changes are dropped and the current row is returned (saved = false).
+    /// </summary>
+    private async Task<(bool Saved, PaymentCheckout Current)> SaveCheckoutAsync(PaymentCheckout checkout, CancellationToken cancellationToken)
+    {
+        checkout.Version = Guid.NewGuid();
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return (true, checkout);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            logger.LogInformation("Paystack checkout {Reference} was updated concurrently; using the latest state.", checkout.Reference);
+            db.ChangeTracker.Clear();
+            return (false, await ReloadAsync(checkout.Id, cancellationToken));
+        }
+    }
+
+    private static bool IsValidEmail([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email) || email.Length > 254)
+            return false;
+        try
+        {
+            var parsed = new System.Net.Mail.MailAddress(email);
+            return parsed.Address == email && parsed.Host.Contains('.');
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     private async Task<PaymentCheckout> ReloadAsync(string id, CancellationToken cancellationToken) =>
@@ -432,12 +490,13 @@ public sealed class PaymentCheckoutService(
             throw new InvalidOperationException("This invoice has no balance due.");
     }
 
-    private async Task LockInvoiceRowAsync(string invoiceId, CancellationToken cancellationToken)
+    private async Task LockCheckoutCreationAsync(string invoiceId, CancellationToken cancellationToken)
     {
         if (!db.Database.IsRelational())
             return;
+        // Two-int form: its own key space, so it never collides with billing's single-key document locks.
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""SELECT 1 FROM "Invoices" WHERE "Id" = {invoiceId} FOR UPDATE""",
+            $"SELECT pg_advisory_xact_lock({CheckoutLockClass}, hashtext({invoiceId}))",
             cancellationToken);
     }
 

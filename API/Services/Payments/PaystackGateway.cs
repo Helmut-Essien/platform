@@ -75,7 +75,8 @@ public sealed class PaystackGateway(HttpClient http, IOptions<PaystackOptions> o
             data.Channel?.Trim().ToLowerInvariant(),
             paidAt,
             data.Id?.ToString(CultureInfo.InvariantCulture),
-            Safe(data.GatewayResponse));
+            Safe(data.GatewayResponse),
+            data.RequestedAmount);
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
@@ -164,6 +165,8 @@ public sealed class PaystackGateway(HttpClient http, IOptions<PaystackOptions> o
         [JsonPropertyName("status")] public string? Status { get; set; }
         [JsonPropertyName("reference")] public string? Reference { get; set; }
         [JsonPropertyName("amount")] public long Amount { get; set; }
+        /// <summary>Amount before fees passed to the customer (Paystack "bearer: customer"); absent otherwise.</summary>
+        [JsonPropertyName("requested_amount")] public long? RequestedAmount { get; set; }
         [JsonPropertyName("currency")] public string? Currency { get; set; }
         [JsonPropertyName("channel")] public string? Channel { get; set; }
         [JsonPropertyName("paid_at")] public string? PaidAt { get; set; }

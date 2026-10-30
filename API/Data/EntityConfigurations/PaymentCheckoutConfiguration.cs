@@ -27,6 +27,7 @@ public class PaymentCheckoutConfiguration : IEntityTypeConfiguration<PaymentChec
         builder.Property(x => x.ReceiptId).HasMaxLength(26);
         builder.Property(x => x.LastError).HasMaxLength(500);
         builder.Property(x => x.CreatedBy).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.Version).IsConcurrencyToken();
 
         builder.HasOne(x => x.Invoice)
             .WithMany()
