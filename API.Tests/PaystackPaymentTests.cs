@@ -655,6 +655,173 @@ public class PaystackPaymentTests
         Assert.Contains("\"currency\":\"GHS\"", handler.LastBody);
     }
 
+    // ---- round 2: refunds, disputes, modes, backoff, atomicity ----
+
+    private static byte[] EventBody(string json) => Encoding.UTF8.GetBytes(json);
+
+    private async Task<(AppDbContext Db, PaymentCheckoutService Service, FakeGateway Gateway, string InvoiceId, string Reference)> PaidCheckoutAsync()
+    {
+        var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+        gateway.Verification = new GatewayVerification(GatewayTransactionState.Success, 1000, "GHS", "card", DateTime.UtcNow, "1", null);
+        await service.HandleWebhookAsync(WebhookBody(checkout.Reference));
+        db.ChangeTracker.Clear();
+        return (db, service, gateway, invoice.Id, checkout.Reference);
+    }
+
+    [Fact]
+    public async Task RefundWebhook_FlagsCheckout_KeepsReceipt_AndStillCountsTowardCap()
+    {
+        var (db, service, gateway, _, reference) = await PaidCheckoutAsync();
+        await using var _db = db;
+
+        await service.HandleWebhookAsync(EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{reference}}}","amount":1000,"currency":"GHS","domain":"test"}}"""));
+        db.ChangeTracker.Clear();
+
+        var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(PaymentCheckoutStatus.Refunded, row.Status);
+        Assert.Contains("Refund 10.00 GHS", row.LastError);
+        Assert.Single(await db.Receipts.IgnoreQueryFilters().ToListAsync()); // admin decides on reversal
+        Assert.Equal(10m, (await service.GetStatusAsync()).CollectedTotal);
+
+        // A replayed charge.success afterwards must not resurrect it.
+        var calls = gateway.VerifyCalls;
+        await service.HandleWebhookAsync(WebhookBody(reference));
+        Assert.Equal(calls, gateway.VerifyCalls);
+    }
+
+    [Fact]
+    public async Task DisputeWebhook_NestedReference_FlagsDisputed_ButNotOverRefund()
+    {
+        var (db, service, _, _, reference) = await PaidCheckoutAsync();
+        await using var _db = db;
+        var dispute = EventBody($$$"""{"event":"charge.dispute.create","data":{"transaction":{"reference":"{{{reference}}}"},"domain":"test"}}""");
+
+        await service.HandleWebhookAsync(dispute);
+        db.ChangeTracker.Clear();
+        Assert.Equal(PaymentCheckoutStatus.Disputed, (await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).Status);
+
+        await service.HandleWebhookAsync(EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{reference}}}"}}"""));
+        db.ChangeTracker.Clear();
+        await service.HandleWebhookAsync(dispute);
+        db.ChangeTracker.Clear();
+        Assert.Equal(PaymentCheckoutStatus.Refunded, (await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Webhook_FromOtherDomain_IsIgnored()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db); // test key
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+
+        await service.HandleWebhookAsync(EventBody($$$"""{"event":"charge.success","data":{"reference":"{{{checkout.Reference}}}","domain":"live"}}"""));
+
+        Assert.Equal(0, gateway.VerifyCalls);
+    }
+
+    [Fact]
+    public async Task KeySwitch_TestCheckoutUnderLiveKey_ExpiresWithoutVerifyCall()
+    {
+        await using var db = CreateDbContext();
+        var (testService, _) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var checkout = await testService.StartCheckoutAsync(invoice.Id, "admin");
+
+        var (liveService, liveGateway) = CreateService(db, secretKey: "sk_live_abc");
+        var status = await liveService.GetCheckoutStatusAsync(invoice.Id, checkout.Reference);
+
+        Assert.Equal(PaymentCheckoutStatus.Expired, status.Status);
+        Assert.Contains("test mode", status.Message);
+        Assert.Equal(0, liveGateway.VerifyCalls);
+    }
+
+    [Fact]
+    public async Task Reconcile_BacksOffAfterRepeatedGatewayFailures()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        for (var i = 0; i < 5; i++)
+        {
+            var invoice = await CreateInvoiceAsync(db, billing, 10m + i);
+            await service.StartCheckoutAsync(invoice.Id, "admin");
+        }
+        foreach (var c in await db.PaymentCheckouts.IgnoreQueryFilters().ToListAsync())
+            c.CreatedAt = DateTime.UtcNow.AddMinutes(-10);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        gateway.VerifyError = new PaymentGatewayException("Paystack verify failed (HTTP 429): rate limited");
+
+        var processed = await service.ReconcileAsync();
+
+        Assert.Equal(3, gateway.VerifyCalls);
+        Assert.Equal(3, processed);
+    }
+
+    [Fact]
+    public async Task CrashAfterReceiptCommit_RetryDoesNotDuplicateReceiptOrEmail()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+        // Simulate: the receipt transaction committed, then the process died before the checkout was marked Paid.
+        await billing.RecordReceiptAsync(invoice.Id, new RecordReceiptRequest
+        {
+            IdempotencyKey = $"paystack:{checkout.Reference}",
+            AmountPaid = 10m,
+            PaymentMethod = PaymentMethod.Card,
+            PaymentReference = checkout.Reference
+        }, PaymentCheckoutService.SystemActor);
+        var emailsBefore = await db.EmailOutboxMessages.CountAsync();
+        db.ChangeTracker.Clear();
+        gateway.Verification = new GatewayVerification(GatewayTransactionState.Success, 1000, "GHS", "card", DateTime.UtcNow, "1", null);
+
+        await service.ReconcileAsync(); // too new: not picked
+        await service.HandleWebhookAsync(WebhookBody(checkout.Reference));
+        db.ChangeTracker.Clear();
+
+        Assert.Single(await db.Receipts.IgnoreQueryFilters().ToListAsync());
+        Assert.Equal(emailsBefore, await db.EmailOutboxMessages.CountAsync());
+        Assert.Equal(PaymentCheckoutStatus.Paid, (await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Theory]
+    [InlineData("""{"event":"charge.success","data":null}""", "charge.success", null)]
+    [InlineData("""{"event":"charge.success","data":{"reference":123}}""", "charge.success", null)]
+    [InlineData("""{"event":"refund.processed","data":{"transaction_reference":" R1 "}}""", "refund.processed", "R1")]
+    [InlineData("""{"event":"charge.dispute.create","data":{"transaction":{"reference":"R2"}}}""", "charge.dispute.create", "R2")]
+    public void WebhookEvent_ParsesTolerantly(string json, string expectedEvent, string? expectedReference)
+    {
+        var evt = PaystackWebhookEvent.TryParse(Encoding.UTF8.GetBytes(json));
+        Assert.NotNull(evt);
+        Assert.Equal(expectedEvent, evt.Event);
+        Assert.Equal(expectedReference, evt.Reference);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("\"x\"")]
+    [InlineData("""{"data":{}}""")]
+    [InlineData("{")]
+    public void WebhookEvent_RejectsNonEvents(string json) =>
+        Assert.Null(PaystackWebhookEvent.TryParse(Encoding.UTF8.GetBytes(json)));
+
+    [Fact]
+    public void WebhookEvent_RejectsExcessiveNesting()
+    {
+        var deep = "{\"event\":\"x\",\"data\":" + string.Concat(Enumerable.Repeat("[", 40)) + string.Concat(Enumerable.Repeat("]", 40)) + "}";
+        Assert.Null(PaystackWebhookEvent.TryParse(Encoding.UTF8.GetBytes(deep)));
+    }
+
     // ---- Postgres (runs only with PLATFORM_TEST_DB) ----
 
     [Fact]
