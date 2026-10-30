@@ -226,6 +226,9 @@ app.MapGet("/health/db", async (AppDbContext db, CancellationToken ct) =>
 
 // Unknown /api/* routes must stay 404s instead of returning the SPA shell.
 app.MapFallback("/api/{**slug}", () => Results.NotFound());
+// The default SPA fallback skips paths whose last segment looks like a file name; pay-link tokens
+// ("{invoiceId}.{mac}") contain a dot, so /pay/{token} needs its own fallback or it 404s.
+app.MapFallbackToFile("/pay/{**token}", "index.html", StaticFileCaching.Options());
 app.MapFallbackToFile("index.html", StaticFileCaching.Options());
 
 app.Run();
