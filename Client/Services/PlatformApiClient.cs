@@ -1,3 +1,4 @@
+using Platform.Shared.Dtos.Payments;
 using System.Net.Http.Json;
 using Platform.Shared.Dtos.Audit;
 using Platform.Shared.Dtos.Auth;
@@ -355,6 +356,36 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
     {
         var response = await http.PostAsync($"api/invoices/{id}/void", null, ct);
         return await ToApiResultAsync<InvoiceDto>(response, ct);
+    }
+
+    /// <summary>Whether online (Paystack) payments are enabled; null if the server could not be reached.</summary>
+    public Task<OnlinePaymentsStatusDto?> GetOnlinePaymentsStatusAsync(CancellationToken ct = default) =>
+        GetJsonAsync<OnlinePaymentsStatusDto>("api/payments/status", ct);
+
+    public async Task<ApiResult<CheckoutSessionDto>> StartCheckoutAsync(string invoiceId, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/invoices/{Uri.EscapeDataString(invoiceId)}/checkout", null, ct);
+        return await ToApiResultAsync<CheckoutSessionDto>(response, ct);
+    }
+
+    /// <summary>Asks the API to verify a checkout with Paystack. Quiet on failure (used for polling).</summary>
+    public async Task<ApiResult<CheckoutStatusDto>> GetCheckoutStatusAsync(
+        string invoiceId,
+        string? reference,
+        CancellationToken ct = default)
+    {
+        var url = $"api/invoices/{Uri.EscapeDataString(invoiceId)}/checkout/status";
+        if (!string.IsNullOrWhiteSpace(reference))
+            url += $"?reference={Uri.EscapeDataString(reference)}";
+        try
+        {
+            var response = await http.GetAsync(url, ct);
+            return await ToApiResultAsync<CheckoutStatusDto>(response, ct);
+        }
+        catch (HttpRequestException)
+        {
+            return ApiResult<CheckoutStatusDto>.Fail("Couldn't reach the server.");
+        }
     }
 
     public async Task<ApiResult<InvoiceDto>> SendInvoiceAsync(string id, CancellationToken ct = default)
