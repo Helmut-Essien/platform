@@ -48,6 +48,7 @@ public sealed class PaymentCheckoutService(
     /// <summary>An open checkout is reused only while young, so the payer never lands on one about to expire.</summary>
     public static readonly TimeSpan CheckoutReuseWindow = TimeSpan.FromHours(1);
     private const int ReconcileBatchSize = 25;
+    private const int MaxConsecutiveGatewayFailures = 3;
     private const int CheckoutLockClass = 0x50535431; // "PST1": advisory-lock namespace for per-invoice checkout creation
 
     private PaystackOptions Options => paystackOptions.Value;
@@ -70,7 +71,10 @@ public sealed class PaymentCheckoutService(
             var minor = await db.PaymentCheckouts
                 .IgnoreQueryFilters()
                 .AsNoTracking()
-                .Where(c => (c.Status == PaymentCheckoutStatus.Paid || c.Status == PaymentCheckoutStatus.NeedsReview)
+                .Where(c => (c.Status == PaymentCheckoutStatus.Paid
+                        || c.Status == PaymentCheckoutStatus.NeedsReview
+                        || c.Status == PaymentCheckoutStatus.Refunded
+                        || c.Status == PaymentCheckoutStatus.Disputed)
                     && c.LiveMode == live
                     && c.PaidAmountMinor != null)
                 .SumAsync(c => c.PaidAmountMinor, cancellationToken) ?? 0L;
@@ -88,13 +92,12 @@ public sealed class PaymentCheckoutService(
         if (!Options.Enabled)
             throw new OnlinePaymentsDisabledException();
 
-        var invoice = await billing.GetInvoiceAsync(invoiceId, cancellationToken)
+        // Only the customer is needed up front; the full invoice is read once, inside the lock.
+        var customer = await db.Invoices.AsNoTracking()
+            .Where(i => i.Id == invoiceId)
+            .Select(i => i.Customer)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("Invoice not found.");
-        EnsurePayable(invoice);
-
-        var customer = await db.Customers.AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == invoice.CustomerId, cancellationToken)
-            ?? throw new NotFoundException("Customer not found.");
         var email = CustomerContactResolver.Billing(customer)?.Trim();
         if (!IsValidEmail(email))
             throw new InvalidOperationException(
@@ -202,51 +205,90 @@ public sealed class PaymentCheckoutService(
 
     public async Task HandleWebhookAsync(ReadOnlyMemory<byte> body, CancellationToken cancellationToken = default)
     {
-        string? eventName;
-        string? reference;
-        try
+        var evt = PaystackWebhookEvent.TryParse(body);
+        if (evt is null)
         {
-            using var doc = JsonDocument.Parse(body);
-            var root = doc.RootElement;
-            eventName = root.TryGetProperty("event", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
-            reference = root.TryGetProperty("data", out var data)
-                && data.ValueKind == JsonValueKind.Object
-                && data.TryGetProperty("reference", out var r)
-                && r.ValueKind == JsonValueKind.String
-                    ? r.GetString()
-                    : null;
-        }
-        catch (JsonException)
-        {
-            logger.LogWarning("Paystack webhook body is not valid JSON; ignored.");
+            logger.LogWarning("Paystack webhook body is not a valid event; ignored.");
             return;
         }
 
-        if (!string.Equals(eventName, "charge.success", StringComparison.Ordinal))
+        // A test event must never touch live data and vice versa (shared URL or a key switch).
+        if (evt.Domain is { } domain && !string.Equals(domain, Options.IsTestMode ? "test" : "live", StringComparison.OrdinalIgnoreCase))
         {
-            logger.LogInformation("Paystack webhook event {Event} ignored.", eventName ?? "(none)");
+            logger.LogInformation("Paystack {Event} webhook for domain {Domain} ignored in {Mode} mode.",
+                evt.Event, domain, Options.IsTestMode ? "test" : "live");
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(reference))
+        var kind = evt.Event switch
         {
-            logger.LogWarning("Paystack charge.success webhook without a reference; ignored.");
+            "charge.success" => WebhookKind.ChargeSuccess,
+            "refund.processed" => WebhookKind.Refund,
+            "charge.dispute.create" or "charge.dispute.remind" => WebhookKind.Dispute,
+            _ => WebhookKind.Other
+        };
+        if (kind == WebhookKind.Other)
+        {
+            logger.LogInformation("Paystack webhook event {Event} ignored.", evt.Event);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(evt.Reference) || evt.Reference.Length > 100)
+        {
+            logger.LogWarning("Paystack {Event} webhook without a usable reference; ignored.", evt.Event);
             return;
         }
 
         var checkout = await db.PaymentCheckouts
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(c => c.Reference == reference, cancellationToken);
+            .FirstOrDefaultAsync(c => c.Reference == evt.Reference, cancellationToken);
         if (checkout is null)
         {
             // Not ours (e.g. a payment link or another integration on the same Paystack account).
-            logger.LogInformation("Paystack webhook for unknown reference {Reference}; ignored.", reference);
+            logger.LogInformation("Paystack {Event} webhook for unknown reference {Reference}; ignored.", evt.Event, evt.Reference);
             return;
         }
 
-        // The payload is only a hint: ConfirmAsync re-verifies status, amount and currency with Paystack.
-        await ConfirmAsync(checkout, cancellationToken);
+        if (kind == WebhookKind.ChargeSuccess)
+        {
+            // The payload is only a hint: ConfirmAsync re-verifies status, amount and currency with Paystack.
+            // Replays and out-of-order deliveries are harmless (verify is authoritative, receipts are idempotent).
+            await ConfirmAsync(checkout, cancellationToken);
+            return;
+        }
+
+        await FlagAfterPaymentAsync(checkout, kind, evt, cancellationToken);
     }
+
+    /// <summary>
+    /// Refunds and disputes are flagged, not acted on: reversing the receipt (and any license impact) is an admin
+    /// decision. Signed events are trusted for flagging only, since no money is recorded from them.
+    /// </summary>
+    private async Task FlagAfterPaymentAsync(PaymentCheckout checkout, WebhookKind kind, PaystackWebhookEvent evt, CancellationToken cancellationToken)
+    {
+        var amount = evt.AmountMinor is { } minor ? $" {MinorUnits.ToAmount(minor):0.00} {evt.Currency ?? checkout.Currency}" : string.Empty;
+        string note;
+        if (kind == WebhookKind.Refund)
+        {
+            checkout.Status = PaymentCheckoutStatus.Refunded;
+            note = $"Refund{amount} processed at Paystack. Reverse the receipt if this was a full refund.";
+        }
+        else
+        {
+            if (checkout.Status == PaymentCheckoutStatus.Refunded)
+                return; // a refund is the more final state
+            checkout.Status = PaymentCheckoutStatus.Disputed;
+            note = $"Chargeback/dispute{amount} opened at Paystack. Respond in the Paystack dashboard.";
+        }
+
+        checkout.LastError = Truncate(note);
+        checkout.CompletedAt ??= DateTime.UtcNow;
+        logger.LogWarning("Paystack checkout {Reference} on invoice {InvoiceId}: {Event}; flagged for review.",
+            checkout.Reference, checkout.InvoiceId, evt.Event);
+        await SaveCheckoutAsync(checkout, cancellationToken);
+    }
+
+    private enum WebhookKind { Other, ChargeSuccess, Refund, Dispute }
 
     public async Task<int> ReconcileAsync(CancellationToken cancellationToken = default)
     {
@@ -282,14 +324,27 @@ public sealed class PaymentCheckoutService(
             .Where(c => dueIds.Contains(c.Id))
             .ToDictionaryAsync(c => c.Id, cancellationToken);
 
+        var processed = 0;
+        var consecutiveFailures = 0;
         foreach (var item in due)
         {
+            // Back off when Paystack is down or rate-limiting (429): the rest wait for the next run.
+            if (consecutiveFailures >= MaxConsecutiveGatewayFailures)
+            {
+                logger.LogWarning("Paystack reconcile stopped after {Failures} failed verify calls; {Remaining} checkout(s) deferred.",
+                    consecutiveFailures, due.Count - processed);
+                break;
+            }
+
+            processed++;
             try
             {
                 if (loaded.TryGetValue(item.Id, out var checkout))
                 {
                     db.PaymentCheckouts.Attach(checkout);
+                    LastGatewayCallFailed = false;
                     await ConfirmAsync(checkout, cancellationToken);
+                    consecutiveFailures = LastGatewayCallFailed ? consecutiveFailures + 1 : 0;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -302,17 +357,34 @@ public sealed class PaymentCheckoutService(
             }
         }
 
-        return due.Count;
+        return processed;
     }
 
     /// <summary>
     /// Verifies the checkout with Paystack and applies the outcome. Gateway errors are recorded on the
     /// checkout (it stays Pending for the reconcile worker) instead of being thrown.
     /// </summary>
+    /// <summary>True when the latest verify call failed (network, 429, 5xx); the worker uses it to back off.</summary>
+    internal bool LastGatewayCallFailed { get; private set; }
+
     internal async Task<PaymentCheckout> ConfirmAsync(PaymentCheckout checkout, CancellationToken cancellationToken)
     {
-        if (checkout.Status is PaymentCheckoutStatus.Paid or PaymentCheckoutStatus.NeedsReview)
+        if (checkout.Status is PaymentCheckoutStatus.Paid or PaymentCheckoutStatus.NeedsReview
+            or PaymentCheckoutStatus.Refunded or PaymentCheckoutStatus.Disputed)
             return checkout;
+
+        // Created with the other key (test vs live): this key can't see it, so don't spend a verify call.
+        if (checkout.LiveMode == Options.IsTestMode)
+        {
+            if (checkout.Status == PaymentCheckoutStatus.Pending)
+            {
+                checkout.Status = PaymentCheckoutStatus.Expired;
+                checkout.CompletedAt = DateTime.UtcNow;
+                checkout.LastError = $"Created in {(checkout.LiveMode ? "live" : "test")} mode; the active Paystack key is {(Options.IsTestMode ? "test" : "live")}.";
+                return (await SaveCheckoutAsync(checkout, cancellationToken)).Current;
+            }
+            return checkout;
+        }
 
         var now = DateTime.UtcNow;
         GatewayVerification verification;
@@ -322,11 +394,13 @@ public sealed class PaymentCheckoutService(
         }
         catch (PaymentGatewayException ex)
         {
+            LastGatewayCallFailed = true;
             checkout.LastCheckedAt = now;
             checkout.LastError = Truncate(ex.Message);
             return (await SaveCheckoutAsync(checkout, cancellationToken)).Current;
         }
 
+        LastGatewayCallFailed = false;
         checkout.LastCheckedAt = now;
         switch (verification.State)
         {

@@ -18,5 +18,11 @@ public enum PaymentCheckoutStatus
     /// Money was collected by the provider but could not be applied to the invoice
     /// (amount/currency mismatch, invoice voided or already paid). Needs manual review/refund.
     /// </summary>
-    NeedsReview = 4
+    NeedsReview = 4,
+
+    /// <summary>Paystack reported a refund for this payment. The receipt is NOT reversed automatically.</summary>
+    Refunded = 5,
+
+    /// <summary>The payer opened a dispute/chargeback. The receipt is NOT reversed automatically.</summary>
+    Disputed = 6
 }
