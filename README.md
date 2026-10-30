@@ -90,6 +90,9 @@ The backend exposes a set of administrative endpoints that power the UI and the 
 - GET /api/invoices/{id}: retrieves a specific invoice.
 - POST /api/invoices: creates a new invoice.
 - POST /api/invoices/{id}/void: voids an invoice when needed.
+- POST /api/invoices/{id}/checkout: opens a Paystack checkout for the outstanding balance (GHS; needs `Paystack__SecretKey`).
+- GET /api/invoices/{id}/checkout/status: verifies the latest checkout with Paystack.
+- POST /api/payments/paystack/webhook: Paystack webhook (anonymous, signature-checked). See `docs/DEPLOY-MONSTERASP.md` §9.
 
 ### Integration keys
 

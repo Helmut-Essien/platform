@@ -28,6 +28,9 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Https__Redirect` | no | Default `true` in Production (with HSTS). |
 | `CORS_ORIGINS` | no | Comma-separated extra origins only if a UI on another domain calls this API. |
 | `ForwardedHeaders__Enabled` (+ `__KnownProxies__0` / `__KnownNetworks__0`) | no | Keep off for IIS in-process. Only enable behind a reverse proxy you list explicitly. |
+| `Paystack__SecretKey` | no | Enables online payments (`sk_test_…` or `sk_live_…`). Unset = feature hidden, endpoints return 503. See §9. |
+| `Paystack__PublicKey` | no | `pk_test_…` / `pk_live_…`. Stored for completeness; checkout uses Paystack's hosted page. |
+| `Paystack__CollectionCap` | no | Starter Business limit in GHS for the dashboard card (default `30000`; `0` hides it). |
 
 ## 2. Create the site and database
 
@@ -92,7 +95,7 @@ Repository secrets (Settings → Secrets and variables → Actions):
 - Optional (skipped when empty): `AdminSeed__Email`, `AdminSeed__Password`, `Email__Provider`, `Email__FromAddress`,
   `Email__FromName`, `Email__ResendApiKey`, `Email__Host`, `Email__Port`, `Email__EnableSsl`, `Email__Username`,
   `Email__Password`, `Redis__ConnectionString`, `Database__MigrateOnStartup`, `Https__Redirect`, `CORS_ORIGINS`,
-  `ForwardedHeaders__Enabled`.
+  `ForwardedHeaders__Enabled`, `Paystack__SecretKey`, `Paystack__PublicKey`, `Paystack__CollectionCap`.
 
 Because the workflow writes these into `web.config`, settings in the panel for the same names are overridden by
 each deploy. Secret values are never printed; msdeploy output is masked.
@@ -125,6 +128,43 @@ integration keys are seeded only in Development. Create service products and int
 - Run a single instance (in-memory cache, background workers and Postgres advisory locks assume it).
 - Back up the beta Postgres regularly.
 - Logs: set `stdoutLogEnabled="true"` in the deployed `web.config` temporarily if startup fails.
+
+## 9. Online payments (Paystack)
+
+Admins can open a Paystack hosted checkout (card or mobile money) for the outstanding balance of any unpaid
+**GHS** invoice (**Pay with Paystack** on the invoice page). Paid checkouts are verified with Paystack's API and recorded
+as normal receipts (idempotency key `paystack:{reference}`, so a payment is never recorded twice), which also emails
+the receipt and reactivates suspended licenses as usual.
+
+**Test mode first**
+
+1. Paystack dashboard → Settings → API Keys & Webhooks (Test mode): copy the test secret and public keys.
+2. Add GitHub secrets `Paystack__SecretKey` (`sk_test_…`) and optionally `Paystack__PublicKey` (`pk_test_…`) and
+   redeploy. The startup log says `Online payments: Paystack enabled (test mode)`.
+3. Set the **Test Webhook URL** to `https://helmutcode.runasp.net/api/payments/paystack/webhook`.
+   Callback URLs are sent per transaction (`Auth__ClientBaseUrl` + `/invoices/{id}?payment=return`), so
+   `Auth__ClientBaseUrl` must be the public site URL.
+4. Pay a test invoice with Paystack's test card / test mobile money numbers (see Paystack docs → *Test payments*).
+
+**How confirmation works**
+
+- Webhook `charge.success` → signature checked (HMAC-SHA512 of the raw body with the secret key; 401 if invalid)
+  → transaction verified with `GET /transaction/verify/{reference}` (status, amount in pesewas, currency) → receipt.
+- Returning to the invoice page polls the same verification. A background worker re-verifies pending checkouts
+  older than 2 minutes (every 5 minutes) and expires unpaid ones after 24 hours, so a missed webhook still
+  gets recorded — keep the `/health` keep-alive (§6) running.
+- If Paystack's amount or currency doesn't match, or the invoice was voided/paid in the meantime, nothing is recorded
+  and the checkout is marked *NeedsReview* (look it up in the Paystack dashboard and refund or record manually).
+
+**Going live**
+
+1. Complete Paystack account activation (Starter Business: ID, TIN, settlement account in your name).
+2. Replace `Paystack__SecretKey` (and `Paystack__PublicKey`) with the `sk_live_…` / `pk_live_…` keys and redeploy.
+3. Set the **Live Webhook URL** to the same `https://helmutcode.runasp.net/api/payments/paystack/webhook`.
+4. Make one small real payment and check the receipt appears. Watch the dashboard card against the
+   GHS 30,000 starter limit and upgrade the account (business registration) before reaching it.
+
+Never put the secret key in `appsettings*.json` or the client; it is only read from configuration and never logged.
 
 ## Review notes (Oct 2026)
 
