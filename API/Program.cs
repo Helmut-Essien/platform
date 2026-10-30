@@ -70,6 +70,10 @@ builder.Services.Configure<LifecycleSettings>(
     builder.Configuration.GetSection(LifecycleSettings.SectionName));
 builder.Services.AddHostedService<LicenseExpiryReminderWorker>();
 builder.Services.AddHostedService<OverdueInvoiceLifecycleWorker>();
+builder.Services.Configure<BillingSettings>(builder.Configuration.GetSection(BillingSettings.SectionName));
+builder.Services.AddSingleton<Platform.Api.Services.Renewals.PayLinkService>();
+builder.Services.AddScoped<Platform.Api.Services.Renewals.PublicPayService>();
+builder.Services.AddHostedService<Platform.Api.Services.Renewals.RenewalInvoiceWorker>();
 builder.Services.AddPlatformPayments(builder.Configuration);
 
 builder.Services.AddCors(options =>

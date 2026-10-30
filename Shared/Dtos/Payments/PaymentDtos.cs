@@ -53,3 +53,35 @@ public class CheckoutStatusDto
 
     public DateTime? PaidAt { get; set; }
 }
+
+/// <summary>What the anonymous pay page shows. Deliberately minimal: no emails, phones, addresses or line items.</summary>
+public class PublicInvoiceSummaryDto
+{
+    public required string InvoiceNumber { get; set; }
+    public required string CustomerName { get; set; }
+    public string? IssuerName { get; set; }
+    public required string Currency { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal AmountPaid { get; set; }
+    public decimal AmountDue { get; set; }
+    public DateTime DueDate { get; set; }
+    /// <summary>"payable", "paid" or "closed".</summary>
+    public required string State { get; set; }
+    /// <summary>False when Paystack is switched off or the invoice can't be paid online.</summary>
+    public bool OnlinePaymentAvailable { get; set; }
+    public bool TestMode { get; set; }
+}
+
+public class PublicCheckoutStatusDto
+{
+    public PaymentCheckoutStatus Status { get; set; }
+    public decimal Amount { get; set; }
+    public required string Currency { get; set; }
+    public string? Message { get; set; }
+    public DateTime? PaidAt { get; set; }
+}
+
+public class PayLinkDto
+{
+    public required string Url { get; set; }
+}

@@ -30,4 +30,7 @@ public class CreateLicenseRequest
     public string InvoiceCurrency { get; set; } = "USD";
 
     public DateTime? InvoiceDueDate { get; set; }
+
+    /// <summary>Recurring price for automatic renewal invoices; null leaves the license's current setting unchanged.</summary>
+    public LicenseBillingDto? Billing { get; set; }
 }

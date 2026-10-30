@@ -21,23 +21,23 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
         QuestPDF.Settings.License = LicenseType.Community;
     }
 
-    public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead)
+    public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead, string? payUrl = null)
     {
         var logoBytes = letterhead.LogoBytes is { Length: > 0 }
             ? letterhead.LogoBytes
             : TryLoadBundledLogo();
         try
         {
-            return Render(invoice, customer, letterhead, logoBytes);
+            return Render(invoice, customer, letterhead, logoBytes, payUrl);
         }
         catch (Exception) when (logoBytes is { Length: > 0 })
         {
             // A logo the image decoder rejects must not make the invoice itself undeliverable.
-            return Render(invoice, customer, letterhead, null);
+            return Render(invoice, customer, letterhead, null, payUrl);
         }
     }
 
-    private static byte[] Render(Invoice invoice, Customer customer, InvoiceLetterhead letterhead, byte[]? logoBytes)
+    private static byte[] Render(Invoice invoice, Customer customer, InvoiceLetterhead letterhead, byte[]? logoBytes, string? payUrl)
     {
         var currencySymbol = CurrencySymbol(invoice.Currency);
         var dueDate = invoice.DueDate?.ToString("MMMM dd, yyyy") ?? "Upon receipt";
@@ -57,7 +57,7 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
 
                 page.Header().Element(header => ComposeHeader(header, letterhead, logoBytes, invoice));
                 page.Content().Element(content => ComposeContent(
-                    content, letterhead, customer, invoice, currencySymbol, dueDate, productLabel));
+                    content, letterhead, customer, invoice, currencySymbol, dueDate, productLabel, payUrl));
                 page.Footer().Element(footer => ComposeFooter(footer, letterhead));
             });
         });
@@ -110,7 +110,8 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
         Invoice invoice,
         string currencySymbol,
         string dueDate,
-        string? productLabel)
+        string? productLabel,
+        string? payUrl)
     {
         container.PaddingVertical(20).Column(col =>
         {
@@ -156,6 +157,15 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator
             if (HasPaymentInfo(letterhead))
             {
                 col.Item().PaddingTop(20).Element(e => ComposePaymentInfo(e, letterhead));
+            }
+
+            if (!string.IsNullOrEmpty(payUrl))
+            {
+                col.Item().PaddingTop(16).Column(pay =>
+                {
+                    pay.Item().Text("PAY ONLINE").SemiBold().FontSize(9).FontColor(Accent);
+                    pay.Item().PaddingTop(4).Hyperlink(payUrl).Text(payUrl).FontSize(8).FontColor(Accent).Underline();
+                });
             }
 
             col.Item().PaddingTop(24).Text("Thank you for your business.")

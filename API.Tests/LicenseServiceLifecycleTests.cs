@@ -408,6 +408,13 @@ public class LicenseServiceLifecycleTests
 
     private sealed class StubBillingService : IBillingService
     {
+        public Task<InvoiceDto?> CreateRenewalInvoiceAsync(string licenseId, DateTime? expectedExpiresAt, string performedBy,
+            bool explicitRequest = false, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<string?> GetPayLinkAsync(string invoiceId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<InvoiceDto> CreateInvoiceAsync(
             CreateInvoiceRequest request,
             string performedBy,

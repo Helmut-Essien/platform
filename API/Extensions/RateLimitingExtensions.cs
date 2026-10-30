@@ -11,6 +11,7 @@ public static class RateLimitingExtensions
     public const string LicenseValidatePolicy = "license-validate";
     public const string AuthLoginPolicy = "auth-login";
     public const string PaymentWebhookPolicy = "payment-webhook";
+    public const string PublicPayPolicy = "public-pay";
 
     public static IServiceCollection AddPlatformRateLimiting(
         this IServiceCollection services,
@@ -71,6 +72,18 @@ public static class RateLimitingExtensions
                     {
                         PermitLimit = 120,
                         Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0
+                    }));
+
+            // Anonymous pay page: a real payer needs a handful of calls (summary, checkout, a few status polls).
+            options.AddPolicy<string>(PublicPayPolicy, httpContext =>
+                RateLimitPartition.GetSlidingWindowLimiter(
+                    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new SlidingWindowRateLimiterOptions
+                    {
+                        PermitLimit = 40,
+                        Window = TimeSpan.FromMinutes(1),
+                        SegmentsPerWindow = 4,
                         QueueLimit = 0
                     }));
         });

@@ -17,6 +17,9 @@ public interface IPaymentCheckoutService
 
     Task<CheckoutSessionDto> StartCheckoutAsync(string invoiceId, string performedBy, CancellationToken cancellationToken = default);
 
+    /// <summary>Starts a checkout that returns to the given absolute URLs (public pay page) instead of the admin invoice page.</summary>
+    Task<CheckoutSessionDto> StartCheckoutAsync(string invoiceId, string performedBy, string returnUrl, string cancelUrl, CancellationToken cancellationToken = default);
+
     Task<CheckoutStatusDto> GetCheckoutStatusAsync(string invoiceId, string? reference, CancellationToken cancellationToken = default);
 
     /// <summary>Handles a webhook whose signature was already validated. Never throws for bad payloads.</summary>
@@ -84,10 +87,28 @@ public sealed class PaymentCheckoutService(
         return dto;
     }
 
-    public async Task<CheckoutSessionDto> StartCheckoutAsync(
+    public const string PublicActor = "public:pay-link";
+
+    public Task<CheckoutSessionDto> StartCheckoutAsync(
         string invoiceId,
         string performedBy,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        StartCheckoutCoreAsync(invoiceId, performedBy, null, null, cancellationToken);
+
+    public Task<CheckoutSessionDto> StartCheckoutAsync(
+        string invoiceId,
+        string performedBy,
+        string returnUrl,
+        string cancelUrl,
+        CancellationToken cancellationToken = default) =>
+        StartCheckoutCoreAsync(invoiceId, performedBy, returnUrl, cancelUrl, cancellationToken);
+
+    private async Task<CheckoutSessionDto> StartCheckoutCoreAsync(
+        string invoiceId,
+        string performedBy,
+        string? returnUrl,
+        string? cancelUrl,
+        CancellationToken cancellationToken)
     {
         if (!Options.Enabled)
             throw new OnlinePaymentsDisabledException();
@@ -121,8 +142,12 @@ public sealed class PaymentCheckoutService(
                 .OrderByDescending(c => c.CreatedAt)
                 .ToListAsync(ct);
 
+            // A checkout's callback points at the admin page or the public pay page, so only reuse one started from
+            // the same surface (the public payer must never be sent back to the admin app).
+            var isPublic = performedBy == PublicActor;
             var reusable = open.FirstOrDefault(c =>
                 c.Amount == amount
+                && (c.CreatedBy == PublicActor) == isPublic
                 && c.AuthorizationUrl is not null
                 && now - c.CreatedAt >= TimeSpan.Zero
                 && now - c.CreatedAt < CheckoutReuseWindow);
@@ -147,12 +172,12 @@ public sealed class PaymentCheckoutService(
                 amountMinor,
                 SupportedCurrency,
                 email,
-                $"{invoicePath}?payment=return",
+                returnUrl ?? $"{invoicePath}?payment=return",
                 new Dictionary<string, string>
                 {
                     ["invoice_id"] = invoiceId,
                     ["invoice_number"] = current.InvoiceNumber,
-                    ["cancel_action"] = $"{invoicePath}?payment=cancelled"
+                    ["cancel_action"] = cancelUrl ?? $"{invoicePath}?payment=cancelled"
                 }), ct);
 
             var checkout = new PaymentCheckout

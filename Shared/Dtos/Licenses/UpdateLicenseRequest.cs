@@ -9,4 +9,7 @@ public class UpdateLicenseRequest
     public required string PlanName { get; set; }
 
     public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>Recurring price for automatic renewal invoices; null leaves the license's current setting unchanged.</summary>
+    public LicenseBillingDto? Billing { get; set; }
 }

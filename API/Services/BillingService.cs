@@ -5,6 +5,7 @@ using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Api.Helpers;
 using Platform.Api.Services.Email;
+using Platform.Api.Services.Renewals;
 using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Enums;
@@ -17,8 +18,13 @@ public class BillingService(
     IEmailOutboxService outbox,
     EmailTemplateService templates,
     ILicenseDenyListService denyList,
-    IOptions<LifecycleSettings>? lifecycle = null) : IBillingService
+    IOptions<LifecycleSettings>? lifecycle = null,
+    IOptions<BillingSettings>? billingSettings = null,
+    PayLinkService? payLinks = null) : IBillingService
 {
+    public const string RenewalActor = "system:renewal";
+    private const int RenewalLockClass = 0x524E5731; // "RNW1": advisory-lock namespace for per-license renewal creation
+    private readonly BillingSettings _billing = billingSettings?.Value ?? new BillingSettings();
     private const int MaxNumberGenerationAttempts = 8;
     private const int InvoiceNumberLockKey = 71021001;
     private const int ReceiptNumberLockKey = 71021002;
@@ -411,6 +417,7 @@ public class BillingService(
 
         invoice.Status = InvoiceStatus.Void;
         invoice.UpdatedAt = DateTime.UtcNow;
+        PayLinkService.Revoke(invoice);
         await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.InvoiceVoided, performedBy, invoice.CustomerId, invoice.LicenseId,
@@ -593,6 +600,9 @@ public class BillingService(
             }),
             ipAddress, ct);
 
+        if (invoice.Status == InvoiceStatus.Paid)
+            PayLinkService.ShortenAfterPaid(invoice, now);
+        var renewed = await TryApplyRenewalAsync(invoice, now, ct);
         var licenseIdToClearDeny = await TryQueueLicenseReactivationAsync(invoice, ct);
 
         await db.SaveChangesAsync(ct);
@@ -601,6 +611,13 @@ public class BillingService(
 
         if (licenseIdToClearDeny is not null)
             await denyList.ClearLicenseDenyAsync(licenseIdToClearDeny, ct);
+        if (renewed is not null)
+        {
+            if (renewed.Status == LicenseStatus.Active && renewed.Id != licenseIdToClearDeny)
+                await denyList.ClearLicenseDenyAsync(renewed.Id, ct);
+            if (!string.IsNullOrEmpty(renewed.LicenseKeyLookupHash))
+                await denyList.InvalidateValidationCacheAsync(renewed.ServiceProductId, renewed.LicenseKeyLookupHash, ct);
+        }
 
         return MapReceipt(receipt);
         }, cancellationToken);
@@ -726,6 +743,7 @@ public class BillingService(
             }),
             ipAddress, ct);
 
+        var reverted = await TryRevertRenewalAsync(invoice, now, ct);
         var licenseIdToDeny = await TrySuspendLicenseAfterReversalAsync(invoice, ct);
 
         await db.SaveChangesAsync(ct);
@@ -734,9 +752,317 @@ public class BillingService(
 
         if (licenseIdToDeny is not null)
             await denyList.DenyLicenseAsync(licenseIdToDeny, ct);
+        if (reverted is not null)
+        {
+            if (reverted.Status != LicenseStatus.Active && reverted.Id != licenseIdToDeny)
+                await denyList.DenyLicenseAsync(reverted.Id, ct);
+            if (!string.IsNullOrEmpty(reverted.LicenseKeyLookupHash))
+                await denyList.InvalidateValidationCacheAsync(reverted.ServiceProductId, reverted.LicenseKeyLookupHash, ct);
+        }
 
         return MapReceipt(receipt);
         }, cancellationToken);
+    }
+
+    // ---- renewals ----
+
+    /// <summary>Why a license can't get a renewal invoice now, or null when it can.</summary>
+    internal static string? RenewalIneligibility(License license, DateTime? expectedExpiresAt)
+    {
+        if (license.Customer.IsSuspended)
+            return "Customer is suspended.";
+        if (license.Status is not (LicenseStatus.Active or LicenseStatus.Expired))
+            return $"Licenses in status {license.Status} are not renewed automatically.";
+        if (license.ExpiresAt is null)
+            return "License has no expiry date.";
+        if (license.BillingAmount is not > 0 || string.IsNullOrEmpty(license.BillingCurrency))
+            return "License has no billing price.";
+        if (expectedExpiresAt is not null && license.ExpiresAt != expectedExpiresAt)
+            return "License expiry changed since it was scanned.";
+        return null;
+    }
+
+    /// <summary>
+    /// Creates and sends the renewal invoice for the license's current period (period start = current expiry).
+    /// Exactly one non-void renewal invoice per license and period: a per-license advisory lock serialises
+    /// concurrent callers and the IX_Invoices_OneRenewalPerPeriod unique index is the backstop.
+    /// The worker (<paramref name="explicitRequest"/> false) returns null when nothing is to be done, and never
+    /// re-creates a period whose invoice was voided; an admin request re-creates it and throws with the reason.
+    /// </summary>
+    public Task<InvoiceDto?> CreateRenewalInvoiceAsync(
+        string licenseId,
+        DateTime? expectedExpiresAt,
+        string performedBy,
+        bool explicitRequest = false,
+        string? ipAddress = null,
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync<InvoiceDto?>(db, async (transaction, ct) =>
+        {
+            if (db.Database.IsRelational())
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({RenewalLockClass}, hashtext({licenseId}))", ct);
+
+            var license = await db.Licenses
+                .IgnoreQueryFilters()
+                .Include(l => l.Customer)
+                .FirstOrDefaultAsync(l => l.Id == licenseId, ct)
+                ?? throw new NotFoundException("License not found.");
+
+            var reason = RenewalIneligibility(license, expectedExpiresAt);
+            if (reason is null && !explicitRequest && !license.AutoRenewInvoice)
+                reason = "Automatic renewal invoices are turned off for this license.";
+            if (reason is not null)
+            {
+                if (explicitRequest)
+                    throw new InvalidOperationException(reason);
+                return null;
+            }
+
+            var periodStart = license.ExpiresAt!.Value;
+            var existing = await db.Invoices
+                .IgnoreQueryFilters()
+                .Where(i => i.LicenseId == licenseId && i.RenewalForExpiresAt == periodStart)
+                .Select(i => i.Status)
+                .ToListAsync(ct);
+            if (existing.Any(s => s != InvoiceStatus.Void))
+            {
+                if (explicitRequest)
+                    throw new ConflictException("A renewal invoice for this period already exists.");
+                return null;
+            }
+            if (existing.Count > 0 && !explicitRequest)
+                return null; // voided by an admin: don't re-create automatically
+
+            var now = DateTime.UtcNow;
+            var months = Math.Clamp(license.BillingPeriodMonths, 1, 36);
+            var periodEnd = PeriodMath.AddMonths(periodStart, months, license.BillingAnchorDay);
+            var subtotal = license.BillingAmount!.Value;
+            var tax = license.BillingTaxAmount;
+            var currency = NormalizeCurrency(license.BillingCurrency);
+            // Due on the expiry date; a license that already lapsed gets the grace period from today.
+            var dueDate = DateTimeNormalizer.IsPastExpiry(periodStart, now)
+                ? now.Date.AddDays(Math.Clamp(_billing.RenewalGraceDays, 1, 60))
+                : periodStart;
+
+            var invoice = new Invoice
+            {
+                CustomerId = license.CustomerId,
+                LicenseId = license.Id,
+                ServiceProductId = license.ServiceProductId,
+                InvoiceNumber = string.Empty,
+                Status = InvoiceStatus.Sent,
+                IssueDate = now,
+                DueDate = dueDate,
+                Currency = currency,
+                Subtotal = subtotal,
+                TaxAmount = tax,
+                TotalAmount = subtotal + tax,
+                PlanName = license.PlanName,
+                Description = $"Renewal of {license.PlanName}: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}",
+                RenewalForExpiresAt = periodStart,
+                RenewalPeriodMonths = months,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            await SaveNewInvoiceAsync(invoice, ct);
+
+            await auditLog.WriteAsync(AuditAction.RenewalInvoiceCreated, performedBy, license.CustomerId, license.Id,
+                invoice.Id,
+                AuditJson.Serialize(new
+                {
+                    invoiceNumber = invoice.InvoiceNumber,
+                    total = invoice.TotalAmount,
+                    periodStart,
+                    periodEnd,
+                    recreatedAfterVoid = existing.Count > 0
+                }), ipAddress, ct);
+
+            QueueInvoiceEmail(license.Customer, invoice);
+            await db.SaveChangesAsync(ct);
+            var result = await MapInvoiceAsync(invoice.Id, ct);
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            return result;
+        }, cancellationToken);
+
+    /// <summary>
+    /// A fully paid renewal invoice extends the license by one period (same transaction as the receipt).
+    /// Applied once (<see cref="Invoice.RenewalAppliedAt"/>); skipped when the license was already renewed past
+    /// this period (e.g. renewed manually), so the period is never added twice.
+    /// </summary>
+    private async Task<License?> TryApplyRenewalAsync(Invoice invoice, DateTime now, CancellationToken cancellationToken)
+    {
+        if (invoice.Status != InvoiceStatus.Paid
+            || invoice.RenewalForExpiresAt is null
+            || invoice.RenewalAppliedAt is not null
+            || invoice.LicenseId is null)
+            return null;
+
+        await LockLicenseRowAsync(invoice.LicenseId, cancellationToken);
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .Include(l => l.Customer)
+            .Include(l => l.ServiceProduct)
+            .FirstOrDefaultAsync(l => l.Id == invoice.LicenseId, cancellationToken);
+
+        invoice.RenewalAppliedAt = now;
+        invoice.RenewalPreviousExpiresAt = null;
+        invoice.RenewalNewExpiresAt = null;
+        var periodStart = invoice.RenewalForExpiresAt.Value;
+
+        string? skip = license is null ? "license not found"
+            : license.Status == LicenseStatus.Revoked ? "license is revoked"
+            : license.ExpiresAt is { } current && current > periodStart ? $"license was already renewed to {current:yyyy-MM-dd}"
+            : null;
+        if (skip is not null || license is null)
+        {
+            await auditLog.WriteAsync(AuditAction.LicenseRenewalSkipped, RenewalActor, invoice.CustomerId,
+                invoice.LicenseId, invoice.Id,
+                AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, reason = skip }),
+                cancellationToken: cancellationToken);
+            return null;
+        }
+
+        var months = Math.Clamp(invoice.RenewalPeriodMonths ?? license.BillingPeriodMonths, 1, 36);
+        var previous = license.ExpiresAt;
+        var baseDate = previous ?? periodStart;
+        var fromPayment = _billing.RenewalExtendFrom switch
+        {
+            RenewalExtendFrom.PaymentDate => true,
+            RenewalExtendFrom.PreviousExpiry => false,
+            _ => DateTimeNormalizer.IsPastExpiry(baseDate.AddDays(Math.Max(0, _billing.RenewalGraceDays)), now)
+        };
+        if (baseDate > now)
+            fromPayment = false; // never shorten a term that is still running
+
+        DateTime newExpiry;
+        if (fromPayment)
+        {
+            // Keep the "calendar date" convention (midnight = valid through that day) when the old expiry used it.
+            var start = baseDate.TimeOfDay == TimeSpan.Zero
+                ? now.Date
+                : new DateTime(now.Ticks - now.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+            newExpiry = PeriodMath.AddMonths(start, months, start.Day);
+            license.BillingAnchorDay = start.Day;
+        }
+        else
+        {
+            newExpiry = PeriodMath.AddMonths(baseDate, months, license.BillingAnchorDay ?? baseDate.Day);
+        }
+
+        var wasExpired = license.Status == LicenseStatus.Expired;
+        license.ExpiresAt = newExpiry;
+        if (wasExpired)
+        {
+            license.Status = LicenseStatus.Active;
+            license.AutoSuspendedForOverdueInvoiceId = null;
+        }
+        license.UpdatedAt = now;
+        invoice.RenewalPreviousExpiresAt = previous;
+        invoice.RenewalNewExpiresAt = newExpiry;
+
+        var renewal = templates.Renewal(license.Customer, license.ServiceProduct, license);
+        outbox.Enqueue(
+            EmailDeliveryKind.RenewalConfirmation,
+            CustomerContactResolver.Technical(license.Customer),
+            renewal.Subject,
+            renewal.Html,
+            license.CustomerId,
+            license.Id,
+            invoice.Id);
+
+        await auditLog.WriteAsync(AuditAction.LicenseAutoRenewedPaid, RenewalActor, license.CustomerId, license.Id,
+            invoice.Id,
+            AuditJson.Serialize(new
+            {
+                invoiceNumber = invoice.InvoiceNumber,
+                previousExpiresAt = previous,
+                newExpiresAt = newExpiry,
+                basis = fromPayment ? "payment-date" : "previous-expiry",
+                reactivatedFromExpired = wasExpired
+            }),
+            cancellationToken: cancellationToken);
+        return license;
+    }
+
+    /// <summary>
+    /// A reversed payment on a renewal invoice undoes the extension, but only if the license still has the
+    /// expiry the renewal set; if anything changed it since, the extension is kept and flagged in the audit log.
+    /// </summary>
+    private async Task<License?> TryRevertRenewalAsync(Invoice invoice, DateTime now, CancellationToken cancellationToken)
+    {
+        if (invoice.RenewalAppliedAt is null || invoice.Status == InvoiceStatus.Paid)
+            return null;
+
+        var applied = invoice.RenewalNewExpiresAt;
+        var previous = invoice.RenewalPreviousExpiresAt;
+        invoice.RenewalAppliedAt = null;
+        invoice.RenewalNewExpiresAt = null;
+        invoice.RenewalPreviousExpiresAt = null;
+        if (applied is null || invoice.LicenseId is null)
+            return null; // the payment had not extended anything
+
+        await LockLicenseRowAsync(invoice.LicenseId, cancellationToken);
+        var license = await db.Licenses
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(l => l.Id == invoice.LicenseId, cancellationToken);
+        if (license is null)
+            return null;
+
+        if (license.ExpiresAt != applied)
+        {
+            await auditLog.WriteAsync(AuditAction.LicenseRenewalReversalConflict, RenewalActor, license.CustomerId,
+                license.Id, invoice.Id,
+                AuditJson.Serialize(new
+                {
+                    invoiceNumber = invoice.InvoiceNumber,
+                    renewalSetExpiresAt = applied,
+                    currentExpiresAt = license.ExpiresAt,
+                    note = "Payment reversed but the license expiry was changed since; review manually."
+                }),
+                cancellationToken: cancellationToken);
+            return null;
+        }
+
+        license.ExpiresAt = previous;
+        license.UpdatedAt = now;
+        if (license.Status == LicenseStatus.Active && DateTimeNormalizer.IsPastExpiry(previous, now))
+            license.Status = LicenseStatus.Expired;
+
+        await auditLog.WriteAsync(AuditAction.LicenseRenewalReverted, RenewalActor, license.CustomerId, license.Id,
+            invoice.Id,
+            AuditJson.Serialize(new
+            {
+                invoiceNumber = invoice.InvoiceNumber,
+                restoredExpiresAt = previous,
+                status = license.Status.ToString()
+            }),
+            cancellationToken: cancellationToken);
+        return license;
+    }
+
+    private async Task LockLicenseRowAsync(string licenseId, CancellationToken cancellationToken)
+    {
+        if (!db.Database.IsRelational())
+            return;
+
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "Licenses" WHERE "Id" = {licenseId} FOR UPDATE""",
+            cancellationToken);
+    }
+
+    /// <summary>Admin: the invoice's public pay link (issued on demand), or null when online payment isn't offered.</summary>
+    public async Task<string?> GetPayLinkAsync(string invoiceId, CancellationToken cancellationToken = default)
+    {
+        if (payLinks is null)
+            return null;
+        var invoice = await db.Invoices.IgnoreQueryFilters().FirstOrDefaultAsync(i => i.Id == invoiceId, cancellationToken)
+            ?? throw new NotFoundException("Invoice not found.");
+        var url = payLinks.EnsureUrl(invoice, DateTime.UtcNow);
+        if (db.Entry(invoice).State == EntityState.Modified)
+            await db.SaveChangesAsync(cancellationToken);
+        return url;
     }
 
     private async Task LockInvoiceRowAsync(string invoiceId, CancellationToken cancellationToken)
@@ -1022,6 +1348,8 @@ public class BillingService(
             catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
             {
                 db.Entry(invoice).State = EntityState.Detached;
+                if ((ex.InnerException?.Message ?? ex.Message).Contains("IX_Invoices_OneRenewalPerPeriod", StringComparison.Ordinal))
+                    throw new ConflictException("A renewal invoice for this period already exists.", ex);
                 if (attempt == MaxNumberGenerationAttempts - 1)
                     throw new InvalidOperationException("Could not generate a unique invoice number.", ex);
             }
@@ -1063,7 +1391,8 @@ public class BillingService(
 
     private void QueueInvoiceEmail(Customer customer, Invoice invoice)
     {
-        var template = templates.Invoice(customer, invoice);
+        var payUrl = payLinks?.EnsureUrl(invoice, DateTime.UtcNow);
+        var template = templates.Invoice(customer, invoice, payUrl);
         outbox.Enqueue(
             EmailDeliveryKind.Invoice,
             CustomerContactResolver.Billing(customer),

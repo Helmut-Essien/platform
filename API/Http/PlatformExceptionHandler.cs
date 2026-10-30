@@ -17,6 +17,7 @@ public sealed class PlatformExceptionHandler(ILogger<PlatformExceptionHandler> l
             Platform.Api.Services.Payments.OnlinePaymentsDisabledException => (StatusCodes.Status503ServiceUnavailable, "Service Unavailable"),
             Platform.Api.Services.Payments.PaymentGatewayException => (StatusCodes.Status502BadGateway, "Bad Gateway"),
             NotFoundException => (StatusCodes.Status404NotFound, "Not Found"),
+            GoneException => (StatusCodes.Status410Gone, "Gone"),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
             DbUpdateConcurrencyException => (StatusCodes.Status409Conflict, "Conflict"),
             InvalidOperationException => (StatusCodes.Status400BadRequest, "Bad Request"),

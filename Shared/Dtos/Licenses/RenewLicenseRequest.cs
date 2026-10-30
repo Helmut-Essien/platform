@@ -29,4 +29,7 @@ public class RenewLicenseRequest
 
     [MaxLength(2000, ErrorMessage = "Description must be 2000 characters or less")]
     public string? Description { get; set; }
+
+    /// <summary>Recurring price for automatic renewal invoices; null leaves the license's current setting unchanged.</summary>
+    public LicenseBillingDto? Billing { get; set; }
 }
