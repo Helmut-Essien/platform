@@ -694,6 +694,38 @@ public class PaystackPaymentTests
     }
 
     [Fact]
+    public async Task RefundWebhook_BeforeChargeSuccess_RecordsPaymentThenFlagsRefunded()
+    {
+        await using var db = CreateDbContext();
+        var (service, gateway) = CreateService(db);
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+        gateway.Verification = new GatewayVerification(GatewayTransactionState.Success, 1000, "GHS", "card", DateTime.UtcNow, "1", null);
+
+        // charge.success was never delivered; the refund arrives first.
+        await service.HandleWebhookAsync(EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{checkout.Reference}}}","amount":1000,"currency":"GHS","domain":"test"}}"""));
+        db.ChangeTracker.Clear();
+
+        var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(PaymentCheckoutStatus.Refunded, row.Status);
+        Assert.NotNull(row.ReceiptId);
+        Assert.Single(await db.Receipts.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(PaymentCheckoutStatus.NeedsReview)]
+    [InlineData(PaymentCheckoutStatus.Refunded)]
+    [InlineData(PaymentCheckoutStatus.Disputed)]
+    public void PublicPayMessage_NeverExposesInternalReasons(PaymentCheckoutStatus status)
+    {
+        var message = Platform.Api.Services.Renewals.PublicPayService.PublicMessage(status);
+        Assert.NotNull(message);
+        Assert.DoesNotContain("expected", message);
+        Assert.DoesNotContain("Paystack", message);
+    }
+
+    [Fact]
     public async Task DisputeWebhook_NestedReference_FlagsDisputed_ButNotOverRefund()
     {
         var (db, service, _, _, reference) = await PaidCheckoutAsync();

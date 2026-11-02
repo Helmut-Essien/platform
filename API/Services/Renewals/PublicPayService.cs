@@ -64,10 +64,20 @@ public sealed class PublicPayService(
             Status = status.Status,
             Amount = status.Amount,
             Currency = status.Currency,
-            Message = status.Message,
+            // Internal reasons (review notes, gateway errors) stay in the admin app; the payer gets a neutral line.
+            Message = PublicMessage(status.Status),
             PaidAt = status.PaidAt
         };
     }
+
+    internal static string? PublicMessage(PaymentCheckoutStatus status) => status switch
+    {
+        PaymentCheckoutStatus.Paid => null,
+        PaymentCheckoutStatus.Pending => null,
+        PaymentCheckoutStatus.Failed => "The payment did not go through. You can try again.",
+        PaymentCheckoutStatus.Expired => "This payment session expired. You can start a new one.",
+        _ => "We received your payment and are reviewing it. We will contact you if anything is needed."
+    };
 
     internal async Task<string> ResolveAsync(string token, CancellationToken cancellationToken)
     {

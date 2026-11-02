@@ -282,14 +282,31 @@ public sealed class PaymentCheckoutService(
             return;
         }
 
-        await FlagAfterPaymentAsync(checkout, kind, evt, cancellationToken);
+        // A refund/dispute can arrive before charge.success was processed (out-of-order delivery, missed webhook):
+        // record the payment first so the money and the flag are both on the books, then flag it.
+        if (checkout.Status is PaymentCheckoutStatus.Pending or PaymentCheckoutStatus.Failed or PaymentCheckoutStatus.Expired)
+        {
+            var id = checkout.Id;
+            await ConfirmAsync(checkout, cancellationToken);
+            db.ChangeTracker.Clear();
+            checkout = await ReloadAsync(id, cancellationToken);
+        }
+
+        // Flags must not be lost to a concurrent update (reconcile/status poll): retry on the fresh row.
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            if (await FlagAfterPaymentAsync(checkout, kind, evt, cancellationToken))
+                return;
+            checkout = await ReloadAsync(checkout.Id, cancellationToken);
+        }
+        logger.LogError("Paystack {Event} for {Reference} could not be flagged after retries.", evt.Event, evt.Reference);
     }
 
     /// <summary>
     /// Refunds and disputes are flagged, not acted on: reversing the receipt (and any license impact) is an admin
     /// decision. Signed events are trusted for flagging only, since no money is recorded from them.
     /// </summary>
-    private async Task FlagAfterPaymentAsync(PaymentCheckout checkout, WebhookKind kind, PaystackWebhookEvent evt, CancellationToken cancellationToken)
+    private async Task<bool> FlagAfterPaymentAsync(PaymentCheckout checkout, WebhookKind kind, PaystackWebhookEvent evt, CancellationToken cancellationToken)
     {
         var amount = evt.AmountMinor is { } minor ? $" {MinorUnits.ToAmount(minor):0.00} {evt.Currency ?? checkout.Currency}" : string.Empty;
         string note;
@@ -301,7 +318,7 @@ public sealed class PaymentCheckoutService(
         else
         {
             if (checkout.Status == PaymentCheckoutStatus.Refunded)
-                return; // a refund is the more final state
+                return true; // a refund is the more final state
             checkout.Status = PaymentCheckoutStatus.Disputed;
             note = $"Chargeback/dispute{amount} opened at Paystack. Respond in the Paystack dashboard.";
         }
@@ -310,7 +327,8 @@ public sealed class PaymentCheckoutService(
         checkout.CompletedAt ??= DateTime.UtcNow;
         logger.LogWarning("Paystack checkout {Reference} on invoice {InvoiceId}: {Event}; flagged for review.",
             checkout.Reference, checkout.InvoiceId, evt.Event);
-        await SaveCheckoutAsync(checkout, cancellationToken);
+        var (saved, _) = await SaveCheckoutAsync(checkout, cancellationToken);
+        return saved;
     }
 
     private enum WebhookKind { Other, ChargeSuccess, Refund, Dispute }

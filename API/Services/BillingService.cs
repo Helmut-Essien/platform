@@ -868,19 +868,32 @@ public class BillingService(
             // the expiry by hand). Paying one would not extend anything, and the overdue worker could suspend the
             // license over it, so unpaid ones are voided as superseded. One with money on it, or an online checkout
             // in flight, blocks the new invoice until an admin sorts it out.
-            var stale = await db.Invoices
+            // Lock the candidates (in id order, the same invoice-row lock RecordReceipt/Void take) before reading
+            // them, so a payment committing at the same moment can't be overwritten with Void.
+            var staleIds = await db.Invoices
                 .IgnoreQueryFilters()
-                .Include(i => i.PaymentTransactions)
-                .Include(i => i.Receipts)
                 .Where(i => i.LicenseId == licenseId
                     && i.RenewalForExpiresAt != null
                     && i.RenewalForExpiresAt < periodStart
                     && (i.Status == InvoiceStatus.Draft || i.Status == InvoiceStatus.Sent
                         || i.Status == InvoiceStatus.Overdue || i.Status == InvoiceStatus.PartiallyPaid))
+                .OrderBy(i => i.Id)
+                .Select(i => i.Id)
                 .ToListAsync(ct);
+            foreach (var staleId in staleIds)
+                await LockInvoiceRowAsync(staleId, ct);
+            var stale = staleIds.Count == 0
+                ? []
+                : await db.Invoices
+                    .IgnoreQueryFilters()
+                    .Include(i => i.PaymentTransactions)
+                    .Include(i => i.Receipts)
+                    .Where(i => staleIds.Contains(i.Id)
+                        && (i.Status == InvoiceStatus.Draft || i.Status == InvoiceStatus.Sent
+                            || i.Status == InvoiceStatus.Overdue || i.Status == InvoiceStatus.PartiallyPaid))
+                    .ToListAsync(ct);
             if (stale.Count > 0)
             {
-                var staleIds = stale.Select(i => i.Id).ToList();
                 var checkoutPending = await db.PaymentCheckouts
                     .IgnoreQueryFilters()
                     .AnyAsync(c => staleIds.Contains(c.InvoiceId) && c.Status == PaymentCheckoutStatus.Pending, ct);
@@ -1281,6 +1294,7 @@ public class BillingService(
         if (invoice.LicenseId is null || invoice.Status != InvoiceStatus.Paid)
             return null;
 
+        await LockLicenseRowAsync(invoice.LicenseId, cancellationToken);
         var license = await db.Licenses
             .IgnoreQueryFilters()
             .Include(l => l.Customer)
@@ -1351,6 +1365,7 @@ public class BillingService(
             && invoice.Status != InvoiceStatus.Overdue)
             return null;
 
+        await LockLicenseRowAsync(invoice.LicenseId, cancellationToken);
         var license = await db.Licenses
             .IgnoreQueryFilters()
             .Include(l => l.Customer)

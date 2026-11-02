@@ -80,6 +80,30 @@ public class OverdueInvoiceLifecycleWorkerTests
     }
 
     [Fact]
+    public async Task TrySuspendForOverdueAsync_SkipsWhenPaidAfterMarkedOverdue()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var license = await SeedLicenseAsync(db, customer.Id, product.Id, LicenseStatus.Active);
+        var invoice = new Invoice
+        {
+            CustomerId = customer.Id, LicenseId = license.Id, ServiceProductId = product.Id,
+            InvoiceNumber = "INV-2026-00009", Status = InvoiceStatus.Paid, Currency = "GHS",
+            Subtotal = 100m, TotalAmount = 100m, DueDate = DateTime.UtcNow.AddDays(-3)
+        };
+        db.Invoices.Add(invoice);
+        await db.SaveChangesAsync();
+
+        var licenses = new TrackingLicenseService();
+        var suspended = await OverdueInvoiceLifecycleWorker.TrySuspendForOverdueAsync(
+            db, licenses, new NoopAuditLogService(), invoice.Id, license.Id, customer.Id, CancellationToken.None);
+
+        Assert.False(suspended);
+        Assert.Empty(licenses.SuspendedIds);
+    }
+
+    [Fact]
     public async Task TryMarkOverdueAsync_DoesNotOverwritePaidInvoice()
     {
         // B5: a payment that lands between the candidate scan and the update must win.

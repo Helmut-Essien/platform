@@ -211,7 +211,16 @@ public class LicenseService(
         CancellationToken cancellationToken = default) =>
         RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
-        // Serialises with automatic activation on payment (BillingService locks the same row).
+        // Serialises with automatic activation on payment (BillingService locks the same rows). Lock order is
+        // invoice row, then license row (as in RecordReceipt/ReverseReceipt), so the two can't deadlock.
+        var activationInvoiceId = await db.Invoices
+            .IgnoreQueryFilters()
+            .Where(i => i.LicenseId == id && i.IsActivationInvoice && i.Status != InvoiceStatus.Void)
+            .Select(i => i.Id)
+            .FirstOrDefaultAsync(ct);
+        if (activationInvoiceId is not null && db.Database.IsRelational())
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""SELECT 1 FROM "Invoices" WHERE "Id" = {activationInvoiceId} FOR UPDATE""", ct);
         await LockLicenseRowAsync(id, ct);
         var license = await db.Licenses
             .Include(l => l.Customer)
