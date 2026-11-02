@@ -26,16 +26,16 @@ namespace Platform.Api.Data.Migrations
 
             // The new contact email starts as the business email; the admin can change or clear it in Settings.
             migrationBuilder.Sql(
-                "UPDATE \"InvoiceBrandProfiles\" SET \"ContactEmail\" = 'helmutessien@gmail.com' WHERE \"ContactEmail\" IS NULL;");
+                "UPDATE \"InvoiceBrandProfiles\" SET \"ContactEmail\" = 'helmutessien@gmail.com' WHERE NULLIF(BTRIM(\"ContactEmail\"), '') IS NULL;");
             // A profile still on the old auto-seeded placeholder name gets the HelmutCode identity; only empty
-            // fields are filled, so anything the admin already typed is kept.
+            // fields (NULL or blank) are filled, so anything the admin already typed is kept.
             migrationBuilder.Sql(@"
 UPDATE ""InvoiceBrandProfiles"" SET
     ""CompanyName"" = 'HelmutCode Solutions',
-    ""AddressLine1"" = COALESCE(""AddressLine1"", 'YN13 Flask St'),
-    ""AddressLine2"" = COALESCE(""AddressLine2"", 'Accra, Ghana'),
-    ""Phone"" = COALESCE(""Phone"", '+233500785153'),
-    ""Website"" = COALESCE(""Website"", 'helmutcode.runasp.net')
+    ""AddressLine1"" = COALESCE(NULLIF(BTRIM(""AddressLine1""), ''), 'YN13 Flask St'),
+    ""AddressLine2"" = COALESCE(NULLIF(BTRIM(""AddressLine2""), ''), 'Accra, Ghana'),
+    ""Phone"" = COALESCE(NULLIF(BTRIM(""Phone""), ''), '+233500785153'),
+    ""Website"" = COALESCE(NULLIF(BTRIM(""Website""), ''), 'helmutcode.runasp.net')
 WHERE ""CompanyName"" = 'Platform License Hub';");
         }
 

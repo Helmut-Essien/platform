@@ -315,6 +315,7 @@ public class PostgresBehaviorTests
             try
             {
                 var admin = new NpgsqlConnectionStringBuilder(baseConnection) { Pooling = false };
+                await EnsureBaseDatabaseAsync(admin);
                 await using (var conn = new NpgsqlConnection(admin.ConnectionString))
                 {
                     await conn.OpenAsync();
@@ -333,6 +334,38 @@ public class PostgresBehaviorTests
                 // PLATFORM_TEST_DB is set, so Postgres tests are expected to run: fail loudly instead of skipping.
                 throw new InvalidOperationException(
                     "PLATFORM_TEST_DB is set but the temporary Postgres database could not be created/migrated.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Creates the PLATFORM_TEST_DB database itself when it does not exist yet (fresh CI service container or
+        /// local docker), via the server's "postgres" maintenance database. Safe when tests race to create it.
+        /// </summary>
+        private static async Task EnsureBaseDatabaseAsync(NpgsqlConnectionStringBuilder admin)
+        {
+            try
+            {
+                await using var probe = new NpgsqlConnection(admin.ConnectionString);
+                await probe.OpenAsync();
+                return;
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InvalidCatalogName)
+            {
+                // 3D000: the base database is missing; create it below.
+            }
+
+            var maintenance = new NpgsqlConnectionStringBuilder(admin.ConnectionString) { Database = "postgres" };
+            await using var conn = new NpgsqlConnection(maintenance.ConnectionString);
+            await conn.OpenAsync();
+            try
+            {
+                var quoted = "\"" + admin.Database!.Replace("\"", "\"\"") + "\"";
+                await using var cmd = new NpgsqlCommand($"CREATE DATABASE {quoted}", conn);
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (PostgresException ex) when (ex.SqlState is PostgresErrorCodes.DuplicateDatabase or PostgresErrorCodes.UniqueViolation)
+            {
+                // Another test created it first.
             }
         }
 

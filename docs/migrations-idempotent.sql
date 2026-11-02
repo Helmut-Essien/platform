@@ -1281,5 +1281,48 @@ BEGIN
     VALUES ('20261102091232_AddTrialsAndComplimentaryLicenses', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    ALTER TABLE "InvoiceBrandProfiles" ADD "ContactEmail" character varying(256);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    ALTER TABLE "InvoiceBrandProfiles" ADD "TaxId" character varying(50);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    UPDATE "InvoiceBrandProfiles" SET "ContactEmail" = 'helmutessien@gmail.com' WHERE NULLIF(BTRIM("ContactEmail"), '') IS NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+
+    UPDATE "InvoiceBrandProfiles" SET
+        "CompanyName" = 'HelmutCode Solutions',
+        "AddressLine1" = COALESCE(NULLIF(BTRIM("AddressLine1"), ''), 'YN13 Flask St'),
+        "AddressLine2" = COALESCE(NULLIF(BTRIM("AddressLine2"), ''), 'Accra, Ghana'),
+        "Phone" = COALESCE(NULLIF(BTRIM("Phone"), ''), '+233500785153'),
+        "Website" = COALESCE(NULLIF(BTRIM("Website"), ''), 'helmutcode.runasp.net')
+    WHERE "CompanyName" = 'Platform License Hub';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261102101528_BrandContactEmailAndTaxId', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 

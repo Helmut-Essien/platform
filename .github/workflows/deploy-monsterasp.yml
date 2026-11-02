@@ -18,7 +18,44 @@ env:
   SITE_HOST: helmutcode.runasp.net
 
 jobs:
+  # The Postgres-backed tests (locks, concurrency, migrations) need a real server. Service containers only run on
+  # Linux runners, so they get their own job; deploy waits for it.
+  postgres-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PLATFORM_TEST_DB: Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=platform_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Platform.slnx
+
+      - name: Build
+        run: dotnet build Platform.slnx -c Release --no-restore
+
+      - name: Test (with Postgres)
+        run: dotnet test Platform.slnx -c Release --no-build --verbosity normal
+
   deploy:
+    needs: postgres-tests
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +70,8 @@ jobs:
       - name: Build
         run: dotnet build Platform.slnx -c Release --no-restore
 
-      # PLATFORM_TEST_DB is intentionally not set: the Postgres-backed tests return early without it.
+      # Windows build check of the same suite; the Postgres-backed tests ran in the postgres-tests job
+      # (PLATFORM_TEST_DB is not set here, so they return early).
       - name: Test
         run: dotnet test Platform.slnx -c Release --no-build --verbosity normal
 
@@ -48,7 +86,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "dotnet ef failed ($LASTEXITCODE)" }
           $norm = { param($p) ((Get-Content -Raw $p) -replace "`r`n", "`n").Trim() }
           if ((& $norm 'artifacts/migrations.sql') -ne (& $norm 'docs/migrations-idempotent.sql')) {
-            throw 'docs/migrations-idempotent.sql is stale. Run: dotnet ef migrations script --idempotent -p API -s API -o docs/migrations-idempotent.sql'
+            throw 'docs/migrations-idempotent.sql is stale. Run: dotnet ef migrations script --idempotent -p API -s API --configuration Release -o docs/migrations-idempotent.sql'
           }
 
       - name: Publish
