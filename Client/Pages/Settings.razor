@@ -84,6 +84,19 @@
                               Label="Website"
                               Variant="Variant.Outlined"
                               MaxLength="300" />
+
+                <MudTextField @bind-Value="_contactEmail"
+                              Label="Contact email"
+                              HelperText="Shown on invoices, receipts and email footers"
+                              Variant="Variant.Outlined"
+                              InputType="InputType.Email"
+                              MaxLength="256" />
+
+                <MudTextField @bind-Value="_taxId"
+                              Label="Tax ID (TIN)"
+                              HelperText="Optional. Printed on invoices and receipts"
+                              Variant="Variant.Outlined"
+                              MaxLength="50" />
             </div>
 
             <div class="settings-payment-block">
@@ -192,6 +205,8 @@
     private string? _addressLine2;
     private string? _phone;
     private string? _website;
+    private string? _contactEmail;
+    private string? _taxId;
     private readonly List<PaymentOptionEditModel> _paymentOptions = [];
     private bool _hasCustomLogo;
     private bool _clearLogo;
@@ -229,6 +244,8 @@
             _addressLine2 = brand.AddressLine2;
             _phone = brand.Phone;
             _website = brand.Website;
+            _contactEmail = brand.ContactEmail;
+            _taxId = brand.TaxId;
             _paymentOptions.Clear();
             foreach (var option in brand.PaymentOptions)
             {
@@ -359,6 +376,8 @@
                 AddressLine2 = _addressLine2,
                 Phone = _phone,
                 Website = _website,
+                ContactEmail = _contactEmail,
+                TaxId = _taxId,
                 // Blank / incomplete rows are ignored — payment methods are optional.
                 PaymentOptions = _paymentOptions
                     .Where(o => !string.IsNullOrWhiteSpace(o.Method))

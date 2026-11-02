@@ -605,8 +605,19 @@ public partial class LicenseService(
         license.AutoSuspendedForOverdueInvoiceId = string.IsNullOrWhiteSpace(autoSuspendedForOverdueInvoiceId)
             ? null
             : autoSuspendedForOverdueInvoiceId;
+        // Suspended for an unpaid invoice: include its pay link so paying restores access by itself.
+        Invoice? holdInvoice = null;
+        string? holdPayUrl = null;
+        if (license.AutoSuspendedForOverdueInvoiceId is { } holdId && payLinks is not null)
+        {
+            holdInvoice = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
+                .Include(i => i.Receipts)
+                .FirstOrDefaultAsync(i => i.Id == holdId, cancellationToken);
+            holdPayUrl = holdInvoice is null ? null : payLinks.BuildUrl(holdInvoice, DateTime.UtcNow);
+        }
         var suspended = templates.StatusNotice(
-            license.Customer, license.ServiceProduct, EmailDeliveryKind.Suspended, notificationReason);
+            license.Customer, license.ServiceProduct, EmailDeliveryKind.Suspended, notificationReason,
+            holdPayUrl, holdPayUrl is null ? null : holdInvoice);
         outbox.Enqueue(
             EmailDeliveryKind.Suspended,
             CustomerContactResolver.Technical(license.Customer),

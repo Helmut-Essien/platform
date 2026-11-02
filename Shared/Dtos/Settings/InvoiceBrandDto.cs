@@ -14,6 +14,10 @@ public class InvoiceBrandDto
 
     public string? Website { get; set; }
 
+    public string? ContactEmail { get; set; }
+
+    public string? TaxId { get; set; }
+
     public List<InvoicePaymentOptionDto> PaymentOptions { get; set; } = [];
 
     public bool HasCustomLogo { get; set; }

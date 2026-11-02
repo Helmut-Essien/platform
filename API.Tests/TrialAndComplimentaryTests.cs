@@ -604,7 +604,7 @@ public class TrialAndComplimentaryTests
         await h.Licenses.ExtendTrialAsync(dto.Id, new ExtendTrialRequest { TrialEndsAt = firstEnd }, "admin");
         var notices = await Notices(db, dto.Id);
         var notice = Assert.Single(notices);
-        Assert.Contains(firstEnd.ToString("MMMM dd, yyyy"), notice.Subject);
+        Assert.Contains(firstEnd.ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture), notice.Subject);
         Assert.Contains("/pay/", notice.HtmlBody);
         Assert.Contains(invoice!.InvoiceNumber, notice.HtmlBody);
         Assert.Equal(invoice.Id, notice.InvoiceId);

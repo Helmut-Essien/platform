@@ -40,9 +40,25 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         {
             From = new MailAddress(settings.FromAddress, settings.FromName),
             Subject = subject,
-            Body = htmlBody,
-            IsBodyHtml = true
+            SubjectEncoding = System.Text.Encoding.UTF8,
+            // multipart/alternative: text/plain first, HTML preferred by capable clients.
+            Body = EmailPlainText.FromHtml(htmlBody),
+            BodyEncoding = System.Text.Encoding.UTF8,
+            IsBodyHtml = false
         };
+        message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(
+            htmlBody, System.Text.Encoding.UTF8, System.Net.Mime.MediaTypeNames.Text.Html));
+        if (!string.IsNullOrWhiteSpace(settings.ReplyToAddress))
+        {
+            try
+            {
+                message.ReplyToList.Add(new MailAddress(settings.ReplyToAddress.Trim(), settings.FromName));
+            }
+            catch (FormatException)
+            {
+                // A bad Reply-To setting must not block delivery; the email simply goes without it.
+            }
+        }
         try
         {
             message.To.Add(toEmail);

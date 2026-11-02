@@ -77,13 +77,17 @@ public class CustomersController(ICustomerService customers) : ControllerBase
     }
 
     [HttpPost("{id}/suspend")]
-    public async Task<ActionResult<CustomerDto>> Suspend(string id, CancellationToken cancellationToken)
+    public async Task<ActionResult<CustomerDto>> Suspend(
+        string id,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] SuspendCustomerRequest? request,
+        CancellationToken cancellationToken)
     {
         var customer = await customers.SuspendAsync(
                 id,
                 AdminRequestContext.GetPerformedBy(HttpContext),
                 AdminRequestContext.GetIpAddress(HttpContext),
-                cancellationToken);
+                cancellationToken,
+                request?.Reason);
 
         return Ok(customer);
     }

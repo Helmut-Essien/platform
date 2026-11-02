@@ -197,12 +197,26 @@ public class EmailOutboxWorker(
             }
 
             IReadOnlyList<EmailAttachment>? attachments = null;
+            // Brand profile: one small row, read per send so Settings changes apply to the next email.
+            var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
+            var paymentOptions = InvoiceBrandService.DeserializePaymentOptions(profile.PaymentOptionsJson)
+                .Select(x => new InvoicePaymentOption(x.Method, x.Details))
+                .ToList();
+            body = EmailTemplateService.ApplyBrand(body, EmailBrandContact.From(profile), paymentOptions.Count > 0);
+            InvoiceLetterhead Letterhead() => new(
+                profile.CompanyName, profile.AddressLine1, profile.AddressLine2,
+                profile.Phone, profile.Website, profile.LogoBytes, paymentOptions,
+                profile.ContactEmail, profile.TaxId);
+
             if (message.Kind == EmailDeliveryKind.Invoice && message.InvoiceId is not null)
             {
                 var invoice = await db.Invoices
                     .IgnoreQueryFilters()
+                    .AsNoTracking()
                     .Include(x => x.Customer)
                     .Include(x => x.ServiceProduct)
+                    .Include(x => x.Receipts)
+                    .AsSplitQuery()
                     .FirstOrDefaultAsync(x => x.Id == message.InvoiceId, cancellationToken)
                     ?? throw new InvalidOperationException("Invoice for email delivery no longer exists.");
 
@@ -213,17 +227,35 @@ public class EmailOutboxWorker(
                     return;
                 }
 
-                var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
-                var paymentOptions = InvoiceBrandService.DeserializePaymentOptions(profile.PaymentOptionsJson)
-                    .Select(x => new InvoicePaymentOption(x.Method, x.Details))
-                    .ToList();
-                var letterhead = new InvoiceLetterhead(
-                    profile.CompanyName, profile.AddressLine1, profile.AddressLine2,
-                    profile.Phone, profile.Website, profile.LogoBytes, paymentOptions);
                 var payUrl = scope.ServiceProvider.GetService<Platform.Api.Services.Renewals.PayLinkService>()
                     ?.BuildUrl(invoice, DateTime.UtcNow);
-                var pdf = pdfGenerator.Generate(invoice, invoice.Customer, letterhead, payUrl);
+                var pdf = pdfGenerator.Generate(invoice, invoice.Customer, Letterhead(), payUrl);
                 attachments = [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", "application/pdf", pdf)];
+            }
+            else if (message.Kind == EmailDeliveryKind.PaymentReceipt && message.ReceiptId is not null)
+            {
+                var receiptPdf = scope.ServiceProvider.GetService<IReceiptPdfGenerator>();
+                // Two no-tracking reads: Receipt -> Invoice -> Receipts would be an include cycle.
+                var receipt = receiptPdf is null
+                    ? null
+                    : await db.Receipts
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(r => r.Id == message.ReceiptId, cancellationToken);
+                var receiptInvoice = receipt is null
+                    ? null
+                    : await db.Invoices
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Include(i => i.Customer)
+                        .Include(i => i.Receipts)
+                        .AsSplitQuery()
+                        .FirstOrDefaultAsync(i => i.Id == receipt.InvoiceId, cancellationToken);
+                if (receipt is not null && receiptInvoice is not null)
+                {
+                    var pdf = receiptPdf!.GenerateReceipt(receipt, receiptInvoice, receiptInvoice.Customer, Letterhead());
+                    attachments = [new EmailAttachment($"{receipt.ReceiptNumber}.pdf", "application/pdf", pdf)];
+                }
             }
 
             await sender.SendAsync(message.ToEmail, message.Subject, body, attachments, cancellationToken);

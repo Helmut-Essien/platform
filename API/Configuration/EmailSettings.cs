@@ -8,7 +8,13 @@ public class EmailSettings
 
     public string FromAddress { get; set; } = "noreply@platform.local";
 
-    public string FromName { get; set; } = "Platform License Hub";
+    public string FromName { get; set; } = BrandDefaults.CompanyName;
+
+    /// <summary>
+    /// Where customer replies go (Reply-To header). Defaults to the business contact email so "reply to this
+    /// message" reaches a person even when FromAddress is a no-reply sender. Set to an empty string to omit it.
+    /// </summary>
+    public string? ReplyToAddress { get; set; } = BrandDefaults.ContactEmail;
 
     public string? Host { get; set; }
 

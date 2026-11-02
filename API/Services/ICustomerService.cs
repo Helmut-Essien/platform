@@ -21,7 +21,7 @@ public interface ICustomerService
 
     Task<CustomerDto> UpdateAsync(string id, UpdateCustomerRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
-    Task<CustomerDto> SuspendAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+    Task<CustomerDto> SuspendAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default, string? reason = null);
 
     Task<CustomerDto> ReactivateAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 }

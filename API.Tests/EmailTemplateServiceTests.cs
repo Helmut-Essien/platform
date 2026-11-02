@@ -19,7 +19,7 @@ public class EmailTemplateServiceTests
 
         Assert.Equal("Invoice INV-2026-00001 from HelmutCode Solutions", template.Subject);
         Assert.Contains("HelmutCode Solutions", template.Html);
-        Assert.Contains("This is an automated message about your licenses, invoices, or payments", template.Html);
+        Assert.Contains("Kind regards", template.Html);
         Assert.Contains("$100.00", template.Html);
         Assert.Contains("$20.00", template.Html);
         Assert.Contains("$120.00", template.Html);
@@ -43,7 +43,7 @@ public class EmailTemplateServiceTests
 
         Assert.Contains("$120.00", template.Html);
         Assert.DoesNotContain("120.00 USD", template.Html);
-        Assert.Contains("July 17, 2026", template.Html);
+        Assert.Contains("17 July 2026", template.Html);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class EmailTemplateServiceTests
             "Payment overdue &lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;.",
             template.Html);
         Assert.DoesNotContain("<script>", template.Html);
-        Assert.Contains("Reason:", template.Html);
+        Assert.Contains("Why:", template.Html);
     }
 
     private static Customer CreateCustomer() =>

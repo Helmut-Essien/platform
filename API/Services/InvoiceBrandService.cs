@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Platform.Api.Configuration;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Shared.Dtos.Settings;
@@ -55,6 +56,8 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         profile.AddressLine2 = NormalizeOptional(request.AddressLine2);
         profile.Phone = NormalizeOptional(request.Phone);
         profile.Website = NormalizeOptional(request.Website);
+        profile.ContactEmail = NormalizeOptional(request.ContactEmail);
+        profile.TaxId = NormalizeOptional(request.TaxId);
         profile.PaymentOptionsJson = SerializePaymentOptions(request.PaymentOptions);
         profile.UpdatedAt = DateTime.UtcNow;
 
@@ -86,7 +89,12 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
 
         var profile = new InvoiceBrandProfile
         {
-            CompanyName = "Platform License Hub",
+            CompanyName = BrandDefaults.CompanyName,
+            AddressLine1 = BrandDefaults.AddressLine1,
+            AddressLine2 = BrandDefaults.AddressLine2,
+            Phone = BrandDefaults.Phone,
+            ContactEmail = BrandDefaults.ContactEmail,
+            Website = BrandDefaults.Website,
             UpdatedAt = DateTime.UtcNow
         };
 
@@ -204,6 +212,8 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         AddressLine2 = profile.AddressLine2,
         Phone = profile.Phone,
         Website = profile.Website,
+        ContactEmail = profile.ContactEmail,
+        TaxId = profile.TaxId,
         PaymentOptions = DeserializePaymentOptions(profile.PaymentOptionsJson),
         HasCustomLogo = profile.LogoBytes is { Length: > 0 },
         LogoContentType = profile.LogoContentType,

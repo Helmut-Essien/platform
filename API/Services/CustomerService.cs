@@ -173,7 +173,8 @@ public class CustomerService(
         string id,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? reason = null)
     {
         var customer = await db.Customers.FindAsync([id], cancellationToken)
             ?? throw new NotFoundException("Customer not found.");
@@ -182,7 +183,10 @@ public class CustomerService(
             throw new InvalidOperationException("Customer is already suspended.");
 
         customer.IsSuspended = true;
-        var notice = templates.StatusNotice(customer, null, EmailDeliveryKind.Suspended);
+        reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        if (reason is { Length: > 500 })
+            reason = reason[..500];
+        var notice = templates.StatusNotice(customer, null, EmailDeliveryKind.Suspended, reason);
         foreach (var recipient in CustomerContactResolver.Operational(customer))
             outbox.Enqueue(EmailDeliveryKind.Suspended, recipient, notice.Subject, notice.Html, customer.Id);
 
@@ -194,7 +198,7 @@ public class CustomerService(
 
         // P11: single SaveChanges for the suspension, queued emails and audit entry.
         await auditLog.WriteAsync(AuditAction.CustomerSuspended, performedBy, customer.Id, null, null,
-            null, ipAddress, cancellationToken);
+            reason is null ? null : AuditJson.Serialize(new { reason }), ipAddress, cancellationToken);
 
         await denyList.DenyCustomerLicensesAsync(customer.Id, cancellationToken);
         // P13: deny per license concurrently (bounded batches) instead of one Redis round trip at a time.

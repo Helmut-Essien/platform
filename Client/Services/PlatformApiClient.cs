@@ -118,9 +118,9 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         return await ToApiResultAsync<CustomerDto>(response, ct);
     }
 
-    public async Task<ApiResult<CustomerDto>> SuspendCustomerAsync(string id, CancellationToken ct = default)
+    public async Task<ApiResult<CustomerDto>> SuspendCustomerAsync(string id, string? reason = null, CancellationToken ct = default)
     {
-        var response = await http.PostAsync($"api/customers/{id}/suspend", null, ct);
+        var response = await http.PostAsJsonAsync($"api/customers/{id}/suspend", new SuspendCustomerRequest { Reason = reason }, ct);
         return await ToApiResultAsync<CustomerDto>(response, ct);
     }
 

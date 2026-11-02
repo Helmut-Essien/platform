@@ -33,7 +33,8 @@ public class ResendEmailSenderTests
             Provider = "Resend",
             FromAddress = "noreply@example.com",
             FromName = "Platform License Hub",
-            ResendApiKey = "re_test_key"
+            ResendApiKey = "re_test_key",
+            ReplyToAddress = "support@example.com"
         });
 
         await sender.SendAsync("customer@example.com", "Your license is active", "<p>key</p>");
@@ -48,6 +49,8 @@ public class ResendEmailSenderTests
         Assert.Contains("\"to\":[\"customer@example.com\"]", requestBody);
         Assert.Contains("\"subject\":\"Your license is active\"", requestBody);
         Assert.Contains("\"html\":\"\\u003Cp\\u003Ekey\\u003C/p\\u003E\"", requestBody);
+        Assert.Contains("\"text\":\"key", requestBody);
+        Assert.Contains("support@example.com", requestBody);
     }
 
     [Fact]

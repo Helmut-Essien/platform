@@ -12,6 +12,16 @@
     </TitleContent>
     <DialogContent>
         <MudText>@Message</MudText>
+        @if (ShowReason)
+        {
+            <MudTextField @bind-Value="_reason"
+                          Label="@ReasonLabel"
+                          HelperText="Optional. Included in the email to the customer."
+                          Variant="Variant.Outlined"
+                          Lines="2"
+                          MaxLength="500"
+                          Class="mt-4" />
+        }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Class="confirm-dialog-cancel" OnClick="Cancel">Cancel</MudButton>
@@ -33,7 +43,12 @@
     [Parameter] public string Message { get; set; } = "Are you sure?";
     [Parameter] public string ConfirmText { get; set; } = "Confirm";
     [Parameter] public bool IsDestructive { get; set; }
+    [Parameter] public bool ShowReason { get; set; }
+    [Parameter] public string ReasonLabel { get; set; } = "Reason";
+
+    private string? _reason;
 
     private void Cancel() => MudDialog.Cancel();
-    private void Confirm() => MudDialog.Close(DialogResult.Ok(true));
+    // With a reason field the result data is the (possibly empty) reason text; otherwise true as before.
+    private void Confirm() => MudDialog.Close(ShowReason ? DialogResult.Ok(_reason?.Trim() ?? string.Empty) : DialogResult.Ok(true));
 }

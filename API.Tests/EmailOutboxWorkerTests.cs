@@ -211,6 +211,43 @@ public class EmailOutboxWorkerTests
     }
 
     [Fact]
+    public async Task SendAsync_PaymentReceipt_AttachesReceiptPdf()
+    {
+        await using var h = CreateHarness();
+        var customer = new Customer { Name = "Acme", ContactEmail = "a@acme.test" };
+        var invoice = new Invoice
+        {
+            Customer = customer,
+            CustomerId = customer.Id,
+            InvoiceNumber = "INV-2026-00100",
+            Status = InvoiceStatus.Paid,
+            Currency = "GHS",
+            Subtotal = 10m,
+            TotalAmount = 10m
+        };
+        var receipt = new Receipt
+        {
+            InvoiceId = invoice.Id,
+            ReceiptNumber = "RCP-2026-00100",
+            AmountPaid = 10m,
+            Status = ReceiptStatus.Posted,
+            PaidAt = DateTime.UtcNow
+        };
+        h.Db.AddRange(customer, invoice, receipt);
+        await h.Db.SaveChangesAsync();
+        var message = await h.QueueAsync(EmailDeliveryKind.PaymentReceipt, payload: false, invoiceId: invoice.Id, customerId: customer.Id);
+        message.ReceiptId = receipt.Id;
+        await h.Db.SaveChangesAsync();
+
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+
+        Assert.Single(h.Sender.Sent);
+        var attachment = Assert.Single(h.Sender.Attachments[0]!);
+        Assert.Equal("RCP-2026-00100.pdf", attachment.FileName);
+        Assert.Equal(new byte[] { 4, 5, 6 }, attachment.Content);
+    }
+
+    [Fact]
     public async Task SendAsync_IgnoresMessagesThatAreNotClaimed()
     {
         await using var h = CreateHarness();
@@ -267,7 +304,9 @@ public class EmailOutboxWorkerTests
         services.AddSingleton(db);
         services.AddSingleton<IEmailSender>(sender);
         services.AddSingleton(protector);
-        services.AddSingleton<IInvoicePdfGenerator, StubPdf>();
+        services.AddSingleton<StubPdf>();
+        services.AddSingleton<IInvoicePdfGenerator>(sp => sp.GetRequiredService<StubPdf>());
+        services.AddSingleton<IReceiptPdfGenerator>(sp => sp.GetRequiredService<StubPdf>());
         services.AddSingleton<IInvoiceBrandService, StubBrand>();
         var provider = services.BuildServiceProvider();
 
@@ -325,6 +364,7 @@ public class EmailOutboxWorkerTests
         public bool FailPermanently { get; set; }
         public Exception? Throw { get; set; }
         public List<(string To, string Subject, string Body)> Sent { get; } = [];
+        public List<IReadOnlyList<EmailAttachment>?> Attachments { get; } = [];
 
         public Task SendAsync(
             string toEmail,
@@ -340,13 +380,15 @@ public class EmailOutboxWorkerTests
             if (Fail)
                 throw new InvalidOperationException("provider down");
             Sent.Add((toEmail, subject, htmlBody));
+            Attachments.Add(attachments);
             return Task.CompletedTask;
         }
     }
 
-    private sealed class StubPdf : IInvoicePdfGenerator
+    private sealed class StubPdf : IInvoicePdfGenerator, IReceiptPdfGenerator
     {
         public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead, string? payUrl = null) => [1, 2, 3];
+        public byte[] GenerateReceipt(Receipt receipt, Invoice invoice, Customer customer, InvoiceLetterhead letterhead) => [4, 5, 6];
     }
 
     private sealed class StubBrand : IInvoiceBrandService

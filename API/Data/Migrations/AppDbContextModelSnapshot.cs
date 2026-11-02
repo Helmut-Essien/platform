@@ -553,6 +553,10 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<byte[]>("LogoBytes")
                         .HasColumnType("bytea");
 
@@ -564,6 +568,10 @@ namespace Platform.Api.Data.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("Phone")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("TaxId")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 

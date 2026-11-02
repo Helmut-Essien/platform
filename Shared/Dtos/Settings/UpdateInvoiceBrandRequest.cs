@@ -20,6 +20,13 @@ public class UpdateInvoiceBrandRequest
     [MaxLength(300, ErrorMessage = "Website must be 300 characters or less")]
     public string? Website { get; set; }
 
+    [EmailAddress(ErrorMessage = "Contact email is not a valid email address")]
+    [MaxLength(256, ErrorMessage = "Contact email must be 256 characters or less")]
+    public string? ContactEmail { get; set; }
+
+    [MaxLength(50, ErrorMessage = "Tax ID must be 50 characters or less")]
+    public string? TaxId { get; set; }
+
     /// <summary>Accepted payment methods with per-method details (shown on invoice PDFs). Max 10.</summary>
     public List<InvoicePaymentOptionDto> PaymentOptions { get; set; } = [];
 

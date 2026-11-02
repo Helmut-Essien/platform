@@ -619,17 +619,6 @@ public class BillingService(
         if (payment is null)
             throw new InvalidOperationException("Could not generate a unique receipt number.");
 
-        var receiptTemplate = templates.PaymentReceipt(invoice.Customer, invoice, receipt);
-        outbox.Enqueue(
-            EmailDeliveryKind.PaymentReceipt,
-            CustomerContactResolver.Billing(invoice.Customer),
-            receiptTemplate.Subject,
-            receiptTemplate.Html,
-            invoice.CustomerId,
-            invoice.LicenseId,
-            invoice.Id,
-            receipt.Id);
-
         await auditLog.WriteAsync(AuditAction.ReceiptRecorded, performedBy, invoice.CustomerId, invoice.LicenseId,
             invoice.Id,
             AuditJson.Serialize(new
@@ -645,6 +634,18 @@ public class BillingService(
         var renewed = await TryApplyRenewalAsync(invoice, now, ct);
         var activated = await TryApplyActivationAsync(invoice, paidAt, now, ct);
         var licenseIdToClearDeny = await TryQueueLicenseReactivationAsync(invoice, ct);
+
+        // Queued after renewal/activation so the receipt email can say what the payment did (new expiry, activation).
+        var receiptTemplate = templates.PaymentReceipt(invoice.Customer, invoice, receipt);
+        outbox.Enqueue(
+            EmailDeliveryKind.PaymentReceipt,
+            CustomerContactResolver.Billing(invoice.Customer),
+            receiptTemplate.Subject,
+            receiptTemplate.Html,
+            invoice.CustomerId,
+            invoice.LicenseId,
+            invoice.Id,
+            receipt.Id);
 
         await db.SaveChangesAsync(ct);
         if (transaction is not null)
@@ -1094,7 +1095,7 @@ public class BillingService(
         var trialConverted = license.IsTrial;
         license.IsTrial = false; // paying any period of a trial license makes it a regular paid license
 
-        var renewal = templates.Renewal(license.Customer, license.ServiceProduct, license);
+        var renewal = templates.Renewal(license.Customer, license.ServiceProduct, license, invoice);
         outbox.Enqueue(
             EmailDeliveryKind.RenewalConfirmation,
             CustomerContactResolver.Technical(license.Customer),
@@ -1277,11 +1278,14 @@ public class BillingService(
         license.AutoSuspendedForOverdueInvoiceId = invoice.Id;
         license.UpdatedAt = now;
 
+        var reversalPayUrl = payLinks?.BuildUrl(invoice, now);
         var notice = templates.StatusNotice(
             license.Customer,
             license.ServiceProduct,
             EmailDeliveryKind.Suspended,
-            "Access was suspended because the payment for this license was reversed.");
+            "Access was suspended because the payment for this license was reversed.",
+            reversalPayUrl,
+            reversalPayUrl is null ? null : invoice);
         outbox.Enqueue(
             EmailDeliveryKind.Suspended,
             CustomerContactResolver.Technical(license.Customer),
@@ -1435,11 +1439,14 @@ public class BillingService(
         license.AutoSuspendedForOverdueInvoiceId = invoice.Id;
         license.UpdatedAt = DateTime.UtcNow;
 
+        var overduePayUrl = payLinks?.BuildUrl(invoice, DateTime.UtcNow);
         var notice = templates.StatusNotice(
             license.Customer,
             license.ServiceProduct,
             EmailDeliveryKind.Suspended,
-            "Access was suspended because a linked invoice is overdue.");
+            $"Invoice {invoice.InvoiceNumber} is overdue.",
+            overduePayUrl,
+            overduePayUrl is null ? null : invoice);
         outbox.Enqueue(
             EmailDeliveryKind.Suspended,
             CustomerContactResolver.Technical(license.Customer),

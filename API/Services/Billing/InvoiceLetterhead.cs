@@ -9,4 +9,6 @@ public sealed record InvoiceLetterhead(
     string? Phone,
     string? Website,
     byte[]? LogoBytes,
-    IReadOnlyList<InvoicePaymentOption> PaymentOptions);
+    IReadOnlyList<InvoicePaymentOption> PaymentOptions,
+    string? ContactEmail = null,
+    string? TaxId = null);
