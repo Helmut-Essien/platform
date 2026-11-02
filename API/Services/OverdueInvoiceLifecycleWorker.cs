@@ -37,6 +37,7 @@ public class OverdueInvoiceLifecycleWorker(
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var licenseService = scope.ServiceProvider.GetRequiredService<ILicenseService>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditLogService>();
+        var denyList = scope.ServiceProvider.GetService<ILicenseDenyListService>();
         var now = DateTime.UtcNow;
 
         try
@@ -75,7 +76,7 @@ public class OverdueInvoiceLifecycleWorker(
                     continue;
 
                 await TrySuspendForOverdueAsync(db, licenseService, audit, invoiceRow.Id, invoiceRow.LicenseId,
-                    invoiceRow.CustomerId, cancellationToken);
+                    invoiceRow.CustomerId, cancellationToken, denyList);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -97,7 +98,8 @@ public class OverdueInvoiceLifecycleWorker(
         string invoiceId,
         string licenseId,
         string customerId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ILicenseDenyListService? denyList = null)
     {
         var suspended = await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
@@ -149,6 +151,9 @@ public class OverdueInvoiceLifecycleWorker(
         }, cancellationToken);
 
         db.ChangeTracker.Clear();
+        // After the commit (SuspendAsync leaves the deny to us inside a transaction).
+        if (suspended && denyList is not null)
+            await denyList.DenyLicenseAsync(licenseId, cancellationToken);
         return suspended;
     }
 

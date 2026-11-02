@@ -337,10 +337,52 @@ public class LicenseActivationTests
     public void ExpiryAfterPayment_Rules()
     {
         var now = new DateTime(2026, 11, 2, 10, 0, 0, DateTimeKind.Utc);
-        var future = now.AddMonths(4);
-        Assert.Equal(future, LicenseActivation.ExpiryAfterPayment(future, 12, now, now));
-        Assert.Null(LicenseActivation.ExpiryAfterPayment(null, null, now, now));
-        Assert.Equal(new DateTime(2027, 11, 2, 0, 0, 0, DateTimeKind.Utc), LicenseActivation.ExpiryAfterPayment(null, 12, now, now));
-        Assert.Equal(new DateTime(2027, 5, 2, 0, 0, 0, DateTimeKind.Utc), LicenseActivation.ExpiryAfterPayment(now.AddDays(-10), 6, now, now));
+        var oneYear = new DateTime(2027, 11, 2, 0, 0, 0, DateTimeKind.Utc);
+
+        // A future expiry shorter than the paid period: the payment still buys a full period from the payment day.
+        Assert.Equal((oneYear, 2), LicenseActivation.ExpiryAfterPayment(now.AddMonths(4), 12, now, now));
+        // A future expiry beyond payment day + period is kept (anchor unchanged).
+        var far = now.AddMonths(18);
+        Assert.Equal((far, (int?)null), LicenseActivation.ExpiryAfterPayment(far, 12, now, now));
+        Assert.Equal((oneYear, 2), LicenseActivation.ExpiryAfterPayment(null, 12, now, now));
+        Assert.Equal((new DateTime(2027, 5, 2, 0, 0, 0, DateTimeKind.Utc), 2),
+            LicenseActivation.ExpiryAfterPayment(now.AddDays(-10), 6, now, now));
+
+        // One-off price (no period): perpetual when open-ended or lapsed; a running term is left alone.
+        Assert.Equal(((DateTime?)null, (int?)null), LicenseActivation.ExpiryAfterPayment(null, null, now, now));
+        Assert.Equal(((DateTime?)null, (int?)null), LicenseActivation.ExpiryAfterPayment(now.AddDays(-10), null, now, now));
+        Assert.Equal((far, (int?)null), LicenseActivation.ExpiryAfterPayment(far, null, now, now));
+    }
+
+    [Fact]
+    public void ExpiryAfterPayment_AnchorIsPaymentDay_NotClampedExpiry()
+    {
+        var paid = new DateTime(2027, 1, 31, 9, 0, 0, DateTimeKind.Utc);
+        var (expiry, anchor) = LicenseActivation.ExpiryAfterPayment(null, 1, paid, paid);
+        Assert.Equal(new DateTime(2027, 2, 28, 0, 0, 0, DateTimeKind.Utc), expiry);
+        Assert.Equal(31, anchor);
+        // The next renewal returns to the 31st.
+        Assert.Equal(new DateTime(2027, 3, 31, 0, 0, 0, DateTimeKind.Utc), PeriodMath.AddMonths(expiry!.Value, 1, anchor));
+    }
+
+    [Fact]
+    public void SetAnchor_KeepsAnchorWhenExpiryIsItsMonthEndClamp()
+    {
+        var license = new License { CustomerId = "c", ServiceProductId = "p", PlanName = "Plan", ExpiresAt = new DateTime(2027, 2, 28, 0, 0, 0, DateTimeKind.Utc), BillingAnchorDay = 31 };
+        LicenseService.SetAnchor(license);
+        Assert.Equal(31, license.BillingAnchorDay);
+
+        license.ExpiresAt = new DateTime(2027, 2, 15, 0, 0, 0, DateTimeKind.Utc);
+        LicenseService.SetAnchor(license);
+        Assert.Equal(15, license.BillingAnchorDay);
+
+        license.ExpiresAt = new DateTime(2027, 4, 30, 0, 0, 0, DateTimeKind.Utc);
+        license.BillingAnchorDay = 10;
+        LicenseService.SetAnchor(license);
+        Assert.Equal(30, license.BillingAnchorDay);
+
+        license.ExpiresAt = null;
+        LicenseService.SetAnchor(license);
+        Assert.Null(license.BillingAnchorDay);
     }
 }

@@ -150,10 +150,10 @@ public class LicenseExpiryReminderWorker(
             .ToDictionaryAsync(x => x.LicenseId, x => x.LastCreatedAt, cancellationToken);
 
         // Open renewal invoices for these licenses (one query), so the reminder can carry the pay button.
+        // Tracked: an expired pay link is renewed (EnsureUrl) and saved with the outbox rows below.
         var payLinks = scope.ServiceProvider.GetService<Renewals.PayLinkService>();
         var openInvoices = await db.Invoices
             .IgnoreQueryFilters()
-            .AsNoTracking()
             .Include(i => i.Receipts)
             .Where(i => i.LicenseId != null
                 && licenseIds.Contains(i.LicenseId)
@@ -161,6 +161,7 @@ public class LicenseExpiryReminderWorker(
                 && i.TotalAmount > 0
                 && (i.Status == InvoiceStatus.Sent || i.Status == InvoiceStatus.Overdue || i.Status == InvoiceStatus.PartiallyPaid))
             .OrderByDescending(i => i.CreatedAt)
+            .ThenBy(i => i.Id)
             .ToListAsync(cancellationToken);
         var openByLicense = openInvoices
             .GroupBy(i => i.LicenseId!)
@@ -176,14 +177,20 @@ public class LicenseExpiryReminderWorker(
             if (lastReminders.TryGetValue(license.Id, out var last) && last >= windowOpened)
                 continue;
 
+            // Only the invoice for the period that starts at this expiry (newest first if several): an invoice for
+            // another period would show the wrong amount/dates next to this expiry date.
             Invoice? openInvoice = null;
             if (openByLicense.TryGetValue(license.Id, out var candidates))
-                openInvoice = candidates.FirstOrDefault(i => i.RenewalForExpiresAt == license.ExpiresAt) ?? candidates[0];
-            var payUrl = openInvoice is null ? null : payLinks?.BuildUrl(openInvoice, now);
+                openInvoice = candidates.FirstOrDefault(i => i.RenewalForExpiresAt == license.ExpiresAt);
+            var payUrl = openInvoice is null ? null : payLinks?.EnsureUrl(openInvoice, now);
             var template = templates.ExpiryReminder(license.Customer, license.ServiceProduct, license, openInvoice, payUrl);
+            // With an invoice to pay it is a billing email (billing contact, falling back to the main contact);
+            // without one it is a heads-up for whoever runs the software.
             outbox.Enqueue(
                 EmailDeliveryKind.ExpiryReminder,
-                CustomerContactResolver.Technical(license.Customer),
+                openInvoice is not null
+                    ? CustomerContactResolver.Billing(license.Customer)
+                    : CustomerContactResolver.Technical(license.Customer),
                 template.Subject,
                 template.Html,
                 license.CustomerId,

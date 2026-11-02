@@ -34,19 +34,25 @@ internal static class LicenseActivation
     }
 
     /// <summary>
-    /// Term set by a paid activation invoice: kept when the license already has a future expiry; otherwise one
-    /// period from the payment day (calendar-date convention, like renewals). A license with no expiry and no
-    /// known period (one-off price) stays perpetual.
+    /// Term set by a paid activation invoice. The payment always buys at least one full period from the payment day
+    /// (calendar-date convention, like renewals), so a customer who pays late never gets less than they paid for:
+    /// the new expiry is the later of the current expiry and payment day + period. The billing anchor day is the
+    /// payment day (not the month-end-clamped expiry), so 31 Jan renews on 28 Feb, then 31 Mar.
+    /// A one-off price (no period) leaves a future expiry alone and makes a lapsed or open-ended license perpetual
+    /// (a one-off payment buys no fixed term, and it must not activate a license that is already expired).
+    /// <c>AnchorDay</c> null = leave the anchor unchanged.
     /// </summary>
-    internal static DateTime? ExpiryAfterPayment(DateTime? currentExpiry, int? periodMonths, DateTime paidAt, DateTime now)
+    internal static (DateTime? Expiry, int? AnchorDay) ExpiryAfterPayment(DateTime? currentExpiry, int? periodMonths, DateTime paidAt, DateTime now)
     {
-        if (currentExpiry is not null && !Helpers.DateTimeNormalizer.IsPastExpiry(currentExpiry, now))
-            return currentExpiry;
-        if (currentExpiry is null && periodMonths is null)
-            return null;
+        var currentIsFuture = currentExpiry is not null && !Helpers.DateTimeNormalizer.IsPastExpiry(currentExpiry, now);
+        if (periodMonths is null)
+            return currentIsFuture ? (currentExpiry, null) : (null, null);
 
-        var start = (paidAt > now ? now : paidAt).Date;
-        var months = Math.Clamp(periodMonths ?? 12, 1, 36);
-        return DateTime.SpecifyKind(Renewals.PeriodMath.AddMonths(DateTime.SpecifyKind(start, DateTimeKind.Utc), months, start.Day), DateTimeKind.Utc);
+        var start = DateTime.SpecifyKind((paidAt > now ? now : paidAt).Date, DateTimeKind.Utc);
+        var months = Math.Clamp(periodMonths.Value, 1, 36);
+        var paidThrough = Renewals.PeriodMath.AddMonths(start, months, start.Day);
+        if (currentIsFuture && currentExpiry!.Value >= paidThrough)
+            return (currentExpiry, null);
+        return (paidThrough, start.Day);
     }
 }

@@ -86,6 +86,11 @@ public partial class LicenseService
                 {
                     invoice.RenewalForExpiresAt = newEnd;
                     invoice.DueDate = newEnd;
+                    // The description (PDF, emails) names the billed period: move it with the trial end.
+                    var months = invoice.RenewalPeriodMonths ?? license.BillingPeriodMonths;
+                    invoice.Description = BillingService.RenewalDescription(invoice.PlanName ?? license.PlanName,
+                        invoice.IsTrialConversion,
+                        newEnd, BillingService.RenewalPeriodEnd(newEnd, months, license.BillingAnchorDay));
                     // Keep an already-sent pay link working until the new due date (plus a week).
                     if (invoice.PayLinkExpiresAt is { } linkEnd && linkEnd < newEnd.AddDays(7))
                         invoice.PayLinkExpiresAt = newEnd.AddDays(7);
@@ -338,7 +343,8 @@ public partial class LicenseService
     /// </summary>
     private async Task<bool> QueueTrialExtendedNoticeAsync(License license, Invoice? invoice, DateTime now, CancellationToken ct)
     {
-        var payUrl = invoice is null ? null : payLinks?.BuildUrl(invoice, now);
+        // The invoice is tracked (loaded under lock by the caller): renew a missing/expiring link so the button works.
+        var payUrl = invoice is null ? null : payLinks?.EnsureUrl(invoice, now);
         var template = templates.TrialExtended(license.Customer, license.ServiceProduct, license, invoice, payUrl);
         var subject = Email.EmailOutboxService.SanitizeSubject(template.Subject);
         var already = await db.EmailOutboxMessages

@@ -752,6 +752,10 @@ public class BillingService(
 
         RecalculateInvoiceStatus(invoice);
         invoice.UpdatedAt = now;
+        // Payable again: the link was cut to a day when the invoice was paid, so a refund days later would leave the
+        // customer with a dead link. Renew it before any email below is built, so paying again restores access.
+        if (PayLinkService.IsPayableStatus(invoice.Status) && GetAmountDue(invoice) > 0)
+            payLinks?.EnsureUrl(invoice, now);
 
         try
         {
@@ -939,7 +943,7 @@ public class BillingService(
             }
 
             var months = Math.Clamp(license.BillingPeriodMonths, 1, 36);
-            var periodEnd = PeriodMath.AddMonths(periodStart, months, license.BillingAnchorDay);
+            var periodEnd = RenewalPeriodEnd(periodStart, months, license.BillingAnchorDay);
             var subtotal = license.BillingAmount!.Value;
             var tax = license.BillingTaxAmount;
             var currency = NormalizeCurrency(license.BillingCurrency);
@@ -964,9 +968,7 @@ public class BillingService(
                 TaxAmount = tax,
                 TotalAmount = subtotal + tax,
                 PlanName = license.PlanName,
-                Description = trial
-                    ? $"{license.PlanName} after your free trial: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}"
-                    : $"Renewal of {license.PlanName}: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}",
+                Description = RenewalDescription(license.PlanName, trial, periodStart, periodEnd),
                 RenewalForExpiresAt = periodStart,
                 RenewalPeriodMonths = months,
                 CreatedAt = now,
@@ -1231,11 +1233,11 @@ public class BillingService(
         }
 
         var previousExpiry = license.ExpiresAt;
-        var newExpiry = LicenseActivation.ExpiryAfterPayment(previousExpiry, invoice.ActivationPeriodMonths, paidAt, now);
+        var (newExpiry, anchorDay) = LicenseActivation.ExpiryAfterPayment(previousExpiry, invoice.ActivationPeriodMonths, paidAt, now);
         if (newExpiry != previousExpiry)
         {
             license.ExpiresAt = newExpiry;
-            license.BillingAnchorDay = newExpiry?.Day;
+            license.BillingAnchorDay = anchorDay ?? newExpiry?.Day;
         }
 
         await LicenseActivation.ActivateAsync(license, keyDelivery!, deliverKey: true, now, cancellationToken);
@@ -1386,6 +1388,10 @@ public class BillingService(
         license.Status = LicenseStatus.Active;
         license.AutoSuspendedForOverdueInvoiceId = null;
         license.UpdatedAt = DateTime.UtcNow;
+        // Re-paid after a reversal of the activating payment: this payment now carries the activation, so a
+        // second refund of it suspends the license again (TryRevertActivationAsync keys off ActivationAppliedAt).
+        if (invoice.IsActivationInvoice && invoice.ActivationAppliedAt is null)
+            invoice.ActivationAppliedAt = DateTime.UtcNow;
 
         var notice = templates.StatusNotice(
             license.Customer,
@@ -1778,4 +1784,14 @@ public class BillingService(
         PerformedBy = transaction.PerformedBy,
         CreatedAt = transaction.CreatedAt
     };
+
+    /// <summary>End of the service period a renewal / trial-conversion invoice bills for.</summary>
+    internal static DateTime RenewalPeriodEnd(DateTime periodStart, int months, int? anchorDay) =>
+        PeriodMath.AddMonths(periodStart, Math.Clamp(months, 1, 36), anchorDay);
+
+    /// <summary>Invoice description (shown on the PDF and emails) for a renewal / trial-conversion period.</summary>
+    internal static string RenewalDescription(string? planName, bool trial, DateTime periodStart, DateTime periodEnd) =>
+        trial
+            ? $"{planName} after your free trial: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}"
+            : $"Renewal of {planName}: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}";
 }

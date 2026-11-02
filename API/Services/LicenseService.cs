@@ -329,11 +329,11 @@ public partial class LicenseService(
             var paidAt = await db.Receipts
                 .Where(r => r.InvoiceId == activationInvoice.Id && r.Status == ReceiptStatus.Posted)
                 .MaxAsync(r => (DateTime?)r.PaidAt, ct) ?? now;
-            var newExpiry = LicenseActivation.ExpiryAfterPayment(license.ExpiresAt, activationInvoice.ActivationPeriodMonths, paidAt, now);
+            var (newExpiry, anchorDay) = LicenseActivation.ExpiryAfterPayment(license.ExpiresAt, activationInvoice.ActivationPeriodMonths, paidAt, now);
             if (newExpiry != license.ExpiresAt)
             {
                 license.ExpiresAt = newExpiry;
-                license.BillingAnchorDay = newExpiry?.Day;
+                license.BillingAnchorDay = anchorDay ?? newExpiry?.Day;
             }
             activationInvoice.ActivationAppliedAt = now;
         }
@@ -610,10 +610,11 @@ public partial class LicenseService(
         string? holdPayUrl = null;
         if (license.AutoSuspendedForOverdueInvoiceId is { } holdId && payLinks is not null)
         {
-            holdInvoice = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
+            // Tracked so an expired or missing link is renewed (saved below): the email must carry a working link.
+            holdInvoice = await db.Invoices.IgnoreQueryFilters()
                 .Include(i => i.Receipts)
                 .FirstOrDefaultAsync(i => i.Id == holdId, cancellationToken);
-            holdPayUrl = holdInvoice is null ? null : payLinks.BuildUrl(holdInvoice, DateTime.UtcNow);
+            holdPayUrl = holdInvoice is null ? null : payLinks.EnsureUrl(holdInvoice, DateTime.UtcNow);
         }
         var suspended = templates.StatusNotice(
             license.Customer, license.ServiceProduct, EmailDeliveryKind.Suspended, notificationReason,
@@ -627,7 +628,10 @@ public partial class LicenseService(
             license.Id);
         await db.SaveChangesAsync(cancellationToken);
 
-        await denyList.DenyLicenseAsync(license.Id, cancellationToken);
+        // The deny list (Redis) must follow the committed state: inside a caller's transaction (the overdue worker)
+        // the caller denies after its commit, so a rollback can't leave a customer locked out but not suspended.
+        if (db.Database.CurrentTransaction is null)
+            await denyList.DenyLicenseAsync(license.Id, cancellationToken);
 
         await auditLog.WriteAsync(AuditAction.LicenseSuspended, performedBy, license.CustomerId, license.Id,
             null, null, ipAddress, cancellationToken);
@@ -994,7 +998,22 @@ public partial class LicenseService(
             $"""SELECT 1 FROM "Licenses" WHERE "Id" = {licenseId} FOR UPDATE""", cancellationToken);
     }
 
-    /// <summary>An admin-set expiry defines the renewal anniversary day (so Jan 31 renewals return to the 31st).</summary>
-    private static void SetAnchor(License license) =>
-        license.BillingAnchorDay = license.ExpiresAt?.Day;
+    /// <summary>
+    /// An admin-set expiry defines the renewal anniversary day (so Jan 31 renewals return to the 31st). A month-end
+    /// expiry that is just the clamped form of the current anchor (28 Feb for anchor 31) keeps that anchor, so it
+    /// isn't permanently lowered to 28.
+    /// </summary>
+    internal static void SetAnchor(License license)
+    {
+        if (license.ExpiresAt is not { } expiry)
+        {
+            license.BillingAnchorDay = null;
+            return;
+        }
+        var clampedAnchor = license.BillingAnchorDay is { } anchor
+            && anchor > expiry.Day
+            && expiry.Day == DateTime.DaysInMonth(expiry.Year, expiry.Month);
+        if (!clampedAnchor)
+            license.BillingAnchorDay = expiry.Day;
+    }
 }
