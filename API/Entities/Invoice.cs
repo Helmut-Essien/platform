@@ -63,6 +63,11 @@ public class Invoice
     /// <summary>When the paid activation invoice activated the license (null = it did not, or was reverted).</summary>
     public DateTime? ActivationAppliedAt { get; set; }
 
+    /// <summary>
+    /// A renewal invoice (period start = trial end) that converts a trial to a regular license when paid.
+    /// </summary>
+    public bool IsTrialConversion { get; set; }
+
     /// <summary>Random per-invoice secret mixed into the signed public pay link; cleared to revoke the link.</summary>
     public string? PayLinkNonce { get; set; }
 

@@ -445,6 +445,9 @@ namespace Platform.Api.Data.Migrations
                     b.Property<bool>("IsActivationInvoice")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsTrialConversion")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("IssueDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -624,6 +627,16 @@ namespace Platform.Api.Data.Migrations
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsComplimentary")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsTrial")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("LicenseKeyHash")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -650,6 +663,12 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<DateTime?>("TrialReminderForEndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("TrialStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -675,6 +694,16 @@ namespace Platform.Api.Data.Migrations
                     b.HasIndex("ServiceProductId", "LicenseKeyLookupHash");
 
                     b.HasIndex("Status", "ExpiresAt");
+
+                    b.HasIndex(new[] { "CreatedAt" }, "IX_Licenses_Complimentary_CreatedAt")
+                        .HasFilter("\"IsComplimentary\"");
+
+                    b.HasIndex(new[] { "CustomerId", "ServiceProductId" }, "IX_Licenses_OneTrialPerCustomerService")
+                        .IsUnique()
+                        .HasFilter("\"TrialStartedAt\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "ExpiresAt" }, "IX_Licenses_Trial_ExpiresAt")
+                        .HasFilter("\"IsTrial\"");
 
                     b.ToTable("Licenses", (string)null);
                 });

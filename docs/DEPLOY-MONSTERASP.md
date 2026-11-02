@@ -38,6 +38,9 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Billing__PayLinkEnabled` | no | Public `/pay/{token}` links in invoice emails/PDFs (default `true`; needs Paystack). |
 | `Billing__PayLinkValidDays` | no | Pay-link lifetime, re-extended when the invoice is re-sent (default `60`, 7–365). |
 | `Billing__PayLinkSigningKey` | no | Dedicated 32+ char secret for pay-link signatures. Unset = derived from `Jwt__Key` (rotating either invalidates links already sent). |
+| `Billing__TrialMonths` | no | Length of a free trial in months (default `1`, 1–12). See §10. |
+| `Billing__TrialReminderDaysBefore` | no | Days before a trial ends that the reminder (with the first invoice, if priced) goes out (default `7`, 1–60). |
+| `Billing__TrialMaxTotalMonths` | no | Longest a trial can run, counting extensions, from its start (default `3`, at least `TrialMonths`, max 24). |
 
 ## 2. Create the site and database
 
@@ -231,3 +234,38 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 3. Pay with Paystack test card `4084 0840 8408 4081`; the page confirms, the license expiry moves one year, a renewal confirmation is queued.
 4. Reopen the link the next day → 404/“no longer payable”; void another renewal invoice → its link returns 404 immediately.
 5. Reverse the receipt → expiry restored (audit shows *Renewal reverted*).
+
+### Free trials
+
+- **Issue**: Licenses → *Issue License* → type *Free trial*. It is Active at once, the key is emailed, and it ends after
+  `Billing__TrialMonths`. Set a price on it if the customer should continue paid; leave it empty for a plain trial.
+- **Reminder** `Billing__TrialReminderDaysBefore` days before the end:
+  - *With a price* (and automatic invoices on): the renewal worker sends the first invoice as the reminder — email
+    "Your … trial ends on …", PDF attached, **Pay online** link. Paying converts the trial to a normal license; the paid
+    period starts at the trial end (or at the payment date if paid more than `RenewalGraceDays` after it), same rules as renewals.
+  - *Without a price* (or automatic invoices off): `LicenseExpiryReminderWorker` sends a plain "trial ends soon" email. The normal
+    expiry reminders are not sent for trials, so the customer never gets two different messages.
+  - One reminder per trial end date; extending the trial re-arms it.
+- **Unpaid at the end**: the trial expires like any license (key stops validating). Paying the invoice later reactivates it.
+- **One trial per customer per service**, enforced by the unique index `IX_Licenses_OneTrialPerCustomerService`
+  (also after the trial is revoked or converted).
+- **Extend trial** (⋮ menu): pick a later end date, up to `Billing__TrialMaxTotalMonths` from the start. An unpaid trial invoice moves
+  to the new date; an Expired trial is switched back on. Editing the end date of a trial that already has its invoice is refused —
+  use *Extend trial*. *Renew* on a trial converts it by hand.
+- Grid: **Trial** badge, *Type* filter.
+
+### Complimentary (free) licenses
+
+- **Issue**: type *Complimentary*, or ⋮ → *Make complimentary* on an existing license. No price, never invoiced, never suspended for an
+  overdue invoice, no expiry unless you set one. Making a license complimentary voids its unpaid invoices (pay links stop working),
+  switches a Pending/Expired/overdue-suspended license on, keeps a manual suspension, and ends a trial. Invoices that already have a
+  payment, or a Paystack payment in progress, are left open for you to refund or void (listed in the audit entry); a payment that
+  still arrives does not change the license (audit: *Renewal skipped*).
+- **Switch to paid** (⋮): set the price and the billing start date (default: current expiry if in the future, else today + 14 days).
+  Free access runs until then; the first invoice is emailed now (or by the worker later if you untick it).
+- Grid: **Complimentary** badge, *Type* filter. All changes are in the audit log (*Made complimentary*, *Complimentary ended*,
+  *Trial started/extended/converted*, *Trial reminder queued*).
+
+**Migration** `AddTrialsAndComplimentaryLicenses`: adds `Licenses.IsTrial`, `TrialStartedAt`, `TrialReminderForEndsAt`, `IsComplimentary`,
+`Invoices.IsTrialConversion` (all default false/null, existing licenses unchanged) and three partial indexes. Included in
+`docs/migrations-idempotent.sql`.

@@ -19,7 +19,8 @@ public interface ILicenseService
         string? search = null,
         string? sortBy = null,
         bool sortDesc = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        LicenseKind? kind = null);
 
     Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default);
 
@@ -47,6 +48,15 @@ public interface ILicenseService
     Task<LicenseDto> ResendKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     Task<LicenseDto> RotateKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Moves a trial's end date later (capped by Billing:TrialMaxTotalMonths); reopens a lapsed trial.</summary>
+    Task<LicenseDto> ExtendTrialAsync(string id, ExtendTrialRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Makes a license free until changed: clears the price, voids unpaid invoices, activates it.</summary>
+    Task<LicenseDto> MakeComplimentaryAsync(string id, MakeComplimentaryRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Switches a complimentary license to paid: sets the price and the date billing starts.</summary>
+    Task<LicenseDto> EndComplimentaryAsync(string id, EndComplimentaryRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Marks active licenses whose expiry has passed as expired and denies them.

@@ -50,4 +50,13 @@ public class BillingSettings
     /// (the payer may be on the Paystack page). 0 turns the guard off.
     /// </summary>
     public int VoidBlockAfterCheckoutMinutes { get; set; } = 30;
+
+    /// <summary>Length of a free trial in months (1–12).</summary>
+    public int TrialMonths { get; set; } = 1;
+
+    /// <summary>Send the trial-ending reminder (with the first invoice when the license has a price) this many days before the trial ends (1–60).</summary>
+    public int TrialReminderDaysBefore { get; set; } = 7;
+
+    /// <summary>"Extend trial" can't push the trial end past this many months after the trial started (1–24).</summary>
+    public int TrialMaxTotalMonths { get; set; } = 3;
 }

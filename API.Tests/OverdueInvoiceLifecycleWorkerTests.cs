@@ -270,7 +270,13 @@ public class OverdueInvoiceLifecycleWorkerTests
 
         public Task<LicenseDto> CreateAsync(CreateLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
-        public Task<Platform.Shared.Dtos.Common.PagedResult<LicenseDto>> ListAsync(string? customerId = null, bool includeSuspendedCustomers = false, int page = 1, int pageSize = 25, int? expiringWithinDays = null, string? serviceProductId = null, LicenseStatus? status = null, string? search = null, string? sortBy = null, bool sortDesc = false, CancellationToken cancellationToken = default) =>
+        public Task<Platform.Shared.Dtos.Common.PagedResult<LicenseDto>> ListAsync(string? customerId = null, bool includeSuspendedCustomers = false, int page = 1, int pageSize = 25, int? expiringWithinDays = null, string? serviceProductId = null, LicenseStatus? status = null, string? search = null, string? sortBy = null, bool sortDesc = false, CancellationToken cancellationToken = default, LicenseKind? kind = null) =>
+            throw new NotSupportedException();
+        public Task<LicenseDto> ExtendTrialAsync(string id, ExtendTrialRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<LicenseDto> MakeComplimentaryAsync(string id, MakeComplimentaryRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<LicenseDto> EndComplimentaryAsync(string id, EndComplimentaryRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

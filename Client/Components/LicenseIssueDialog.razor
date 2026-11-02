@@ -41,12 +41,43 @@
                           MaxLength="100"
                           Counter="100"
                           Class="mb-2" />
-            <MudDatePicker @bind-Date="_model.ExpiresAt"
-                           For="@(() => _model.ExpiresAt)"
-                           Label="Expires (optional)"
-                           Variant="Variant.Outlined"
-                           Class="mb-2" />
-            <LicenseBillingFields Billing="_model.Billing!" Changed="OnBillingChanged" />
+            <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">License type</MudText>
+            <MudRadioGroup T="IssueKind" Value="_kind" ValueChanged="OnKindChanged" Class="mb-2">
+                <MudRadio T="IssueKind" Value="IssueKind.Paid" Color="Color.Primary" Dense="true">Paid</MudRadio>
+                <MudRadio T="IssueKind" Value="IssueKind.Trial" Color="Color.Primary" Dense="true">Free trial</MudRadio>
+                <MudRadio T="IssueKind" Value="IssueKind.Complimentary" Color="Color.Primary" Dense="true">Complimentary (free)</MudRadio>
+            </MudRadioGroup>
+            @if (_kind == IssueKind.Trial)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Starts now and the key is emailed. The trial ends after @TrialLengthLabel.
+                    @(HasPrice
+                        ? $"{TrialReminderLabel} before it ends, the customer gets a reminder with the first invoice ({PriceSummaryShort}) and a pay link. Paying converts it to a paid license; their paid period starts when the trial ends."
+                        : $"{TrialReminderLabel} before it ends, the customer gets a reminder email. Set a price to have the first invoice sent with it.")
+                    One trial per customer and service.
+                </MudAlert>
+            }
+            else if (_kind == IssueKind.Complimentary)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Free until you change it: starts now, the key is emailed, and it's never invoiced or suspended for non-payment.
+                    Leave the expiry empty for no end date. Use "Switch to paid" on the license later to start billing.
+                </MudAlert>
+            }
+            @if (_kind != IssueKind.Trial)
+            {
+                <MudDatePicker @bind-Date="_model.ExpiresAt"
+                               For="@(() => _model.ExpiresAt)"
+                               Label="Expires (optional)"
+                               Variant="Variant.Outlined"
+                               Class="mb-2" />
+            }
+            @if (_kind != IssueKind.Complimentary)
+            {
+                <LicenseBillingFields Billing="_model.Billing!" Changed="OnBillingChanged" />
+            }
+            @if (_kind == IssueKind.Paid)
+            {
             <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">First invoice</MudText>
             <MudCheckBox T="bool" Value="_model.CreateInvoice" ValueChanged="OnCreateInvoiceChanged"
                          Label="Create invoice now"
@@ -86,6 +117,7 @@
                                Variant="Variant.Outlined"
                                Class="mb-2" />
             }
+            }
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -95,7 +127,7 @@
             {
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
             }
-            Issue (Pending)
+            @(_kind switch { IssueKind.Trial => "Start trial", IssueKind.Complimentary => "Issue free license", _ => "Issue (Pending)" })
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -106,6 +138,45 @@
     [Parameter] public List<CustomerDto> Customers { get; set; } = [];
     [Parameter] public List<ServiceProductDto> Products { get; set; } = [];
     [Parameter] public string? DefaultCustomerId { get; set; }
+
+    /// <summary>Trial length and reminder lead time, as configured on the server (display only).</summary>
+    [Parameter] public int TrialMonths { get; set; } = 1;
+    [Parameter] public int TrialReminderDays { get; set; } = 7;
+
+    private enum IssueKind { Paid, Trial, Complimentary }
+
+    private IssueKind _kind = IssueKind.Paid;
+
+    private string TrialLengthLabel => TrialMonths == 1 ? "1 month" : $"{TrialMonths} months";
+
+    private string TrialReminderLabel => TrialReminderDays == 1 ? "1 day" : $"{TrialReminderDays} days";
+
+    private string PriceSummaryShort
+    {
+        get
+        {
+            var b = _model.Billing!;
+            var period = b.PeriodMonths switch { 1 => "month", 12 => "year", _ => $"{b.PeriodMonths} months" };
+            return $"{b.Currency} {b.Amount + b.TaxAmount:N2} per {period}";
+        }
+    }
+
+    private void OnKindChanged(IssueKind kind)
+    {
+        _kind = kind;
+        _model.Trial = kind == IssueKind.Trial;
+        _model.Complimentary = kind == IssueKind.Complimentary;
+        if (kind != IssueKind.Paid)
+        {
+            _model.CreateInvoice = false;
+            if (kind == IssueKind.Trial)
+                _model.ExpiresAt = null;
+        }
+        else if (!_createInvoiceTouched)
+        {
+            _model.CreateInvoice = HasPrice;
+        }
+    }
 
     /// <summary>Saves inside the dialog; returns an error message to show, or null on success (dialog then closes).</summary>
     [Parameter] public Func<CreateLicenseRequest, Task<string?>>? Submit { get; set; }
@@ -139,7 +210,7 @@
 
     private void OnBillingChanged()
     {
-        if (!_createInvoiceTouched)
+        if (!_createInvoiceTouched && _kind == IssueKind.Paid)
             _model.CreateInvoice = HasPrice;
         StateHasChanged();
     }
@@ -178,6 +249,9 @@
         await _form.Validate();
         if (!_formValid)
             return;
+
+        if (_kind != IssueKind.Paid)
+            _model.CreateInvoice = false;
 
         if (_model.CreateInvoice && HasPrice)
         {

@@ -1,0 +1,73 @@
+@inject PlatformApiClient Api
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Make complimentary (free)</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
+        }
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            @License.CustomerName can use this license for free until you change it. The price is removed, unpaid
+            invoices for it are voided, and it is never invoiced or suspended for non-payment.
+            @(License.Status is LicenseStatus.Pending or LicenseStatus.Expired ? "It is switched on now." : "")
+            Invoices with a payment on them are left for you to settle.
+        </MudAlert>
+        <MudDatePicker @bind-Date="_expiresAt"
+                       Label="Free until (optional)"
+                       HelperText="Leave empty for no end date"
+                       MinDate="@DateTime.Today"
+                       Clearable="true"
+                       Variant="Variant.Outlined" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_busy">Make free</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+    [Parameter] public required LicenseDto License { get; set; }
+
+    private DateTime? _expiresAt;
+    private bool _busy;
+    private string? _error;
+
+    private void Cancel()
+    {
+        if (!_busy)
+            MudDialog.Cancel();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy)
+            return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await Api.MakeComplimentaryAsync(License.Id, new MakeComplimentaryRequest
+            {
+                ExpiresAt = _expiresAt is { } d ? DateTime.SpecifyKind(d.Date, DateTimeKind.Utc) : null
+            });
+            if (!result.IsSuccess)
+            {
+                _error = result.ErrorMessage ?? "Couldn't update the license.";
+                return;
+            }
+            MudDialog.Close(DialogResult.Ok(result.Data));
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

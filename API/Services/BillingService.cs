@@ -25,7 +25,7 @@ public class BillingService(
 {
     public const string ActivationActor = "system:payment-received";
     public const string RenewalActor = "system:renewal";
-    private const int RenewalLockClass = 0x524E5731; // "RNW1": advisory-lock namespace for per-license renewal creation
+    internal const int RenewalLockClass = 0x524E5731; // "RNW1": advisory-lock namespace for per-license renewal creation
     private readonly BillingSettings _billing = billingSettings?.Value ?? new BillingSettings();
     private const int MaxNumberGenerationAttempts = 8;
     private const int InvoiceNumberLockKey = 71021001;
@@ -819,6 +819,8 @@ public class BillingService(
             return "Customer is suspended.";
         if (license.Status is not (LicenseStatus.Active or LicenseStatus.Expired))
             return $"Licenses in status {license.Status} are not renewed automatically.";
+        if (license.IsComplimentary)
+            return "License is complimentary (free).";
         if (license.ExpiresAt is null)
             return "License has no expiry date.";
         if (license.BillingAmount is not > 0 || string.IsNullOrEmpty(license.BillingCurrency))
@@ -945,8 +947,10 @@ public class BillingService(
                 ? now.Date.AddDays(Math.Clamp(_billing.RenewalGraceDays, 1, 60))
                 : periodStart;
 
+            var trial = license.IsTrial;
             var invoice = new Invoice
             {
+                IsTrialConversion = trial,
                 CustomerId = license.CustomerId,
                 LicenseId = license.Id,
                 ServiceProductId = license.ServiceProductId,
@@ -959,7 +963,9 @@ public class BillingService(
                 TaxAmount = tax,
                 TotalAmount = subtotal + tax,
                 PlanName = license.PlanName,
-                Description = $"Renewal of {license.PlanName}: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}",
+                Description = trial
+                    ? $"{license.PlanName} after your free trial: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}"
+                    : $"Renewal of {license.PlanName}: {periodStart:dd MMM yyyy} – {periodEnd:dd MMM yyyy}",
                 RenewalForExpiresAt = periodStart,
                 RenewalPeriodMonths = months,
                 CreatedAt = now,
@@ -979,7 +985,29 @@ public class BillingService(
                     recreatedAfterVoid = existing.Count > 0
                 }), ipAddress, ct);
 
-            QueueInvoiceEmail(license.Customer, invoice);
+            if (trial)
+            {
+                // The trial-ending reminder *is* this invoice email (PDF + pay link), sent once per trial end.
+                var payUrl = payLinks?.EnsureUrl(invoice, now);
+                var product = await db.ServiceProducts.AsNoTracking().FirstAsync(p => p.Id == license.ServiceProductId, ct);
+                var template = templates.TrialEndingInvoice(license.Customer, product, license, invoice, payUrl);
+                outbox.Enqueue(
+                    EmailDeliveryKind.Invoice,
+                    CustomerContactResolver.Billing(license.Customer),
+                    template.Subject,
+                    template.Html,
+                    license.CustomerId,
+                    license.Id,
+                    invoice.Id);
+                license.TrialReminderForEndsAt = periodStart;
+                await auditLog.WriteAsync(AuditAction.LicenseTrialReminderQueued, performedBy, license.CustomerId, license.Id,
+                    invoice.Id, AuditJson.Serialize(new { trialEndsAt = periodStart, invoiceNumber = invoice.InvoiceNumber }),
+                    ipAddress, ct);
+            }
+            else
+            {
+                QueueInvoiceEmail(license.Customer, invoice);
+            }
             await db.SaveChangesAsync(ct);
             var result = await MapInvoiceAsync(invoice.Id, ct);
             if (transaction is not null)
@@ -1014,6 +1042,7 @@ public class BillingService(
 
         string? skip = license is null ? "license not found"
             : license.Status == LicenseStatus.Revoked ? "license is revoked"
+            : license.IsComplimentary ? "license is complimentary (free); refund or credit this payment"
             : license.ExpiresAt is { } current && current > periodStart ? $"license was already renewed to {current:yyyy-MM-dd}"
             : null;
         if (skip is not null || license is null)
@@ -1062,6 +1091,8 @@ public class BillingService(
         license.UpdatedAt = now;
         invoice.RenewalPreviousExpiresAt = previous;
         invoice.RenewalNewExpiresAt = newExpiry;
+        var trialConverted = license.IsTrial;
+        license.IsTrial = false; // paying any period of a trial license makes it a regular paid license
 
         var renewal = templates.Renewal(license.Customer, license.ServiceProduct, license);
         outbox.Enqueue(
@@ -1084,6 +1115,10 @@ public class BillingService(
                 reactivatedFromExpired = wasExpired
             }),
             cancellationToken: cancellationToken);
+        if (trialConverted)
+            await auditLog.WriteAsync(AuditAction.LicenseTrialConverted, RenewalActor, license.CustomerId, license.Id,
+                invoice.Id, AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, trialEndedAt = previous, newExpiresAt = newExpiry }),
+                cancellationToken: cancellationToken);
         return license;
     }
 
@@ -1130,6 +1165,9 @@ public class BillingService(
         license.UpdatedAt = now;
         if (license.Status == LicenseStatus.Active && DateTimeNormalizer.IsPastExpiry(previous, now))
             license.Status = LicenseStatus.Expired;
+        // Payment for the first period after a trial was reversed: back to the (ended or still running) trial.
+        if (invoice.IsTrialConversion && license.TrialStartedAt is not null && !license.IsComplimentary)
+            license.IsTrial = true;
 
         await auditLog.WriteAsync(AuditAction.LicenseRenewalReverted, RenewalActor, license.CustomerId, license.Id,
             invoice.Id,
@@ -1443,7 +1481,7 @@ public class BillingService(
             invoice.Status = InvoiceStatus.Sent;
     }
 
-    private static decimal GetNetPaid(Invoice invoice)
+    internal static decimal GetNetPaid(Invoice invoice)
     {
         if (invoice.PaymentTransactions.Count > 0)
         {

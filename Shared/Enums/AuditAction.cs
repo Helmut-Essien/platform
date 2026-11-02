@@ -39,5 +39,11 @@ public enum AuditAction
     LicenseRenewalReversalConflict,
     LicenseAutoActivatedPaid,
     LicenseActivationSkipped,
-    LicenseActivationReverted
+    LicenseActivationReverted,
+    LicenseTrialStarted,
+    LicenseTrialExtended,
+    LicenseTrialConverted,
+    LicenseTrialReminderQueued,
+    LicenseMadeComplimentary,
+    LicenseComplimentaryEnded
 }

@@ -173,6 +173,42 @@ public class EmailTemplateService
         return (subject, html);
     }
 
+    /// <summary>Trial ending soon, with the first invoice and its pay link (sent as the invoice email, PDF attached).</summary>
+    public (string Subject, string Html) TrialEndingInvoice(
+        Customer customer, ServiceProduct product, License license, Invoice invoice, string? payUrl)
+    {
+        var (_, html) = Invoice(customer, invoice, payUrl);
+        var end = license.ExpiresAt?.ToString("MMMM dd, yyyy") ?? "soon";
+        var productName = WebUtility.HtmlEncode(product.Name);
+        var lead = $"Your free trial of {productName} ends on <strong>{WebUtility.HtmlEncode(end)}</strong>.";
+        var body = html
+            .Replace(
+                $"A new invoice has been issued by {WebUtility.HtmlEncode(VendorName)}. The invoice PDF is attached for your records.",
+                lead)
+            .Replace(
+                $"Invoice {WebUtility.HtmlEncode(invoice.InvoiceNumber)} is ready.",
+                $"Your {productName} trial ends on {WebUtility.HtmlEncode(end)}.")
+            .Replace(
+                "Please arrange payment by the due date using the details in the attached PDF.",
+                $"To keep using {productName} without interruption, pay invoice {WebUtility.HtmlEncode(invoice.InvoiceNumber)} (attached) by {WebUtility.HtmlEncode(end)}. Your paid period starts when the trial ends, so you don't lose any trial days. If you don't pay, access stops after the trial; paying later switches it back on with the same license key.");
+        return ($"Your {product.Name} trial ends on {end}: invoice {invoice.InvoiceNumber}", body);
+    }
+
+    /// <summary>Trial ending soon, for a trial with no price set (nothing to invoice automatically).</summary>
+    public (string Subject, string Html) TrialEndingReminder(Customer customer, ServiceProduct product, License license)
+    {
+        var productName = WebUtility.HtmlEncode(product.Name);
+        var end = license.ExpiresAt?.ToString("MMMM dd, yyyy") ?? "soon";
+        return ($"Your {product.Name} trial ends on {end}",
+            Wrap(customer.Name,
+                $"Your {productName} trial ends soon.",
+                $"Your free trial of {productName} ends on <strong>{WebUtility.HtmlEncode(end)}</strong>.",
+                $"""
+                <p style="margin:0 0 16px;">We hope the trial has been useful. To keep using {productName} after that date, reply to this message or contact {WebUtility.HtmlEncode(VendorName)} and we will set up your subscription.</p>
+                <p style="margin:0;">You keep the same license key, so nothing changes in your application when you continue.</p>
+                """));
+    }
+
     private static string Wrap(string customerName, string preheader, string lead, string content) =>
         $"""
         <!doctype html>

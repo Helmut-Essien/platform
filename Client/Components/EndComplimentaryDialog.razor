@@ -1,0 +1,90 @@
+@inject PlatformApiClient Api
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Switch to paid</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
+        }
+        <MudText Typo="Typo.body2" Class="mb-2">
+            Set the price. Free access continues until the billing start date; the first invoice is due then, and
+            paying it extends the license by one period. After that, renewal invoices go out automatically.
+        </MudText>
+        <LicenseBillingFields Billing="_billing" />
+        <MudDatePicker @bind-Date="_startsAt"
+                       Label="Billing starts (free until)"
+                       MinDate="@DateTime.Today"
+                       Variant="Variant.Outlined"
+                       Class="mt-2" />
+        <MudCheckBox @bind-Value="_invoiceNow" Color="Color.Primary" Label="Create and email the first invoice now" />
+        @if (!_invoiceNow)
+        {
+            <MudText Typo="Typo.caption" Class="d-block">
+                Otherwise it goes out automatically shortly before the billing start date.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync"
+                   Disabled="@(_busy || _billing.Amount is not > 0 || _startsAt is null)">Switch to paid</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+    [Parameter] public required LicenseDto License { get; set; }
+
+    private LicenseBillingDto _billing = new();
+    private DateTime? _startsAt;
+    private bool _invoiceNow = true;
+    private bool _busy;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        _billing = LicenseBillingFields.Copy(License.Billing);
+        _billing.AutoRenewInvoice = true;
+        _startsAt = License.ExpiresAt is { } e && e.Date >= DateTime.Today ? e.Date : DateTime.Today.AddDays(14);
+    }
+
+    private void Cancel()
+    {
+        if (!_busy)
+            MudDialog.Cancel();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy || _startsAt is null)
+            return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await Api.EndComplimentaryAsync(License.Id, new EndComplimentaryRequest
+            {
+                Billing = _billing,
+                ExpiresAt = DateTime.SpecifyKind(_startsAt.Value.Date, DateTimeKind.Utc),
+                CreateInvoiceNow = _invoiceNow
+            });
+            if (!result.IsSuccess)
+            {
+                _error = result.ErrorMessage ?? "Couldn't switch the license to paid.";
+                return;
+            }
+            MudDialog.Close(DialogResult.Ok(result.Data));
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

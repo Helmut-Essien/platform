@@ -30,7 +30,8 @@ public class LicenseActivationTests
         var keyDelivery = new LicenseKeyDeliveryService(db, outbox, CreateProtector(), templates);
         var billing = new BillingService(db, audit, outbox, templates, new NoopDeny(),
             billingSettings: Options.Create(settings ?? new BillingSettings()), keyDelivery: keyDelivery);
-        var licenses = new LicenseService(db, billing, audit, keyDelivery, new NoopDeny(), outbox, templates);
+        var licenses = new LicenseService(db, billing, audit, keyDelivery, new NoopDeny(), outbox, templates,
+            Options.Create(settings ?? new BillingSettings()));
         return new Harness(db, billing, licenses, audit);
     }
 

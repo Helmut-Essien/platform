@@ -118,9 +118,10 @@ public class OverdueInvoiceLifecycleWorker(
 
             var license = await db.Licenses.IgnoreQueryFilters().AsNoTracking()
                 .Where(x => x.Id == licenseId)
-                .Select(x => new { x.Status })
+                .Select(x => new { x.Status, x.IsComplimentary })
                 .FirstOrDefaultAsync(ct);
-            if (license is null || license.Status != LicenseStatus.Active)
+            // Complimentary (free) licenses are never suspended over an invoice.
+            if (license is null || license.Status != LicenseStatus.Active || license.IsComplimentary)
                 return false;
 
             await licenseService.SuspendAsync(

@@ -99,13 +99,16 @@ public sealed class RenewalInvoiceWorker(
         AppDbContext db, BillingSettings options, DateTime now, IReadOnlyCollection<string> exclude, CancellationToken cancellationToken)
     {
         var horizon = now.AddDays(Math.Clamp(options.RenewalInvoiceDaysBefore, 1, 90));
+        // Trials get their first invoice with the trial-ending reminder, on the trial's own schedule.
+        var trialHorizon = now.AddDays(Math.Clamp(options.TrialReminderDaysBefore, 1, 60));
         var lookback = now.AddDays(-Math.Clamp(options.RenewalLookbackDays, 0, 365));
         var rows = await db.Licenses
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(l => (l.Status == LicenseStatus.Active || l.Status == LicenseStatus.Expired)
                 && l.ExpiresAt != null
-                && l.ExpiresAt <= horizon
+                && (l.IsTrial ? l.ExpiresAt <= trialHorizon : l.ExpiresAt <= horizon)
+                && !l.IsComplimentary
                 && l.ExpiresAt > lookback
                 && l.AutoRenewInvoice
                 && l.BillingAmount > 0

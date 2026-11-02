@@ -61,6 +61,15 @@
                 }
             </MudSelect>
         </div>
+        <div class="licenses-filter-field">
+            <span class="licenses-filter-label">Type</span>
+            <MudSelect T="LicenseKind?" Value="_filterKind" ValueChanged="OnKindFilterChanged" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem Value="@((LicenseKind?)null)">All Types</MudSelectItem>
+                <MudSelectItem Value="@((LicenseKind?)LicenseKind.Paid)">Paid</MudSelectItem>
+                <MudSelectItem Value="@((LicenseKind?)LicenseKind.Trial)">Trial</MudSelectItem>
+                <MudSelectItem Value="@((LicenseKind?)LicenseKind.Complimentary)">Complimentary</MudSelectItem>
+            </MudSelect>
+        </div>
     </section>
 
     <div class="licenses-table-panel">
@@ -96,6 +105,18 @@
                 <TemplateColumn Title="Status" Sortable="true">
                     <CellTemplate>
                         <StatusBadge LicenseStatus="context.Item.Status" />
+                        @if (context.Item.IsTrial)
+                        {
+                            <MudTooltip Text="@($"Free trial, ends {DateFormat.Date(context.Item.ExpiresAt)}")">
+                                <StatusBadge Label="Trial" Tone="StatusTone.Attention" />
+                            </MudTooltip>
+                        }
+                        @if (context.Item.IsComplimentary)
+                        {
+                            <MudTooltip Text="@(context.Item.ExpiresAt is null ? "Free, no end date — never invoiced" : $"Free until {DateFormat.Date(context.Item.ExpiresAt)} — never invoiced")">
+                                <StatusBadge Label="Complimentary" Tone="StatusTone.Neutral" />
+                            </MudTooltip>
+                        }
                         @if (context.Item.Status == LicenseStatus.Pending && context.Item.ActivationInvoiceId is not null
                              && context.Item.ActivationInvoiceStatus is not InvoiceStatus.Paid)
                         {
@@ -165,6 +186,18 @@
                                 @if (license.Status is LicenseStatus.Active or LicenseStatus.Suspended or LicenseStatus.Expired)
                                 {
                                     <MudMenuItem OnClick="@(() => RenewAsync(license))">Renew</MudMenuItem>
+                                }
+                                @if (license.IsTrial && license.Status is LicenseStatus.Active or LicenseStatus.Expired)
+                                {
+                                    <MudMenuItem OnClick="@(() => ExtendTrialAsync(license))">Extend trial</MudMenuItem>
+                                }
+                                @if (!license.IsComplimentary && license.Status is not LicenseStatus.Revoked)
+                                {
+                                    <MudMenuItem OnClick="@(() => MakeComplimentaryAsync(license))">Make complimentary</MudMenuItem>
+                                }
+                                @if (license.IsComplimentary && license.Status is not LicenseStatus.Revoked)
+                                {
+                                    <MudMenuItem OnClick="@(() => EndComplimentaryAsync(license))">Switch to paid</MudMenuItem>
                                 }
                                 @if (license.Status is LicenseStatus.Active or LicenseStatus.Expired && license.Billing?.Amount is > 0)
                                 {
@@ -241,6 +274,8 @@
     private string? _filterCustomerId;
     private string? _filterServiceId;
     private LicenseStatus? _filterStatus;
+    private LicenseKind? _filterKind;
+    private LicenseOptionsDto _options = new();
     private string _search = "";
     private bool _filterExpiring;
 
@@ -252,7 +287,8 @@
     {
         var customersTask = Api.GetAllCustomersAsync();
         var productsTask = Api.GetServiceProductsAsync();
-        await Task.WhenAll(customersTask, productsTask);
+        var optionsTask = LoadOptionsAsync();
+        await Task.WhenAll(customersTask, productsTask, optionsTask);
 
         _customers = customersTask.Result;
         _products = (await productsTask).ToList();
@@ -300,7 +336,8 @@
             status: _filterExpiring ? null : _filterStatus,
             search: _search,
             sortBy: sortBy,
-            sortDesc: sortDesc);
+            sortDesc: sortDesc,
+            kind: _filterKind);
 
         return new GridData<LicenseDto>
         {
@@ -335,6 +372,65 @@
         await ReloadGrid();
     }
 
+    private async Task OnKindFilterChanged(LicenseKind? value)
+    {
+        _filterKind = value;
+        await ReloadGrid();
+    }
+
+    private async Task LoadOptionsAsync()
+    {
+        try
+        {
+            _options = await Api.GetLicenseOptionsAsync();
+        }
+        catch (Exception)
+        {
+            _options = new LicenseOptionsDto(); // defaults only affect help text
+        }
+    }
+
+    private async Task ExtendTrialAsync(LicenseDto license)
+    {
+        var dialog = await DialogService.ShowAsync<ExtendTrialDialog>("Extend trial", new DialogParameters
+        {
+            [nameof(ExtendTrialDialog.License)] = license
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not LicenseDto updated)
+            return;
+        Snackbar.Add($"Trial extended to {DateFormat.Date(updated.ExpiresAt)}.", Severity.Success);
+        await ReloadGrid();
+    }
+
+    private async Task MakeComplimentaryAsync(LicenseDto license)
+    {
+        var dialog = await DialogService.ShowAsync<MakeComplimentaryDialog>("Make complimentary", new DialogParameters
+        {
+            [nameof(MakeComplimentaryDialog.License)] = license
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not LicenseDto updated)
+            return;
+        Snackbar.Add(updated.ExpiresAt is null
+            ? "License is now complimentary (free, no end date)."
+            : $"License is now complimentary until {DateFormat.Date(updated.ExpiresAt)}.", Severity.Success);
+        await ReloadGrid();
+    }
+
+    private async Task EndComplimentaryAsync(LicenseDto license)
+    {
+        var dialog = await DialogService.ShowAsync<EndComplimentaryDialog>("Switch to paid", new DialogParameters
+        {
+            [nameof(EndComplimentaryDialog.License)] = license
+        });
+        var result = await dialog.Result;
+        if (result?.Canceled is not false || result.Data is not LicenseDto)
+            return;
+        Snackbar.Add("License switched to paid.", Severity.Success);
+        await ReloadGrid();
+    }
+
     private void ClearSelection() => _selected.Clear();
 
     private async Task OpenIssueDialogAsync()
@@ -353,6 +449,8 @@
             [nameof(LicenseIssueDialog.Customers)] = _customers,
             [nameof(LicenseIssueDialog.Products)] = _products,
             [nameof(LicenseIssueDialog.DefaultCustomerId)] = _filterCustomerId ?? CustomerId,
+            [nameof(LicenseIssueDialog.TrialMonths)] = _options.TrialMonths,
+            [nameof(LicenseIssueDialog.TrialReminderDays)] = _options.TrialReminderDaysBefore,
             [nameof(LicenseIssueDialog.Submit)] = submit
         });
         await dialog.Result;
@@ -366,6 +464,18 @@
         if (result is not { IsSuccess: true })
             return;
 
+        if (result.Data is { IsTrial: true } trial)
+        {
+            Snackbar.Add($"Trial started and the key was emailed. It ends {DateFormat.Date(trial.ExpiresAt)}.", Severity.Success);
+            await ReloadGrid();
+            return;
+        }
+        if (result.Data is { IsComplimentary: true })
+        {
+            Snackbar.Add("Complimentary license issued and the key was emailed.", Severity.Success);
+            await ReloadGrid();
+            return;
+        }
         Snackbar.Add(result.Data?.ActivationInvoiceId is not null
             ? $"License issued (Pending). It activates automatically when invoice {result.Data.ActivationInvoiceNumber} is paid."
             : "License issued (Pending).", Severity.Success);
