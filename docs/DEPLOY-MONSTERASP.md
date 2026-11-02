@@ -326,6 +326,9 @@ Leave the old public key published for at least `OfflineGraceDays` (+ refresh), 
 `isValid:false` (still 200) only when the license really is not usable; `reason` is one of
 `invalid_key`, `invalid_integration_key`, `wrong_service`, `not_active`, `expired`, `suspended`, `revoked`,
 `device_required`, `device_limit`. Bad input = `400 invalid_request`.
+`wrong_service` means the `serviceCode` sent does not belong to the integration key's product (a product
+misconfiguration); `invalid_integration_key` means the key itself is unknown or revoked. Leading/trailing whitespace
+in the license key and the `X-Integration-Key` header is ignored, so pasted keys work.
 
 `429 rate_limited` and `503 service_unavailable` mean **the server did not judge the license**. Both carry a
 `Retry-After` header and `{ "reason", "message", "serverTime", "retryAfterSeconds", "retryable": true }` (no `isValid`).

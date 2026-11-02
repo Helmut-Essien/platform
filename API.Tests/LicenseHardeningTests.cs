@@ -410,4 +410,41 @@ public class LicenseHardeningTests
         Assert.Equal(3, await verify.AuditLogs.CountAsync(a => a.Action == AuditAction.LicenseDeviceActivated));
         Console.WriteLine("POSTGRES_DEVICE_RACE_RAN");
     }
+
+    [Fact]
+    public async Task MismatchedServiceCode_ReportsWrongService_NotInvalidIntegrationKey()
+    {
+        await using var db = LicenseValidationServiceTests.CreateDbContext();
+        await LicenseValidationServiceTests.SeedActiveLicenseAsync(db);
+        var svc = LicenseValidationTestFactory.Create(db);
+        var r = await svc.ValidateAsync(IntegrationKey, new ValidateLicenseRequest { LicenseKey = LicenseKey, ServiceCode = "OTHER" });
+        Assert.False(r.IsValid);
+        Assert.Equal(LicenseValidationReasons.WrongService, r.Reason);
+        Assert.Null(r.LicenseId);
+        // Same cached integration key still validates with the right (or no / differently cased) code.
+        Assert.True((await svc.ValidateAsync(IntegrationKey, new ValidateLicenseRequest { LicenseKey = LicenseKey, ServiceCode = "hostel" })).IsValid);
+        Assert.True((await svc.ValidateAsync(IntegrationKey, new ValidateLicenseRequest { LicenseKey = LicenseKey })).IsValid);
+    }
+
+    [Fact]
+    public async Task PastedKeysWithWhitespace_StillValidate()
+    {
+        await using var db = LicenseValidationServiceTests.CreateDbContext();
+        await LicenseValidationServiceTests.SeedActiveLicenseAsync(db);
+        var r = await LicenseValidationTestFactory.Create(db).ValidateAsync(" " + IntegrationKey + "\n",
+            new ValidateLicenseRequest { LicenseKey = "  " + LicenseKey + " \t", ServiceCode = "HOSTEL" });
+        Assert.True(r.IsValid);
+    }
+
+    [Fact]
+    public void RateLimiter_PerLicenseBudget_IsNotExhaustedByForeignIntegrationKeys()
+    {
+        using var limiter = new LicenseValidationRateLimiter(Options.Create(new LicensingSettings { LicenseKeyPermitLimit = 2, PerIpPermitLimit = 100 }));
+        Assert.Null(limiter.TryAcquire("9.9.9.9", "K", "ik_junk"));
+        Assert.Null(limiter.TryAcquire("9.9.9.9", "K", "ik_junk"));
+        Assert.NotNull(limiter.TryAcquire("9.9.9.9", "K", "ik_junk"));
+        Assert.Null(limiter.TryAcquire("1.1.1.1", "K", "ik_real"));
+        Assert.Null(limiter.TryAcquire("1.1.1.1", " K ", "ik_real"));
+        Assert.NotNull(limiter.TryAcquire("1.1.1.1", "K", "ik_real"));
+    }
 }

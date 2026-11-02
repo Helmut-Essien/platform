@@ -46,7 +46,7 @@ public class LicenseValidationController(
             });
         }
 
-        if (rateLimiter.TryAcquire(HttpContext.Connection.RemoteIpAddress?.ToString(), request.LicenseKey) is { } wait)
+        if (rateLimiter.TryAcquire(HttpContext.Connection.RemoteIpAddress?.ToString(), request.LicenseKey, integrationKey.ToString().Trim()) is { } wait)
         {
             var seconds = Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds));
             Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);

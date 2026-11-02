@@ -41,7 +41,7 @@ License keys are stored as **BCrypt hashes** only. Plaintext exists briefly in t
 
 ### Rate limiting
 
-`POST /api/licenses/validate` has three limits: the global policy (client IP + integration key, partition keys are SHA-256 hashed so no raw key sits in limiter memory), a per-**license-key** limit (default 30/min, so one leaked key cannot be hammered from many IPs) and a per-IP limit (default 300/min). Rejections are `429` with `Retry-After`. The client IP is the TCP peer unless `ForwardedHeaders__Enabled` is on with explicit known proxies (forward limit clamped to 1–5).
+`POST /api/licenses/validate` has three limits: the global policy (client IP + integration key, partition keys are SHA-256 hashed so no raw key sits in limiter memory), a per-**license-key** limit (default 30/min, so one leaked key cannot be hammered from many IPs; counted per integration key + license key, so someone who knows only a customer's license key cannot use up the real product's budget with made-up integration keys) and a per-IP limit (default 300/min). Rejections are `429` with `Retry-After`. The client IP is the TCP peer unless `ForwardedHeaders__Enabled` is on with explicit known proxies (forward limit clamped to 1–5).
 
 ### Source of truth and failure handling
 

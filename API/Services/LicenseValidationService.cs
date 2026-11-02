@@ -99,6 +99,8 @@ public class LicenseValidationService(
 
         if (string.IsNullOrWhiteSpace(request.LicenseKey))
             return Invalid(R.InvalidRequest, "License key is required.", now);
+        // Copy/pasted keys often carry stray whitespace; generated keys never contain any.
+        var licenseKey = request.LicenseKey.Trim();
 
         var deviceId = string.IsNullOrWhiteSpace(request.DeviceId) ? null : request.DeviceId.Trim();
         if (deviceId is { Length: > 200 })
@@ -106,11 +108,17 @@ public class LicenseValidationService(
         if (deviceId is null && _settings.RequireDeviceId)
             return Invalid(R.DeviceRequired, "A device id is required.", now);
 
-        var integration = await ResolveIntegrationKeyAsync(integrationKeyHeader, request.ServiceCode, ct);
+        var integration = await ResolveIntegrationKeyAsync(integrationKeyHeader.Trim(), ct);
         if (integration is null)
             return Invalid(R.InvalidIntegrationKey, "Invalid integration key.", now);
 
-        var lookupHash = KeyLookupHasher.ComputeSha256Hex(request.LicenseKey);
+        // An integration key belongs to exactly one product: a mismatching serviceCode is a client misconfiguration
+        // (reported as wrong_service, before any license lookup), not an unknown integration key.
+        if (!string.IsNullOrWhiteSpace(request.ServiceCode)
+            && !string.Equals(integration.ServiceProductCode, request.ServiceCode.Trim(), StringComparison.OrdinalIgnoreCase))
+            return Invalid(R.WrongService, "License does not match the requested service.", now);
+
+        var lookupHash = KeyLookupHasher.ComputeSha256Hex(licenseKey);
         var deviceHash = deviceId is null ? null : LicenseDeviceHasher.Hash(deviceId);
 
         // Single round trip: license + customer flag + (when a device is sent) its device row and active count.
@@ -143,7 +151,7 @@ public class LicenseValidationService(
         var needsHashUpgrade = false;
         foreach (var candidate in candidates)
         {
-            if (KeyHasher.Verify(request.LicenseKey, candidate.KeyHash, out var upgrade))
+            if (KeyHasher.Verify(licenseKey, candidate.KeyHash, out var upgrade))
             {
                 license = candidate;
                 needsHashUpgrade = upgrade;
@@ -155,7 +163,7 @@ public class LicenseValidationService(
             return Invalid(R.InvalidKey, "Invalid license key.", now);
 
         if (needsHashUpgrade)
-            await UpgradeLicenseKeyHashAsync(license.Id, lookupHash, license.KeyHash, request.LicenseKey, ct);
+            await UpgradeLicenseKeyHashAsync(license.Id, lookupHash, license.KeyHash, licenseKey, ct);
 
         // Only a caller holding the real key learns why it is refused.
         var refusal = license switch
@@ -170,10 +178,6 @@ public class LicenseValidationService(
         };
         if (refusal is { } r)
             return Invalid(r.Item1, r.Item2, now, license.Id);
-
-        if (request.ServiceCode is not null
-            && !string.Equals(integration.ServiceProductCode, request.ServiceCode.Trim(), StringComparison.OrdinalIgnoreCase))
-            return Invalid(R.WrongService, "License does not match the requested service.", now);
 
         int? activeDevices = null;
         if (deviceHash is not null)
@@ -361,11 +365,10 @@ public class LicenseValidationService(
 
     private async Task<IntegrationKeyCache.Entry?> ResolveIntegrationKeyAsync(
         string plainIntegrationKey,
-        string? serviceCode,
         CancellationToken cancellationToken)
     {
         var lookupHash = KeyLookupHasher.ComputeSha256Hex(plainIntegrationKey);
-        var cacheKey = IntegrationKeyCache.KeyOf(lookupHash, serviceCode);
+        var cacheKey = IntegrationKeyCache.KeyOf(lookupHash, null);
         if (integrationKeyCache.TryGet(cacheKey, out var cached))
             return cached;
         var generation = integrationKeyCache.Generation;
@@ -373,12 +376,6 @@ public class LicenseValidationService(
         IQueryable<IntegrationKey> query = db.IntegrationKeys
             .AsNoTracking()
             .Where(k => k.IsActive && k.KeyLookupHash == lookupHash);
-
-        if (!string.IsNullOrWhiteSpace(serviceCode))
-        {
-            var code = serviceCode.Trim().ToUpperInvariant();
-            query = query.Where(k => k.ServiceProduct.Code == code);
-        }
 
         var candidates = await query
             .Select(k => new { k.Id, k.KeyHash, k.ServiceProductId, k.ServiceProduct.Code, k.LastUsedAt })
