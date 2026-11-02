@@ -1181,5 +1181,41 @@ BEGIN
     VALUES ('20261030075845_AddAutoRenewalAndPayLinks', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    ALTER TABLE "Invoices" ADD "ActivationAppliedAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    ALTER TABLE "Invoices" ADD "ActivationPeriodMonths" integer;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    ALTER TABLE "Invoices" ADD "IsActivationInvoice" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    CREATE UNIQUE INDEX "IX_Invoices_OneActivationPerLicense" ON "Invoices" ("LicenseId") WHERE "IsActivationInvoice" AND "Status" <> 'Void';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261102080020_AddLicenseActivationInvoices', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 

@@ -18,9 +18,12 @@ public class CreateInvoiceRequest
 
     public DateTime? DueDate { get; set; }
 
-    [Required(ErrorMessage = "Currency is required")]
+    /// <summary>Blank uses the server default (Billing:DefaultCurrency, GHS). Online pay links need GHS.</summary>
     [RegularExpression("^[A-Za-z]{3}$", ErrorMessage = "Currency must be a 3-letter code such as GHS or USD")]
-    public required string Currency { get; set; }
+    public string? Currency { get; set; } = "GHS";
+
+    /// <summary>First invoice of a Pending license: paying it in full activates the license automatically.</summary>
+    public bool ActivatesLicense { get; set; }
 
     [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Subtotal must be zero or greater")]
     public decimal Subtotal { get; set; }

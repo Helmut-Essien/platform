@@ -28,5 +28,12 @@ public class LicenseDto
 
     public string? LatestInvoiceId { get; set; }
 
+    /// <summary>The live (non-void) first invoice that activates this license when paid, if any.</summary>
+    public string? ActivationInvoiceId { get; set; }
+
+    public string? ActivationInvoiceNumber { get; set; }
+
+    public InvoiceStatus? ActivationInvoiceStatus { get; set; }
+
     public LicenseBillingDto? Billing { get; set; }
 }

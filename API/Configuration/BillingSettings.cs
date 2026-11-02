@@ -14,6 +14,13 @@ public class BillingSettings
 {
     public const string SectionName = "Billing";
 
+    /// <summary>
+    /// Currency used when a request leaves it empty (online pay links need GHS). Falls back to GHS when unset or invalid.
+    /// </summary>
+    public string DefaultCurrency { get; set; } = "GHS";
+
+    public const string FallbackCurrency = "GHS";
+
     /// <summary>Master switch for the automatic renewal invoice worker.</summary>
     public bool RenewalInvoicesEnabled { get; set; } = true;
 

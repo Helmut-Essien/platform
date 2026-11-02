@@ -96,6 +96,13 @@
                 <TemplateColumn Title="Status" Sortable="true">
                     <CellTemplate>
                         <StatusBadge LicenseStatus="context.Item.Status" />
+                        @if (context.Item.Status == LicenseStatus.Pending && context.Item.ActivationInvoiceId is not null
+                             && context.Item.ActivationInvoiceStatus is not InvoiceStatus.Paid)
+                        {
+                            <MudTooltip Text="@($"Activates automatically when {context.Item.ActivationInvoiceNumber} is paid")">
+                                <MudText Typo="Typo.caption" Class="d-block">Awaiting payment</MudText>
+                            </MudTooltip>
+                        }
                     </CellTemplate>
                 </TemplateColumn>
                 <TemplateColumn Title="Expires" Sortable="true">
@@ -359,7 +366,9 @@
         if (result is not { IsSuccess: true })
             return;
 
-        Snackbar.Add("License issued (Pending).", Severity.Success);
+        Snackbar.Add(result.Data?.ActivationInvoiceId is not null
+            ? $"License issued (Pending). It activates automatically when invoice {result.Data.ActivationInvoiceNumber} is paid."
+            : "License issued (Pending).", Severity.Success);
         await ReloadGrid();
     }
 
@@ -367,10 +376,19 @@
     {
         var dialog = await DialogService.ShowAsync<ActivateLicenseDialog>("Activate License", new DialogParameters
         {
-            [nameof(ActivateLicenseDialog.LicenseId)] = license.Id
+            [nameof(ActivateLicenseDialog.LicenseId)] = license.Id,
+            [nameof(ActivateLicenseDialog.License)] = license
         });
         var result = await dialog.Result;
-        if (result?.Canceled is not false || result.Data is not LicenseDto activated)
+        if (result?.Canceled is not false)
+            return;
+        if (result.Data is InvoiceDto invoice)
+        {
+            Snackbar.Add($"Invoice {invoice.InvoiceNumber} created. The license activates automatically when it's paid.", Severity.Success);
+            await ReloadGrid();
+            return;
+        }
+        if (result.Data is not LicenseDto activated)
             return;
 
         await ShowResultDialog(activated, "License Activated");

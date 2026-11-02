@@ -40,6 +40,9 @@ public static class AuditDisplay
         AuditAction.LicenseRenewalSkipped => "Renewal not applied (already renewed)",
         AuditAction.LicenseRenewalReverted => "Renewal reverted (payment reversed)",
         AuditAction.LicenseRenewalReversalConflict => "Renewal kept: license changed since (review)",
+        AuditAction.LicenseAutoActivatedPaid => "License activated after first payment",
+        AuditAction.LicenseActivationSkipped => "Paid, but license not auto-activated (review)",
+        AuditAction.LicenseActivationReverted => "License suspended (activation payment reversed)",
         _ => SplitPascal(action.ToString())
     };
 

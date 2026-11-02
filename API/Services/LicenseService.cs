@@ -16,8 +16,12 @@ public class LicenseService(
     ILicenseKeyDeliveryService licenseKeyDelivery,
     ILicenseDenyListService denyList,
     IEmailOutboxService outbox,
-    EmailTemplateService templates) : ILicenseService
+    EmailTemplateService templates,
+    Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.BillingSettings>? billingSettings = null) : ILicenseService
 {
+    private readonly string _defaultCurrency =
+        BillingService.DefaultCurrencyOf(billingSettings?.Value ?? new Platform.Api.Configuration.BillingSettings());
+
     public Task<LicenseDto> CreateAsync(
         CreateLicenseRequest request,
         string performedBy,
@@ -54,7 +58,7 @@ public class LicenseService(
             CreatedAt = now,
             UpdatedAt = now
         };
-        ApplyBilling(license, request.Billing);
+        ApplyBilling(license, request.Billing, _defaultCurrency);
         SetAnchor(license);
 
         db.Licenses.Add(license);
@@ -74,17 +78,27 @@ public class LicenseService(
 
         if (request.CreateInvoice)
         {
+            // No amounts typed in: bill the license's own price for its first period.
+            var fromPrice = request.InvoiceSubtotal == 0 && request.InvoiceTaxAmount == 0 && license.BillingAmount is > 0;
+            var subtotal = fromPrice ? license.BillingAmount!.Value : request.InvoiceSubtotal;
+            var tax = fromPrice ? license.BillingTaxAmount : request.InvoiceTaxAmount;
+            var currency = fromPrice ? license.BillingCurrency : request.InvoiceCurrency;
+            var description = license.BillingAmount is > 0
+                ? $"License {license.PlanName}: first {PeriodLabel(license.BillingPeriodMonths)}"
+                : $"License {license.PlanName}";
+            // A priced first invoice activates the Pending license once it is fully paid.
             await billing.CreateInvoiceForLicenseAsync(
                 license,
-                request.InvoiceSubtotal,
-                request.InvoiceTaxAmount,
-                request.InvoiceCurrency,
+                subtotal,
+                tax,
+                currency,
                 request.InvoiceDueDate,
-                $"License {license.PlanName}",
+                description,
                 performedBy,
                 request.SendInvoice ? InvoiceStatus.Sent : InvoiceStatus.Draft,
                 ipAddress,
-                ct);
+                ct,
+                activatesLicense: subtotal + tax > 0);
         }
 
         var result = await MapLicenseAsync(license.Id, cancellationToken: ct)
@@ -173,12 +187,12 @@ public class LicenseService(
             : await invoiceQuery
                 .AsNoTracking()
                 .Where(i => i.LicenseId != null && ids.Contains(i.LicenseId))
-                .Select(i => new { i.LicenseId, i.Id, i.CreatedAt })
+                .Select(i => new InvoiceRow(i.LicenseId!, i.Id, i.CreatedAt, i.IsActivationInvoice, i.Status, i.InvoiceNumber))
                 .ToListAsync(cancellationToken);
 
         var invoiceLookup = invoiceRows
-            .GroupBy(i => i.LicenseId!)
-            .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CreatedAt).First().Id);
+            .GroupBy(i => i.LicenseId)
+            .ToDictionary(g => g.Key, Summarize);
 
         return new PagedResult<LicenseDto>
         {
@@ -197,6 +211,8 @@ public class LicenseService(
         CancellationToken cancellationToken = default) =>
         RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
+        // Serialises with automatic activation on payment (BillingService locks the same row).
+        await LockLicenseRowAsync(id, ct);
         var license = await db.Licenses
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
@@ -220,19 +236,44 @@ public class LicenseService(
         var emailKey = request.EmailLicenseKey && !restoring;
         var createInvoice = request.CreateInvoice && !restoring;
 
-        license.Status = LicenseStatus.Active;
-        license.AutoSuspendedForOverdueInvoiceId = null;
-        license.UpdatedAt = now;
+        // A live activation invoice already bills this license: activating early (or after a payment that could
+        // not auto-activate, e.g. the customer was suspended then) must not bill it twice.
+        var activationInvoice = license.Status == LicenseStatus.Pending
+            ? await db.Invoices
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(i => i.LicenseId == id && i.IsActivationInvoice && i.Status != InvoiceStatus.Void, ct)
+            : null;
+        var openActivationInvoice = createInvoice && activationInvoice is not null;
+        if (openActivationInvoice)
+            createInvoice = false;
 
-        if (emailKey)
-            await licenseKeyDelivery.DeliverNewKeyAsync(license, isRenewal: false, ct);
-        else if (string.IsNullOrEmpty(license.LicenseKeyHash))
-            throw new InvalidOperationException("A new license must be delivered by email when first activated.");
+        // Already paid but never applied: give it the term the payment bought, and tie it to the invoice so a
+        // later reversal suspends it like an auto-activated one.
+        if (activationInvoice is { Status: InvoiceStatus.Paid, ActivationAppliedAt: null })
+        {
+            var paidAt = await db.Receipts
+                .Where(r => r.InvoiceId == activationInvoice.Id && r.Status == ReceiptStatus.Posted)
+                .MaxAsync(r => (DateTime?)r.PaidAt, ct) ?? now;
+            var newExpiry = LicenseActivation.ExpiryAfterPayment(license.ExpiresAt, activationInvoice.ActivationPeriodMonths, paidAt, now);
+            if (newExpiry != license.ExpiresAt)
+            {
+                license.ExpiresAt = newExpiry;
+                license.BillingAnchorDay = newExpiry?.Day;
+            }
+            activationInvoice.ActivationAppliedAt = now;
+        }
+
+        await LicenseActivation.ActivateAsync(license, licenseKeyDelivery, emailKey, now, ct);
 
         await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseActivated, performedBy, license.CustomerId, license.Id,
-            null, AuditJson.Serialize(new { licenseKeyQueued = emailKey, restored = restoring }), ipAddress, ct);
+            null, AuditJson.Serialize(new
+            {
+                licenseKeyQueued = emailKey,
+                restored = restoring,
+                invoiceSkippedOpenActivationInvoice = openActivationInvoice
+            }), ipAddress, ct);
 
         if (createInvoice)
         {
@@ -326,7 +367,7 @@ public class LicenseService(
         license.ExpiresAt = renewedExpiry;
         license.UpdatedAt = now;
         SetAnchor(license);
-        ApplyBilling(license, request.Billing);
+        ApplyBilling(license, request.Billing, _defaultCurrency);
 
         if (request.RotateLicenseKey)
         {
@@ -398,7 +439,7 @@ public class LicenseService(
             license.ExpiresAt = newExpiry;
             SetAnchor(license);
         }
-        ApplyBilling(license, request.Billing);
+        ApplyBilling(license, request.Billing, _defaultCurrency);
         license.UpdatedAt = DateTime.UtcNow;
         var becameExpired = license.Status == LicenseStatus.Active
             && DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, license.UpdatedAt);
@@ -689,17 +730,39 @@ public class LicenseService(
         var invoiceQuery = includeSuspendedCustomers
             ? db.Invoices.IgnoreQueryFilters()
             : db.Invoices;
-        var latestInvoiceId = await invoiceQuery
+        // One indexed query (Invoices.LicenseId) for both the latest invoice and the live activation invoice.
+        var rows = await invoiceQuery
             .AsNoTracking()
             .Where(i => i.LicenseId == id)
-            .OrderByDescending(i => i.CreatedAt)
-            .Select(i => i.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Select(i => new InvoiceRow(i.LicenseId!, i.Id, i.CreatedAt, i.IsActivationInvoice, i.Status, i.InvoiceNumber))
+            .ToListAsync(cancellationToken);
 
-        return MapLicense(license, latestInvoiceId);
+        return MapLicense(license, Summarize(rows));
     }
 
-    private static LicenseDto MapLicense(License license, string? latestInvoiceId = null) => new()
+    private sealed record InvoiceRow(string LicenseId, string Id, DateTime CreatedAt, bool IsActivation, InvoiceStatus Status, string Number);
+
+    private sealed record InvoiceSummary(string? LatestId, InvoiceRow? Activation);
+
+    private static InvoiceSummary Summarize(IEnumerable<InvoiceRow> rows)
+    {
+        string? latestId = null;
+        var latestAt = DateTime.MinValue;
+        InvoiceRow? activation = null;
+        foreach (var r in rows)
+        {
+            if (latestId is null || r.CreatedAt > latestAt)
+            {
+                latestId = r.Id;
+                latestAt = r.CreatedAt;
+            }
+            if (r.IsActivation && r.Status != InvoiceStatus.Void)
+                activation = r;
+        }
+        return new InvoiceSummary(latestId, activation);
+    }
+
+    private static LicenseDto MapLicense(License license, InvoiceSummary? invoices = null) => new()
     {
         Id = license.Id,
         CustomerId = license.CustomerId,
@@ -712,7 +775,10 @@ public class LicenseService(
         LicenseKeySentAt = license.LicenseKeySentAt,
         CreatedAt = license.CreatedAt,
         UpdatedAt = license.UpdatedAt,
-        LatestInvoiceId = latestInvoiceId,
+        LatestInvoiceId = invoices?.LatestId,
+        ActivationInvoiceId = invoices?.Activation?.Id,
+        ActivationInvoiceNumber = invoices?.Activation?.Number,
+        ActivationInvoiceStatus = invoices?.Activation?.Status,
         Billing = new LicenseBillingDto
         {
             Amount = license.BillingAmount,
@@ -724,7 +790,8 @@ public class LicenseService(
     };
 
     /// <summary>Validates and applies a billing price (null = unchanged). Amount null/0 clears the price.</summary>
-    internal static void ApplyBilling(License license, LicenseBillingDto? billing)
+    internal static void ApplyBilling(License license, LicenseBillingDto? billing,
+        string defaultCurrency = Platform.Api.Configuration.BillingSettings.FallbackCurrency)
     {
         if (billing is null)
             return;
@@ -744,7 +811,25 @@ public class LicenseService(
         BillingService.EnsureValidMoney(billing.TaxAmount, "Billing tax");
         license.BillingAmount = billing.Amount;
         license.BillingTaxAmount = billing.TaxAmount;
-        license.BillingCurrency = BillingService.NormalizeCurrency(billing.Currency);
+        license.BillingCurrency = string.IsNullOrWhiteSpace(billing.Currency)
+            ? defaultCurrency
+            : BillingService.NormalizeCurrency(billing.Currency);
+    }
+
+    private static string PeriodLabel(int months) => months switch
+    {
+        1 => "month",
+        12 => "year",
+        _ when months % 12 == 0 => $"{months / 12} years",
+        _ => $"{months} months"
+    };
+
+    private async Task LockLicenseRowAsync(string licenseId, CancellationToken cancellationToken)
+    {
+        if (!db.Database.IsRelational())
+            return;
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""SELECT 1 FROM "Licenses" WHERE "Id" = {licenseId} FOR UPDATE""", cancellationToken);
     }
 
     /// <summary>An admin-set expiry defines the renewal anniversary day (so Jan 31 renewals return to the 31st).</summary>

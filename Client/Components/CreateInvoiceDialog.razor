@@ -20,13 +20,7 @@
                     <MudSelectItem Value="@c.Id">@c.Name</MudSelectItem>
                 }
             </MudSelect>
-            <MudTextField @bind-Value="_model.Currency"
-                          For="@(() => _model.Currency)"
-                          Label="Currency"
-                          Required="true"
-                          RequiredError="Currency is required"
-                          Variant="Variant.Outlined"
-                          Class="mb-2" />
+            <CurrencyField @bind-Value="_model.Currency" />
             <MudNumericField @bind-Value="_model.Subtotal"
                              For="@(() => _model.Subtotal)"
                              Label="Subtotal"
@@ -92,7 +86,7 @@
     private CreateInvoiceRequest _model = new()
     {
         CustomerId = "",
-        Currency = "USD",
+        Currency = BillingDefaults.Currency,
         DueDate = DateTime.UtcNow.AddDays(30)
     };
 

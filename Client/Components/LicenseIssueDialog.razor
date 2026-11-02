@@ -46,37 +46,46 @@
                            Label="Expires (optional)"
                            Variant="Variant.Outlined"
                            Class="mb-2" />
-            <MudCheckBox @bind-Value="_model.CreateInvoice"
+            <LicenseBillingFields Billing="_model.Billing!" Changed="OnBillingChanged" />
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">First invoice</MudText>
+            <MudCheckBox T="bool" Value="_model.CreateInvoice" ValueChanged="OnCreateInvoiceChanged"
                          Label="Create invoice now"
                          Color="Color.Primary"
-                         Class="mb-2" />
+                         Class="mb-1" />
             @if (_model.CreateInvoice)
             {
                 <MudCheckBox @bind-Value="_model.SendInvoice"
                              Label="Send invoice immediately"
                              Color="Color.Primary"
                              Class="mb-2" />
-                <MudNumericField @bind-Value="_model.InvoiceSubtotal"
-                                 Label="Invoice subtotal"
-                                 Variant="Variant.Outlined"
-                                 Min="0m"
-                                 Class="mb-2" />
-                <MudNumericField @bind-Value="_model.InvoiceTaxAmount"
-                                 Label="Invoice tax"
-                                 Variant="Variant.Outlined"
-                                 Min="0m"
-                                 Class="mb-2" />
-                <MudTextField @bind-Value="_model.InvoiceCurrency"
-                              Label="Currency"
-                              Variant="Variant.Outlined"
-                              MaxLength="3"
-                              Class="mb-2" />
+                @if (HasPrice)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                        Bills @PriceSummary. The license activates automatically (and the key is emailed) once this invoice is paid in full.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudNumericField @bind-Value="_model.InvoiceSubtotal"
+                                     Label="Invoice subtotal"
+                                     Variant="Variant.Outlined"
+                                     Min="0m"
+                                     Class="mb-2" />
+                    <MudNumericField @bind-Value="_model.InvoiceTaxAmount"
+                                     Label="Invoice tax"
+                                     Variant="Variant.Outlined"
+                                     Min="0m"
+                                     Class="mb-2" />
+                    <CurrencyField @bind-Value="_model.InvoiceCurrency" />
+                    <MudText Typo="Typo.caption" Class="d-block mb-2">
+                        With an amount above zero, paying this invoice in full activates the license automatically.
+                    </MudText>
+                }
                 <MudDatePicker @bind-Date="_model.InvoiceDueDate"
                                Label="Invoice due date"
                                Variant="Variant.Outlined"
                                Class="mb-2" />
             }
-            <LicenseBillingFields Billing="_model.Billing!" />
         </MudForm>
     </DialogContent>
     <DialogActions>
@@ -107,8 +116,39 @@
     private bool _formValid;
     private CreateLicenseRequest _model = new()
     {
-        CustomerId = "", ServiceProductId = "", PlanName = "Pro", Billing = LicenseBillingFields.Copy(null)
+        CustomerId = "", ServiceProductId = "", PlanName = "Pro", Billing = LicenseBillingFields.Copy(null),
+        CreateInvoice = false, SendInvoice = true, InvoiceCurrency = BillingDefaults.Currency,
+        InvoiceDueDate = DateTime.UtcNow.Date.AddDays(14)
     };
+
+    // Until the admin ticks/unticks it, "Create invoice now" follows whether a price is set.
+    private bool _createInvoiceTouched;
+
+    private bool HasPrice => _model.Billing?.Amount is > 0;
+
+    private string PriceSummary
+    {
+        get
+        {
+            var b = _model.Billing!;
+            var period = b.PeriodMonths switch { 1 => "1 month", 12 => "1 year", _ => $"{b.PeriodMonths} months" };
+            var tax = b.TaxAmount > 0 ? $" + {b.TaxAmount:N2} tax" : "";
+            return $"{b.Currency} {b.Amount:N2}{tax} for the first {period}";
+        }
+    }
+
+    private void OnBillingChanged()
+    {
+        if (!_createInvoiceTouched)
+            _model.CreateInvoice = HasPrice;
+        StateHasChanged();
+    }
+
+    private void OnCreateInvoiceChanged(bool value)
+    {
+        _createInvoiceTouched = true;
+        _model.CreateInvoice = value;
+    }
 
     protected override void OnInitialized()
     {
@@ -138,6 +178,13 @@
         await _form.Validate();
         if (!_formValid)
             return;
+
+        if (_model.CreateInvoice && HasPrice)
+        {
+            // Zero amounts tell the server to bill the license price for its first period.
+            _model.InvoiceSubtotal = 0;
+            _model.InvoiceTaxAmount = 0;
+        }
 
         await SubmitAndCloseAsync(_model);
     }

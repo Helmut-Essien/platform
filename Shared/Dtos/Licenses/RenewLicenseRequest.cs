@@ -21,9 +21,9 @@ public class RenewLicenseRequest
     [Range(typeof(decimal), "0", "79228162514264337593543950335", ErrorMessage = "Tax amount must be zero or greater")]
     public decimal TaxAmount { get; set; }
 
-    [Required(ErrorMessage = "Currency is required")]
+    /// <summary>Blank uses the server default (GHS). Online pay links need GHS.</summary>
     [MaxLength(3, ErrorMessage = "Currency must be 3 characters or less")]
-    public string Currency { get; set; } = "USD";
+    public string? Currency { get; set; } = "GHS";
 
     public DateTime? DueDate { get; set; }
 

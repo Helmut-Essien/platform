@@ -9,7 +9,7 @@ public interface IBillingService
 {
     Task<InvoiceDto> CreateInvoiceAsync(CreateInvoiceRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
-    Task<InvoiceDto> CreateInvoiceForLicenseAsync(License license, decimal subtotal, decimal taxAmount, string currency, DateTime? dueDate, string? description, string performedBy, InvoiceStatus status = InvoiceStatus.Sent, string? ipAddress = null, CancellationToken cancellationToken = default);
+    Task<InvoiceDto> CreateInvoiceForLicenseAsync(License license, decimal subtotal, decimal taxAmount, string? currency, DateTime? dueDate, string? description, string performedBy, InvoiceStatus status = InvoiceStatus.Sent, string? ipAddress = null, CancellationToken cancellationToken = default, bool activatesLicense = false);
 
     Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken cancellationToken = default);
 

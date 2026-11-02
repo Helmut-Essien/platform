@@ -26,8 +26,9 @@ public class CreateLicenseRequest
     [Range(typeof(decimal), "0", "79228162514264337593543950335")]
     public decimal InvoiceTaxAmount { get; set; }
 
+    /// <summary>Blank uses the server default (GHS). Ignored when the invoice is billed from the license price.</summary>
     [MaxLength(3)]
-    public string InvoiceCurrency { get; set; } = "USD";
+    public string? InvoiceCurrency { get; set; } = "GHS";
 
     public DateTime? InvoiceDueDate { get; set; }
 

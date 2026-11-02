@@ -407,6 +407,12 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
 
+                    b.Property<DateTime?>("ActivationAppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("ActivationPeriodMonths")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -435,6 +441,9 @@ namespace Platform.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("IsActivationInvoice")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("IssueDate")
                         .HasColumnType("timestamp with time zone");
@@ -514,6 +523,10 @@ namespace Platform.Api.Data.Migrations
                         .HasFilter("\"RenewalForExpiresAt\" IS NOT NULL AND \"Status\" <> 'Void'");
 
                     b.HasIndex("Status", "DueDate");
+
+                    b.HasIndex(new[] { "LicenseId" }, "IX_Invoices_OneActivationPerLicense")
+                        .IsUnique()
+                        .HasFilter("\"IsActivationInvoice\" AND \"Status\" <> 'Void'");
 
                     b.ToTable("Invoices", (string)null);
                 });
