@@ -411,16 +411,29 @@
         await ReloadGrid();
     }
 
+    // Guards against a quick second click while the first request is still running.
+    private readonly HashSet<string> _renewalInFlight = [];
+
     private async Task CreateRenewalInvoiceAsync(LicenseDto license)
     {
-        var result = await Api.CreateRenewalInvoiceAsync(license.Id);
-        if (!result.IsSuccess || result.Data is null)
-        {
-            Snackbar.Add(result.ErrorMessage ?? "Couldn't create the renewal invoice.", Severity.Error);
+        if (!_renewalInFlight.Add(license.Id))
             return;
+        try
+        {
+            var result = await Api.CreateRenewalInvoiceAsync(license.Id);
+            if (!result.IsSuccess || result.Data is null)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Couldn't create the renewal invoice.", Severity.Error);
+                await ReloadGrid();
+                return;
+            }
+            Snackbar.Add($"Renewal invoice {result.Data.InvoiceNumber} created and emailed.", Severity.Success);
+            Navigation.NavigateTo($"/invoices/{result.Data.Id}");
         }
-        Snackbar.Add($"Renewal invoice {result.Data.InvoiceNumber} created and emailed.", Severity.Success);
-        Navigation.NavigateTo($"/invoices/{result.Data.Id}");
+        finally
+        {
+            _renewalInFlight.Remove(license.Id);
+        }
     }
 
     private async Task EditAsync(LicenseDto license)

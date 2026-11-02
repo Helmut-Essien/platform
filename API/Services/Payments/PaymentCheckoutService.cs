@@ -299,9 +299,12 @@ public sealed class PaymentCheckoutService(
         // The receipt link can trail the receipt itself under concurrency: fall back to the posted Paystack receipt.
         var refundReceiptId = checkout.ReceiptId;
         if (fullRefund && refundReceiptId is null)
-            refundReceiptId = await db.Receipts.IgnoreQueryFilters().AsNoTracking()
-                .Where(r => r.InvoiceId == checkout.InvoiceId && r.PaymentReference == checkout.Reference)
-                .OrderBy(r => r.CreatedAt).Select(r => r.Id).FirstOrDefaultAsync(cancellationToken);
+        {
+            var paymentKey = $"paystack:{checkout.Reference}";
+            refundReceiptId = await db.PaymentTransactions.IgnoreQueryFilters().AsNoTracking()
+                .Where(t => t.InvoiceId == checkout.InvoiceId && t.IdempotencyKey == paymentKey && t.ReceiptId != null)
+                .Select(t => t.ReceiptId).FirstOrDefaultAsync(cancellationToken);
+        }
         if (fullRefund && refundReceiptId is { } receiptId)
         {
             reversalNote = await ReverseForRefundAsync(checkout, receiptId, cancellationToken);

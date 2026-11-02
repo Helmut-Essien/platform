@@ -382,6 +382,8 @@
         Navigation.NavigateTo($"/invoices/{apiResult.Data!.Id}");
     }
 
+    private readonly HashSet<string> _voidInFlight = [];
+
     private async Task VoidAsync(InvoiceDto invoice)
     {
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Void Invoice", new DialogParameters
@@ -395,10 +397,22 @@
         if (dialogResult?.Canceled is not false)
             return;
 
-        var apiResult = await Api.VoidInvoiceAsync(invoice.Id);
+        if (!_voidInFlight.Add(invoice.Id))
+            return;
+        ApiResult<InvoiceDto> apiResult;
+        try
+        {
+            apiResult = await Api.VoidInvoiceAsync(invoice.Id);
+        }
+        finally
+        {
+            _voidInFlight.Remove(invoice.Id);
+        }
         if (!apiResult.IsSuccess)
         {
+            // e.g. a customer payment in progress: the server explains when voiding becomes possible.
             Snackbar.Add(apiResult.ErrorMessage ?? "Void failed.", Severity.Error);
+            await ReloadGrid();
             return;
         }
 

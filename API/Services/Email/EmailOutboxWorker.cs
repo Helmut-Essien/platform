@@ -166,7 +166,25 @@ public class EmailOutboxWorker(
         if (message.Status != EmailDeliveryStatus.Sending)
             return;
 
-        message.AttemptCount++;
+        // Poison guard: a message whose earlier attempts crashed the worker (or hung past the stale window) is
+        // reclaimed with its attempts already counted. Stop once the limit is reached instead of looping forever.
+        var maxAttempts = Math.Max(1, settings.Value.Outbox.MaxAttempts);
+        if (message.AttemptCount >= maxAttempts)
+        {
+            message.Status = EmailDeliveryStatus.DeadLetter;
+            message.NextAttemptAt = null;
+            message.LastError ??= "Delivery did not complete after the maximum number of attempts.";
+            message.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogError("Email delivery {DeliveryId} dead-lettered after {Attempts} unfinished attempts.", id, message.AttemptCount);
+            return;
+        }
+
+        // Count the attempt durably BEFORE sending, and only if the claim is still ours: if a long batch let
+        // another worker reclaim this row as stale, its UpdatedAt changed and we skip it (no duplicate email).
+        if (!await StartAttemptAsync(db, message, cancellationToken))
+            return;
+
         try
         {
             var body = message.HtmlBody;
@@ -221,6 +239,41 @@ public class EmailOutboxWorker(
         await RecordSentAsync(db, message, cancellationToken);
     }
 
+    private static async Task<bool> StartAttemptAsync(
+        AppDbContext db,
+        Platform.Api.Entities.EmailOutboxMessage message,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        if (db.Database.IsRelational())
+        {
+            // Tolerance covers Postgres' microsecond precision vs .NET ticks; a reclaim moves UpdatedAt by minutes.
+            var claimedFrom = message.UpdatedAt.AddMilliseconds(-1);
+            var claimedTo = message.UpdatedAt.AddMilliseconds(1);
+            var rows = await db.EmailOutboxMessages
+                .Where(m => m.Id == message.Id && m.Status == EmailDeliveryStatus.Sending
+                    && m.UpdatedAt >= claimedFrom && m.UpdatedAt <= claimedTo)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(m => m.AttemptCount, m => m.AttemptCount + 1)
+                    .SetProperty(m => m.UpdatedAt, now), cancellationToken);
+            if (rows == 0)
+                return false;
+            var entry = db.Entry(message);
+            message.AttemptCount++;
+            message.UpdatedAt = now;
+            entry.Property(m => m.AttemptCount).OriginalValue = message.AttemptCount;
+            entry.Property(m => m.UpdatedAt).OriginalValue = now;
+            entry.Property(m => m.AttemptCount).IsModified = false;
+            entry.Property(m => m.UpdatedAt).IsModified = false;
+            return true;
+        }
+
+        message.AttemptCount++;
+        message.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     private async Task CancelAsync(
         AppDbContext db,
         Platform.Api.Entities.EmailOutboxMessage message,
@@ -257,7 +310,6 @@ public class EmailOutboxWorker(
                     db.ChangeTracker.Clear();
                     message = await db.EmailOutboxMessages.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
                         ?? throw new InvalidOperationException("Outbox message disappeared.");
-                    message.AttemptCount++;
                 }
 
                 message.Status = EmailDeliveryStatus.Sent;
