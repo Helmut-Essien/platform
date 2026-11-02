@@ -7,7 +7,7 @@ using Platform.Shared.Dtos.Settings;
 
 namespace Platform.Api.Services;
 
-public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
+public class InvoiceBrandService(AppDbContext db, Email.BrandNameCache? brandName = null) : IInvoiceBrandService
 {
     public const int MaxLogoBytes = 2 * 1024 * 1024;
     public const int MaxPaymentOptions = 10;
@@ -72,6 +72,7 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        brandName?.Set(profile);
         return Map(profile);
     }
 
@@ -80,12 +81,18 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
 
     private async Task<InvoiceBrandProfile> GetOrCreateProfileAsync(CancellationToken cancellationToken)
     {
+        // Latest saved wins (stable: saving bumps UpdatedAt, so the edited row stays the one read). Every reader of
+        // the profile (PDFs, emails, public pay page) uses this same order.
         var existing = await db.InvoiceBrandProfiles
-            .OrderBy(p => p.UpdatedAt)
+            .OrderByDescending(p => p.UpdatedAt)
+            .ThenBy(p => p.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (existing is not null)
+        {
+            brandName?.Set(existing);
             return existing;
+        }
 
         var profile = new InvoiceBrandProfile
         {
@@ -100,6 +107,7 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
 
         db.InvoiceBrandProfiles.Add(profile);
         await db.SaveChangesAsync(cancellationToken);
+        brandName?.Set(profile);
         return profile;
     }
 

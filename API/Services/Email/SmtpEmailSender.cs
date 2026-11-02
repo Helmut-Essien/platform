@@ -48,15 +48,16 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         };
         message.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(
             htmlBody, System.Text.Encoding.UTF8, System.Net.Mime.MediaTypeNames.Text.Html));
-        if (!string.IsNullOrWhiteSpace(settings.ReplyToAddress))
+        // A bad Reply-To setting must not block delivery: it is ignored with a warning.
+        if (EmailReplyTo.Resolve(settings.ReplyToAddress, logger) is { } replyTo)
         {
             try
             {
-                message.ReplyToList.Add(new MailAddress(settings.ReplyToAddress.Trim(), settings.FromName));
+                message.ReplyToList.Add(new MailAddress(replyTo, settings.FromName));
             }
             catch (FormatException)
             {
-                // A bad Reply-To setting must not block delivery; the email simply goes without it.
+                message.ReplyToList.Add(new MailAddress(replyTo)); // display name unusable; the address alone is valid
             }
         }
         try

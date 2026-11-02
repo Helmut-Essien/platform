@@ -248,6 +248,44 @@ public class EmailOutboxWorkerTests
     }
 
     [Fact]
+    public async Task SendAsync_ReceiptReversedBeforeSending_IsCancelledAndNotSent()
+    {
+        await using var h = CreateHarness();
+        var customer = new Customer { Name = "Acme", ContactEmail = "a@acme.test" };
+        var invoice = new Invoice
+        {
+            Customer = customer,
+            CustomerId = customer.Id,
+            InvoiceNumber = "INV-2026-00101",
+            Status = InvoiceStatus.Sent,
+            Currency = "GHS",
+            Subtotal = 10m,
+            TotalAmount = 10m
+        };
+        var receipt = new Receipt
+        {
+            InvoiceId = invoice.Id,
+            ReceiptNumber = "RCP-2026-00101",
+            AmountPaid = 10m,
+            Status = ReceiptStatus.Reversed,
+            PaidAt = DateTime.UtcNow
+        };
+        h.Db.AddRange(customer, invoice, receipt);
+        await h.Db.SaveChangesAsync();
+        var message = await h.QueueAsync(EmailDeliveryKind.PaymentReceipt, payload: false, invoiceId: invoice.Id, customerId: customer.Id);
+        message.ReceiptId = receipt.Id;
+        await h.Db.SaveChangesAsync();
+
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+
+        Assert.Empty(h.Sender.Sent);
+        h.Db.ChangeTracker.Clear();
+        var stored = await h.Db.EmailOutboxMessages.SingleAsync(m => m.Id == message.Id);
+        Assert.Equal(EmailDeliveryStatus.Cancelled, stored.Status);
+        Assert.Contains("reversed", stored.LastError);
+    }
+
+    [Fact]
     public async Task SendAsync_IgnoresMessagesThatAreNotClaimed()
     {
         await using var h = CreateHarness();

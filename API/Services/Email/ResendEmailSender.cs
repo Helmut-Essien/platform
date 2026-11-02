@@ -48,7 +48,7 @@ public class ResendEmailSender(
             Subject = subject,
             Html = htmlBody,
             Text = EmailPlainText.FromHtml(htmlBody),
-            ReplyTo = string.IsNullOrWhiteSpace(settings.ReplyToAddress) ? null : [settings.ReplyToAddress.Trim()],
+            ReplyTo = EmailReplyTo.Resolve(settings.ReplyToAddress, logger) is { } replyTo ? [replyTo] : null,
             Attachments = attachments is { Count: > 0 }
                 ? attachments.Select(a => new ResendAttachment
                 {

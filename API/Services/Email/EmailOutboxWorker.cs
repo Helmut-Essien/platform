@@ -19,6 +19,7 @@ public class EmailOutboxWorker(
         var delay = TimeSpan.FromSeconds(Math.Max(2, settings.Value.Outbox.PollIntervalSeconds));
         List<string>? inFlightBatch = null;
         var lastPurge = DateTime.MinValue;
+        await WarmBrandNameAsync(stoppingToken);
 
         while (true)
         {
@@ -236,13 +237,17 @@ public class EmailOutboxWorker(
             {
                 var receiptPdf = scope.ServiceProvider.GetService<IReceiptPdfGenerator>();
                 // Two no-tracking reads: Receipt -> Invoice -> Receipts would be an include cycle.
-                var receipt = receiptPdf is null
-                    ? null
-                    : await db.Receipts
-                        .IgnoreQueryFilters()
-                        .AsNoTracking()
-                        .FirstOrDefaultAsync(r => r.Id == message.ReceiptId, cancellationToken);
-                var receiptInvoice = receipt is null
+                var receipt = await db.Receipts
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(r => r.Id == message.ReceiptId, cancellationToken);
+                // A payment refunded/reversed before its receipt email went out: don't thank the customer for it.
+                if (receipt is { Status: ReceiptStatus.Reversed })
+                {
+                    await CancelAsync(db, message, "Receipt was reversed before the email was sent.", cancellationToken);
+                    return;
+                }
+                var receiptInvoice = receipt is null || receiptPdf is null
                     ? null
                     : await db.Invoices
                         .IgnoreQueryFilters()
@@ -525,4 +530,27 @@ public class EmailOutboxWorker(
 
     private static string Sanitize(string value) =>
         value.Length <= 2000 ? value : value[..2000];
+
+    /// <summary>Loads the brand company name once at startup (read-only), so emails queued before the first send use it.</summary>
+    private async Task WarmBrandNameAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var cache = scope.ServiceProvider.GetService<BrandNameCache>();
+            if (cache is null)
+                return;
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var profile = await db.InvoiceBrandProfiles.AsNoTracking()
+                .OrderByDescending(p => p.UpdatedAt)
+                .ThenBy(p => p.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (profile is not null)
+                cache.Set(profile);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not load the brand name at startup; emails use the default until the profile is read.");
+        }
+    }
 }

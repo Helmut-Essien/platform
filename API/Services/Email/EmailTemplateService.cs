@@ -20,15 +20,18 @@ public sealed record EmailBrandContact(
         BrandDefaults.CompanyName, BrandDefaults.AddressLine1, BrandDefaults.AddressLine2,
         BrandDefaults.Phone, BrandDefaults.ContactEmail, BrandDefaults.Website);
 
+    /// <summary>The profile's company name, or the built-in name when it is blank or the legacy placeholder.</summary>
+    public static string CompanyNameOrDefault(string? companyName) =>
+        string.IsNullOrWhiteSpace(companyName)
+        || string.Equals(companyName, BrandDefaults.LegacyPlaceholderName, StringComparison.Ordinal)
+            ? BrandDefaults.CompanyName
+            : companyName.Trim();
+
     public static EmailBrandContact From(InvoiceBrandProfile? profile)
     {
         if (profile is null)
             return Defaults;
-        var name = string.IsNullOrWhiteSpace(profile.CompanyName)
-            || string.Equals(profile.CompanyName, BrandDefaults.LegacyPlaceholderName, StringComparison.Ordinal)
-            ? BrandDefaults.CompanyName
-            : profile.CompanyName.Trim();
-        return new EmailBrandContact(name, profile.AddressLine1, profile.AddressLine2, profile.Phone,
+        return new EmailBrandContact(CompanyNameOrDefault(profile.CompanyName), profile.AddressLine1, profile.AddressLine2, profile.Phone,
             profile.ContactEmail, profile.Website);
     }
 }
@@ -42,7 +45,13 @@ public sealed record EmailBrandContact(
 /// </summary>
 public class EmailTemplateService
 {
-    private const string VendorName = BrandDefaults.CompanyName;
+    private readonly BrandNameCache? _brandName;
+
+    /// <summary>Company name from the brand profile (plain text, for subjects).</summary>
+    private string VendorName => _brandName?.Current ?? EmailBrandContact.Defaults.CompanyName;
+
+    /// <summary>Company name HTML-encoded, for bodies.</summary>
+    private string VendorHtml => Enc(VendorName);
     private const string DefaultPublicBaseUrl = "https://helmutcode.runasp.net";
 
     /// <summary>Button and accent green: white text on it is 5.2:1 (WCAG AA for normal text).</summary>
@@ -60,8 +69,9 @@ public class EmailTemplateService
     {
     }
 
-    public EmailTemplateService(string? publicBaseUrl)
+    public EmailTemplateService(string? publicBaseUrl, BrandNameCache? brandName = null)
     {
+        _brandName = brandName;
         _baseUrl = string.IsNullOrWhiteSpace(publicBaseUrl) || publicBaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase)
             ? DefaultPublicBaseUrl
             : publicBaseUrl.Trim().TrimEnd('/');
@@ -82,7 +92,7 @@ public class EmailTemplateService
         return ($"Welcome to {VendorName}",
             Wrap(customer.Name,
                 "Your account is set up. Here is what happens next.",
-                $"Welcome! <strong>{Enc(customer.Name)}</strong> is now set up as a customer of {VendorName}.",
+                $"Welcome! <strong>{Enc(customer.Name)}</strong> is now set up as a customer of {VendorHtml}.",
                 $"""
                 {P($"Thank you for choosing us for {forWhat}. Here is what to expect:")}
                 {Steps(
@@ -246,7 +256,7 @@ public class EmailTemplateService
                 $"Your free {productName} access ends on {Enc(end)}. Would you like to continue?",
                 $"Your complimentary access to {productName} ends on <strong>{Enc(end)}</strong>.",
                 $"""
-                {P($"This access was provided free of charge by {VendorName}, so there is nothing to pay.")}
+                {P($"This access was provided free of charge by {VendorHtml}, so there is nothing to pay.")}
                 {P($"<strong>Would you like to continue using {productName}?</strong> Just reply to this email and we will discuss the options with you. You would keep the same license key.", last: true)}
                 """));
     }
@@ -425,7 +435,7 @@ public class EmailTemplateService
         var html = Wrap(
             customer.Name,
             $"{amount} due {Enc(dueDate)}. Pay securely online in a minute.",
-            $"Invoice {Enc(invoice.InvoiceNumber)} from {VendorName} is ready.",
+            $"Invoice {Enc(invoice.InvoiceNumber)} from {VendorHtml} is ready.",
             $"""
             {SummaryPanel(amount, invoice.DueDate is null ? "Due on receipt" : $"Due {Enc(dueDate)}", payUrl)}
             {Table(rows.ToArray())}
@@ -440,7 +450,7 @@ public class EmailTemplateService
         ($"Reset your {VendorName} admin password",
             Wrap(email,
                 "Use the button inside to choose a new password. The link expires within 24 hours.",
-                $"We received a request to reset the password for your {VendorName} admin dashboard.",
+                $"We received a request to reset the password for your {VendorHtml} admin dashboard.",
                 $"""
                 {P("If you made this request, use the button below to choose a new password. The link works once and expires within 24 hours.")}
                 {Button(resetLinkPlaceholder, "Reset password")}
@@ -486,7 +496,7 @@ public class EmailTemplateService
           <meta name="x-apple-disable-message-reformatting">
           <meta name="color-scheme" content="light dark">
           <meta name="supported-color-schemes" content="light dark">
-          <title>{{VendorName}}</title>
+          <title>{{VendorHtml}}</title>
           <style>
             :root { color-scheme: light dark; supported-color-schemes: light dark; }
             @media (max-width: 480px) {
@@ -517,8 +527,8 @@ public class EmailTemplateService
                   <tr>
                     <td class="header" style="padding:18px 28px;background:#ffffff;border-top:4px solid {{ButtonColor}};border-bottom:1px solid #dfe5db;border-radius:8px 8px 0 0;">
                       <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
-                        <td style="padding:0 12px 0 0;vertical-align:middle;"><img src="{{LogoUrl}}" width="44" height="44" alt="{{VendorName}} logo" style="display:block;width:44px;height:44px;border:0;border-radius:6px;"></td>
-                        <td class="brand" style="vertical-align:middle;color:#1f271b;font-size:18px;font-weight:700;font-family:Arial,Helvetica,sans-serif;">{{VendorName}}</td>
+                        <td style="padding:0 12px 0 0;vertical-align:middle;"><img src="{{LogoUrl}}" width="44" height="44" alt="{{VendorHtml}} logo" style="display:block;width:44px;height:44px;border:0;border-radius:6px;"></td>
+                        <td class="brand" style="vertical-align:middle;color:#1f271b;font-size:18px;font-weight:700;font-family:Arial,Helvetica,sans-serif;">{{VendorHtml}}</td>
                       </tr></table>
                     </td>
                   </tr>
@@ -527,7 +537,7 @@ public class EmailTemplateService
                       <p style="margin:0 0 16px;">Hello {{Enc(customerName)}},</p>
                       <p class="lead" style="margin:0 0 20px;font-size:19px;line-height:1.45;font-weight:700;">{{lead}}</p>
                       {{content}}
-                      <p style="margin:24px 0 0;">Kind regards,<br><strong>The {{VendorName}} team</strong></p>
+                      <p style="margin:24px 0 0;">Kind regards,<br><strong>The {{VendorHtml}} team</strong></p>
                     </td>
                   </tr>
                   <tr>

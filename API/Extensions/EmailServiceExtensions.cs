@@ -55,8 +55,10 @@ public static class EmailServiceExtensions
         services.AddSingleton<IInvoicePdfGenerator>(sp => sp.GetRequiredService<InvoicePdfGenerator>());
         services.AddSingleton<IReceiptPdfGenerator>(sp => sp.GetRequiredService<InvoicePdfGenerator>());
         services.AddSingleton<EmailPayloadProtector>();
+        services.AddSingleton<BrandNameCache>();
         services.AddSingleton(sp => new EmailTemplateService(
-            sp.GetService<Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.AuthSettings>>()?.Value.ClientBaseUrl));
+            sp.GetService<Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.AuthSettings>>()?.Value.ClientBaseUrl,
+            sp.GetRequiredService<BrandNameCache>()));
         services.AddScoped<IEmailOutboxService, EmailOutboxService>();
         services.AddHostedService<EmailOutboxWorker>();
         services.AddScoped<ILicenseKeyDeliveryService, LicenseKeyDeliveryService>();

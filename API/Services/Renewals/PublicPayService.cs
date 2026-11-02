@@ -27,7 +27,12 @@ public sealed class PublicPayService(
     {
         var invoiceId = await ResolveAsync(token, cancellationToken);
         var invoice = await billing.GetInvoiceAsync(invoiceId, cancellationToken) ?? throw new NotFoundException(InvalidLink);
-        var issuer = await db.InvoiceBrandProfiles.AsNoTracking().Select(b => b.CompanyName).FirstOrDefaultAsync(cancellationToken);
+        // Same row the PDFs and emails use (InvoiceBrandService: latest UpdatedAt), and the same default name.
+        var issuer = Email.EmailBrandContact.CompanyNameOrDefault(await db.InvoiceBrandProfiles.AsNoTracking()
+            .OrderByDescending(b => b.UpdatedAt)
+            .ThenBy(b => b.Id)
+            .Select(b => b.CompanyName)
+            .FirstOrDefaultAsync(cancellationToken));
         var payable = PayLinkService.IsPayableStatus(invoice.Status) && invoice.AmountDue > 0;
         return new PublicInvoiceSummaryDto
         {
