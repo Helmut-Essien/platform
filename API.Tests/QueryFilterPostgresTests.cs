@@ -13,11 +13,17 @@ namespace API.Tests;
 /// Verifies admin queries see suspended-customer billing data when IgnoreQueryFilters is applied.
 /// Skips when Postgres is unavailable.
 /// </summary>
-public class QueryFilterPostgresTests
+public class QueryFilterPostgresTests : IAsyncLifetime
 {
-    private static readonly string ConnectionString =
-        Environment.GetEnvironmentVariable("PLATFORM_TEST_DB")
-        ?? "Host=localhost;Port=5432;Database=platform_query_filter_test;Username=platform;Password=platform_dev";
+    private PostgresBehaviorTests.TempDatabase? _pg;
+
+    public async Task InitializeAsync() => _pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+
+    public async Task DisposeAsync()
+    {
+        if (_pg is not null)
+            await _pg.DisposeAsync();
+    }
 
     [Fact]
     public async Task ListInvoices_IncludesSuspendedCustomerInvoices()
@@ -87,20 +93,5 @@ public class QueryFilterPostgresTests
             Task.FromResult(false);
     }
 
-    private static async Task<AppDbContext?> CreateMigratedContextAsync()
-    {
-        try
-        {
-            var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseNpgsql(ConnectionString)
-                .Options;
-            var db = new AppDbContext(options);
-            await db.Database.EnsureCreatedAsync();
-            return db;
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    private Task<AppDbContext?> CreateMigratedContextAsync() => Task.FromResult<AppDbContext?>(_pg?.NewContext());
 }

@@ -10,31 +10,21 @@ using static API.Tests.LicenseActivationTests;
 namespace API.Tests;
 
 /// <summary>Auto-activation under real row locks and the activation partial unique index. Skips without Postgres.</summary>
-public class LicenseActivationPostgresTests
+public class LicenseActivationPostgresTests : IAsyncLifetime
 {
-    private static readonly string ConnectionString = new Npgsql.NpgsqlConnectionStringBuilder(
-        Environment.GetEnvironmentVariable("PLATFORM_TEST_DB")
-        ?? "Host=localhost;Port=5432;Database=platform_payment_test;Username=platform;Password=platform_dev")
-    {
-        Database = "platform_activation_test"
-    }.ConnectionString;
+    private PostgresBehaviorTests.TempDatabase? _pg;
 
-    private static AppDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnectionString).Options);
+    public async Task InitializeAsync() => _pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
 
-    private static async Task<bool> MigrateAsync()
+    public async Task DisposeAsync()
     {
-        try
-        {
-            await using var db = NewContext();
-            await db.Database.MigrateAsync();
-            return true;
-        }
-        catch when (Environment.GetEnvironmentVariable("PLATFORM_TEST_DB") is null)
-        {
-            return false;
-        }
+        if (_pg is not null)
+            await _pg.DisposeAsync();
     }
+
+    private AppDbContext NewContext() => _pg!.NewContext();
+
+    private Task<bool> MigrateAsync() => Task.FromResult(_pg is not null);
 
     [Fact]
     public async Task ConcurrentWebhookAndReconcile_ActivateExactlyOnce()
@@ -89,5 +79,47 @@ public class LicenseActivationPostgresTests
         });
         await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
         _ = invoice;
+    }
+
+    [Fact]
+    public async Task ManualActivate_RacingFinalPayment_NoDeadlock_OneKeyEmail()
+    {
+        if (!await MigrateAsync())
+            return;
+        for (var round = 0; round < 8; round++)
+        {
+            string licenseId, invoiceId;
+            await using (var seed = NewContext())
+            {
+                var (license, invoice) = await IssuePricedAsync(Create(seed));
+                licenseId = license.Id;
+                invoiceId = invoice.Id;
+            }
+
+            var errors = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+            var activate = Task.Run(async () =>
+            {
+                await using var db = NewContext();
+                try
+                {
+                    await Create(db).Licenses.ActivateAsync(licenseId,
+                        new Platform.Shared.Dtos.Licenses.ActivateLicenseRequest { CreateInvoice = false }, "admin");
+                }
+                catch (InvalidOperationException) { } // payment won and activated it first
+                catch (Exception ex) { errors.Add(ex); }
+            });
+            var pay = Task.Run(async () =>
+            {
+                await using var db = NewContext();
+                try { await Create(db).Billing.RecordReceiptAsync(invoiceId, Pay(1200m, "paystack:r" + round), "system"); }
+                catch (Exception ex) { errors.Add(ex); }
+            });
+            await Task.WhenAll(activate, pay);
+
+            Assert.Empty(errors); // a deadlock (40P01) would surface here
+            await using var check = NewContext();
+            Assert.Equal(LicenseStatus.Active, (await check.Licenses.IgnoreQueryFilters().SingleAsync(l => l.Id == licenseId)).Status);
+            Assert.Equal(1, await check.EmailOutboxMessages.CountAsync(m => m.Kind == EmailDeliveryKind.LicenseKey && m.LicenseId == licenseId));
+        }
     }
 }

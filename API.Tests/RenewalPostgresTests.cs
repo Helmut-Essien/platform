@@ -11,32 +11,21 @@ using static API.Tests.RenewalTests;
 namespace API.Tests;
 
 /// <summary>Renewal concurrency on real PostgreSQL (advisory/row locks, partial unique index). Skips without Postgres.</summary>
-public class RenewalPostgresTests
+public class RenewalPostgresTests : IAsyncLifetime
 {
-    // Own database so migrations run cleanly next to suites that use EnsureCreated on the shared one.
-    private static readonly string ConnectionString = new Npgsql.NpgsqlConnectionStringBuilder(
-        Environment.GetEnvironmentVariable("PLATFORM_TEST_DB")
-        ?? "Host=localhost;Port=5432;Database=platform_payment_test;Username=platform;Password=platform_dev")
-    {
-        Database = "platform_renewal_test"
-    }.ConnectionString;
+    private PostgresBehaviorTests.TempDatabase? _pg;
 
-    private static AppDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnectionString).Options);
+    public async Task InitializeAsync() => _pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
 
-    private static async Task<bool> MigrateAsync()
+    public async Task DisposeAsync()
     {
-        try
-        {
-            await using var db = NewContext();
-            await db.Database.MigrateAsync();
-            return true;
-        }
-        catch when (Environment.GetEnvironmentVariable("PLATFORM_TEST_DB") is null)
-        {
-            return false; // no Postgres configured: skip; when PLATFORM_TEST_DB is set, failures surface
-        }
+        if (_pg is not null)
+            await _pg.DisposeAsync();
     }
+
+    private AppDbContext NewContext() => _pg!.NewContext();
+
+    private Task<bool> MigrateAsync() => Task.FromResult(_pg is not null);
 
     [Fact]
     public async Task ConcurrentWorkers_CreateExactlyOneRenewalInvoice()
@@ -127,6 +116,51 @@ public class RenewalPostgresTests
             {
                 return false; // second full payment refused (overpayment) — fine, renewal must still apply once
             }
+        }
+    }
+
+    [Fact]
+    public async Task StaleRenewalVoid_RacingPayment_NeverVoidsAPaidInvoice()
+    {
+        if (!await MigrateAsync())
+            return;
+        for (var round = 0; round < 5; round++)
+        {
+            string licenseId, staleId;
+            var expiry = DateTime.UtcNow.Date.AddDays(10);
+            var manual = DateTime.UtcNow.Date.AddDays(12);
+            await using (var seed = NewContext())
+            {
+                var license = await SeedLicenseAsync(seed, expiry);
+                licenseId = license.Id;
+                staleId = (await CreateBilling(seed).CreateRenewalInvoiceAsync(license.Id, expiry, BillingService.RenewalActor))!.Id;
+                var tracked = await seed.Licenses.SingleAsync(l => l.Id == licenseId);
+                tracked.ExpiresAt = manual;
+                await seed.SaveChangesAsync();
+            }
+
+            var total = 1200m;
+            var pay = Task.Run(async () =>
+            {
+                await using var db = NewContext();
+                try
+                {
+                    await CreateBilling(db).RecordReceiptAsync(staleId, new RecordReceiptRequest
+                    { IdempotencyKey = "race-" + round, AmountPaid = total, PaymentMethod = PaymentMethod.Cash }, "admin");
+                }
+                catch (InvalidOperationException) { } // already voided: payment refused, fine
+            });
+            var renew = Task.Run(async () =>
+            {
+                await using var db = NewContext();
+                await CreateBilling(db).CreateRenewalInvoiceAsync(licenseId, manual, BillingService.RenewalActor);
+            });
+            await Task.WhenAll(pay, renew);
+
+            await using var check = NewContext();
+            var stale = await check.Invoices.IgnoreQueryFilters().AsNoTracking().SingleAsync(i => i.Id == staleId);
+            var posted = await check.Receipts.CountAsync(r => r.InvoiceId == staleId && r.Status == ReceiptStatus.Posted);
+            Assert.False(stale.Status == InvoiceStatus.Void && posted > 0, $"round {round}: voided an invoice with a posted payment");
         }
     }
 }

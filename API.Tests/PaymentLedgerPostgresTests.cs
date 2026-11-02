@@ -14,11 +14,17 @@ namespace API.Tests;
 /// PostgreSQL-backed payment ledger checks (locking, unique idempotency, constraints).
 /// Skips when Postgres is unavailable.
 /// </summary>
-public class PaymentLedgerPostgresTests
+public class PaymentLedgerPostgresTests : IAsyncLifetime
 {
-    private static readonly string ConnectionString =
-        Environment.GetEnvironmentVariable("PLATFORM_TEST_DB")
-        ?? "Host=localhost;Port=5432;Database=platform_payment_test;Username=platform;Password=platform_dev";
+    private PostgresBehaviorTests.TempDatabase? _pg;
+
+    public async Task InitializeAsync() => _pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+
+    public async Task DisposeAsync()
+    {
+        if (_pg is not null)
+            await _pg.DisposeAsync();
+    }
 
     [Fact]
     public async Task IdempotentReplay_And_OneReversalConstraint_WorkOnPostgres()
@@ -127,7 +133,7 @@ public class PaymentLedgerPostgresTests
         var results = await Task.WhenAll(tasks);
 
         var successes = results.Count(r => r.Ok);
-        Assert.True(successes <= 1, $"Expected at most one success, got {successes}");
+        Assert.True(successes == 1, $"Expected exactly one success, got {successes}: {string.Join("; ", results.Select(r => r.Error))}");
 
         await using var verify = await CreateMigratedContextAsync(ensureCreated: false);
         Assert.NotNull(verify);
@@ -192,29 +198,9 @@ public class PaymentLedgerPostgresTests
         Assert.False(stored.Status == InvoiceStatus.Void && paid);
     }
 
-    private static async Task<AppDbContext?> CreateMigratedContextAsync(bool ensureCreated = true)
-    {
-        try
-        {
-            var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseNpgsql(ConnectionString)
-                .Options;
-            var db = new AppDbContext(options);
-            if (ensureCreated)
-                await db.Database.MigrateAsync();
-            else if (!await db.Database.CanConnectAsync())
-            {
-                await db.DisposeAsync();
-                return null;
-            }
-
-            return db;
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    // Each test gets its own freshly migrated temporary database (null only when PLATFORM_TEST_DB is not set).
+    private Task<AppDbContext?> CreateMigratedContextAsync(bool ensureCreated = true) =>
+        Task.FromResult<AppDbContext?>(_pg?.NewContext());
 
     private static BillingService CreateBillingService(AppDbContext db) =>
         new(db, new NoopAudit(), new EmailOutboxService(db), new EmailTemplateService(), new NoopDeny());

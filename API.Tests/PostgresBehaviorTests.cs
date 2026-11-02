@@ -328,9 +328,11 @@ public class PostgresBehaviorTests
                 await db.Database.MigrateAsync();
                 return temp;
             }
-            catch
+            catch (Exception ex)
             {
-                return null;
+                // PLATFORM_TEST_DB is set, so Postgres tests are expected to run: fail loudly instead of skipping.
+                throw new InvalidOperationException(
+                    "PLATFORM_TEST_DB is set but the temporary Postgres database could not be created/migrated.", ex);
             }
         }
 

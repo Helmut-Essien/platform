@@ -431,6 +431,23 @@ public class BillingService(
         if (GetNetPaid(invoice) > 0 || invoice.Receipts.Any(r => r.Status == ReceiptStatus.Posted))
             throw new InvalidOperationException("Cannot void an invoice that has posted payments.");
 
+        var blockMinutes = Math.Clamp(_billing.VoidBlockAfterCheckoutMinutes, 0, 24 * 60);
+        if (blockMinutes > 0)
+        {
+            var since = DateTime.UtcNow.AddMinutes(-blockMinutes);
+            var started = await db.PaymentCheckouts
+                .IgnoreQueryFilters()
+                .Where(c => c.InvoiceId == id && c.Status == PaymentCheckoutStatus.Pending && c.CreatedAt >= since)
+                .MaxAsync(c => (DateTime?)c.CreatedAt, ct);
+            if (started is { } at)
+            {
+                var wait = Math.Max(1, (int)Math.Ceiling((at.AddMinutes(blockMinutes) - DateTime.UtcNow).TotalMinutes));
+                throw new InvalidOperationException(
+                    $"The customer started an online payment for this invoice {Math.Max(0, (int)(DateTime.UtcNow - at).TotalMinutes)} minute(s) ago and may still be paying. " +
+                    $"Try voiding again in about {wait} minute(s), or once that payment has failed or expired.");
+            }
+        }
+
         if (invoice.Status is not (InvoiceStatus.Draft or InvoiceStatus.Sent or InvoiceStatus.Overdue or InvoiceStatus.PartiallyPaid))
             throw new InvalidOperationException("Only draft, sent, overdue, or unpaid invoices can be voided.");
 

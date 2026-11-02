@@ -462,6 +462,14 @@ public class PaystackPaymentTests
         var billing = CreateBilling(db);
         var invoice = await CreateInvoiceAsync(db, billing, 10m);
         var checkout = await service.StartCheckoutAsync(invoice.Id, "admin");
+        // Void is blocked while the checkout is fresh; once it is older than the window it is allowed.
+        var blocked = await Assert.ThrowsAsync<InvalidOperationException>(() => billing.VoidInvoiceAsync(invoice.Id, "admin"));
+        Assert.Contains("online payment", blocked.Message);
+        db.ChangeTracker.Clear();
+        var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+        row.CreatedAt = DateTime.UtcNow.AddMinutes(-31);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
         await billing.VoidInvoiceAsync(invoice.Id, "admin");
         gateway.Verification = new GatewayVerification(
             GatewayTransactionState.Success, 1000, "GHS", "card", DateTime.UtcNow, "1", null);
@@ -673,24 +681,99 @@ public class PaystackPaymentTests
     }
 
     [Fact]
-    public async Task RefundWebhook_FlagsCheckout_KeepsReceipt_AndStillCountsTowardCap()
+    public async Task FullRefundWebhook_ReversesReceiptOnce_AndStillCountsTowardCap()
     {
-        var (db, service, gateway, _, reference) = await PaidCheckoutAsync();
+        var (db, service, gateway, invoiceId, reference) = await PaidCheckoutAsync();
         await using var _db = db;
+        var refund = EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{reference}}}","amount":1000,"currency":"GHS","domain":"test"}}""");
 
-        await service.HandleWebhookAsync(EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{reference}}}","amount":1000,"currency":"GHS","domain":"test"}}"""));
+        await service.HandleWebhookAsync(refund);
+        db.ChangeTracker.Clear();
+        await service.HandleWebhookAsync(refund); // duplicate delivery
         db.ChangeTracker.Clear();
 
         var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(PaymentCheckoutStatus.Refunded, row.Status);
-        Assert.Contains("Refund 10.00 GHS", row.LastError);
-        Assert.Single(await db.Receipts.IgnoreQueryFilters().ToListAsync()); // admin decides on reversal
+        Assert.Contains("Full refund 10.00 GHS", row.LastError);
+        var receipt = await db.Receipts.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(ReceiptStatus.Reversed, receipt.Status);
+        Assert.Equal(1, await db.PaymentTransactions.IgnoreQueryFilters().CountAsync(t => t.Kind == PaymentTransactionKind.Reversal));
+        Assert.NotEqual(InvoiceStatus.Paid, (await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoiceId)).Status);
         Assert.Equal(10m, (await service.GetStatusAsync()).CollectedTotal);
 
         // A replayed charge.success afterwards must not resurrect it.
         var calls = gateway.VerifyCalls;
         await service.HandleWebhookAsync(WebhookBody(reference));
         Assert.Equal(calls, gateway.VerifyCalls);
+    }
+
+    [Theory]
+    [InlineData(PaymentCheckoutStatus.Expired)]
+    [InlineData(PaymentCheckoutStatus.Failed)]
+    public async Task Void_AllowedOnceRecentCheckoutHasEnded(PaymentCheckoutStatus ended)
+    {
+        await using var db = CreateDbContext();
+        var billing = CreateBilling(db);
+        var invoice = await CreateInvoiceAsync(db, billing, 10m);
+        var (service, _) = CreateService(db);
+        await service.StartCheckoutAsync(invoice.Id, "admin");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => billing.VoidInvoiceAsync(invoice.Id, "admin"));
+
+        db.ChangeTracker.Clear();
+        var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+        row.Status = ended;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        await billing.VoidInvoiceAsync(invoice.Id, "admin");
+        Assert.Equal(InvoiceStatus.Void, (await db.Invoices.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Void_BlockDisabledWhenWindowIsZero()
+    {
+        await using var db = CreateDbContext();
+        var invoice = await CreateInvoiceAsync(db, CreateBilling(db), 10m);
+        var (service, _) = CreateService(db);
+        await service.StartCheckoutAsync(invoice.Id, "admin");
+        db.ChangeTracker.Clear();
+
+        var billing = new BillingService(db, new NoopAudit(), new EmailOutboxService(db), new EmailTemplateService(), new NoopDenyList(),
+            billingSettings: Options.Create(new BillingSettings { VoidBlockAfterCheckoutMinutes = 0 }));
+        await billing.VoidInvoiceAsync(invoice.Id, "admin");
+        Assert.Equal(InvoiceStatus.Void, (await db.Invoices.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task PartialRefundWebhook_KeepsReceipt_FlagsForReview()
+    {
+        var (db, service, _, _, reference) = await PaidCheckoutAsync();
+        await using var _db = db;
+
+        await service.HandleWebhookAsync(EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{reference}}}","amount":400,"currency":"GHS","domain":"test"}}"""));
+        db.ChangeTracker.Clear();
+
+        var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(PaymentCheckoutStatus.Refunded, row.Status);
+        Assert.Contains("needs review", row.LastError);
+        Assert.Equal(ReceiptStatus.Posted, (await db.Receipts.IgnoreQueryFilters().SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task FullRefund_AfterAdminAlreadyReversed_DoesNotThrow()
+    {
+        var (db, service, _, invoiceId, reference) = await PaidCheckoutAsync();
+        await using var _db = db;
+        var receipt = await db.Receipts.IgnoreQueryFilters().SingleAsync();
+        await CreateBilling(db).ReverseReceiptAsync(invoiceId, receipt.Id,
+            new ReverseReceiptRequest { IdempotencyKey = "admin-rev", Reason = "manual" }, "admin");
+        db.ChangeTracker.Clear();
+
+        await service.HandleWebhookAsync(EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{reference}}}","amount":1000,"currency":"GHS","domain":"test"}}"""));
+        db.ChangeTracker.Clear();
+
+        Assert.Equal(1, await db.PaymentTransactions.IgnoreQueryFilters().CountAsync(t => t.Kind == PaymentTransactionKind.Reversal));
+        Assert.Contains("not reversed automatically", (await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).LastError);
     }
 
     [Fact]
@@ -710,7 +793,8 @@ public class PaystackPaymentTests
         var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(PaymentCheckoutStatus.Refunded, row.Status);
         Assert.NotNull(row.ReceiptId);
-        Assert.Single(await db.Receipts.IgnoreQueryFilters().ToListAsync());
+        var receipt = await db.Receipts.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(ReceiptStatus.Reversed, receipt.Status); // full refund: recorded, then reversed
     }
 
     [Theory]
@@ -877,6 +961,36 @@ public class PaystackPaymentTests
         Assert.Single(sessions.Select(s => s.Reference).Distinct());
         await using var check = pg.NewContext();
         Assert.Equal(1, await check.PaymentCheckouts.IgnoreQueryFilters().CountAsync());
+    }
+
+    [Fact]
+    public async Task Postgres_ConcurrentDuplicateFullRefunds_BeforeChargeSuccess_RecordAndReverseOnce()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+
+        string invoiceId, reference;
+        await using (var seed = pg.NewContext())
+        {
+            invoiceId = (await CreateInvoiceAsync(seed, CreateBilling(seed), 20m)).Id;
+            var (service, _) = CreateService(seed);
+            reference = (await service.StartCheckoutAsync(invoiceId, "admin")).Reference;
+        }
+
+        var refund = EventBody($$$"""{"event":"refund.processed","data":{"transaction_reference":"{{{reference}}}","amount":2000,"currency":"GHS","domain":"test"}}""");
+        await Task.WhenAll(Enumerable.Range(0, 5).Select(async _ =>
+        {
+            await using var db = pg.NewContext();
+            var (service, gateway) = CreateService(db);
+            gateway.Verification = new GatewayVerification(GatewayTransactionState.Success, 2000, "GHS", "card", DateTime.UtcNow, "1", null);
+            await service.HandleWebhookAsync(refund);
+        }));
+
+        await using var check = pg.NewContext();
+        Assert.Equal(1, await check.Receipts.IgnoreQueryFilters().CountAsync(r => r.InvoiceId == invoiceId));
+        Assert.Equal(1, await check.PaymentTransactions.IgnoreQueryFilters().CountAsync(t => t.InvoiceId == invoiceId && t.Kind == PaymentTransactionKind.Reversal));
+        Assert.Equal(PaymentCheckoutStatus.Refunded, (await check.PaymentCheckouts.IgnoreQueryFilters().SingleAsync()).Status);
     }
 
     [Fact]

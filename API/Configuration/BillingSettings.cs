@@ -44,4 +44,10 @@ public class BillingSettings
 
     /// <summary>Optional dedicated HMAC key (32+ chars). Defaults to a key derived from Jwt:Key.</summary>
     public string? PayLinkSigningKey { get; set; }
+
+    /// <summary>
+    /// An invoice can't be voided while an online checkout started within this many minutes is still pending
+    /// (the payer may be on the Paystack page). 0 turns the guard off.
+    /// </summary>
+    public int VoidBlockAfterCheckoutMinutes { get; set; } = 30;
 }
