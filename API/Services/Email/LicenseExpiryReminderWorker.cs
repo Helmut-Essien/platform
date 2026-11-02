@@ -73,6 +73,7 @@ public class LicenseExpiryReminderWorker(
                 && !x.Customer.IsSuspended
                 && x.ExpiresAt != null
                 && x.ExpiresAt <= horizon
+                && x.ExpiresAt >= now.Date // ended trials (not yet flipped to Expired) don't fill the batch
                 && (x.TrialReminderForEndsAt == null || x.TrialReminderForEndsAt != x.ExpiresAt)
                 && !(invoicesOn && x.AutoRenewInvoice && x.BillingAmount > 0 && x.BillingCurrency != null))
             .OrderBy(x => x.ExpiresAt)

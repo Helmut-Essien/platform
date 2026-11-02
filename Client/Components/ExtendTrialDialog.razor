@@ -16,11 +16,21 @@
                 <span> The latest allowed end is <strong>@DateFormat.Date(cap)</strong>.</span>
             }
         </MudText>
+        @if (AtCap)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                This trial is already at its maximum length (Billing:TrialMaxTotalMonths). Renew it, or make it
+                complimentary, to give more time.
+            </MudAlert>
+        }
+        else
+        {
         <MudDatePicker @bind-Date="_endsAt"
                        Label="New trial end"
                        MinDate="@MinDate"
                        MaxDate="@License.TrialMaxEndsAt"
                        Variant="Variant.Outlined" />
+        }
         <MudText Typo="Typo.caption" Class="d-block mt-2">
             An unpaid trial invoice moves to the new date, and the reminder is sent again before it.
             @(License.Status == LicenseStatus.Expired ? "This trial has ended; extending it switches access back on." : "")
@@ -28,7 +38,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || _endsAt is null)">Extend</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || _endsAt is null || AtCap)">Extend</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -50,8 +60,12 @@
         }
     }
 
+    private bool AtCap => License.TrialMaxEndsAt is { } cap && MinDate > cap.Date;
+
     protected override void OnInitialized()
     {
+        if (AtCap)
+            return;
         var proposed = (License.ExpiresAt?.Date ?? DateTime.Today).AddDays(14);
         if (proposed < MinDate)
             proposed = MinDate;

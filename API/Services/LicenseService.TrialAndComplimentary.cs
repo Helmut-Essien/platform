@@ -84,6 +84,9 @@ public partial class LicenseService
                 {
                     invoice.RenewalForExpiresAt = newEnd;
                     invoice.DueDate = newEnd;
+                    // Keep an already-sent pay link working until the new due date (plus a week).
+                    if (invoice.PayLinkExpiresAt is { } linkEnd && linkEnd < newEnd.AddDays(7))
+                        invoice.PayLinkExpiresAt = newEnd.AddDays(7);
                     if (invoice.Status == InvoiceStatus.Overdue)
                         invoice.Status = InvoiceStatus.Sent; // no longer past its (new) due date
                     invoice.UpdatedAt = now;
@@ -142,40 +145,8 @@ public partial class LicenseService
 
             // Unpaid invoices are no longer owed. Ones with money on them, or a customer mid-payment, stay for the
             // admin to settle (refund or void) and are listed in the audit entry.
-            var voided = new List<string>();
-            var keptOpen = new List<string>();
-            if (invoiceIds.Count > 0)
-            {
-                var invoices = await db.Invoices
-                    .IgnoreQueryFilters()
-                    .Include(i => i.Receipts)
-                    .Include(i => i.PaymentTransactions)
-                    .Where(i => invoiceIds.Contains(i.Id) && OpenInvoiceStatuses.Contains(i.Status))
-                    .ToListAsync(ct);
-                var paying = await db.PaymentCheckouts
-                    .IgnoreQueryFilters()
-                    .Where(c => invoiceIds.Contains(c.InvoiceId) && c.Status == PaymentCheckoutStatus.Pending)
-                    .Select(c => c.InvoiceId)
-                    .Distinct()
-                    .ToListAsync(ct);
-                foreach (var invoice in invoices)
-                {
-                    if (paying.Contains(invoice.Id)
-                        || BillingService.GetNetPaid(invoice) != 0
-                        || invoice.Receipts.Any(r => r.Status == ReceiptStatus.Posted))
-                    {
-                        keptOpen.Add(invoice.InvoiceNumber);
-                        continue;
-                    }
-                    invoice.Status = InvoiceStatus.Void;
-                    invoice.UpdatedAt = now;
-                    PayLinkService.Revoke(invoice);
-                    voided.Add(invoice.InvoiceNumber);
-                    await auditLog.WriteAsync(AuditAction.InvoiceVoided, performedBy, invoice.CustomerId, invoice.LicenseId,
-                        invoice.Id, AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, reason = "license made complimentary" }),
-                        ipAddress, ct);
-                }
-            }
+            var (voided, keptOpen) = await VoidUnpaidInvoicesAsync(invoiceIds, "license made complimentary", now,
+                performedBy, ipAddress, ct);
 
             var previousStatus = license.Status;
             var wasTrial = license.IsTrial;
@@ -291,6 +262,64 @@ public partial class LicenseService
         db.ChangeTracker.Clear();
         return await MapLicenseAsync(id, includeSuspendedCustomers: true, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load license.");
+    }
+
+    /// <summary>
+    /// Voids the given (already row-locked) open invoices that have no money on them and no checkout in flight,
+    /// revoking their pay links. Returns the voided and the kept-open invoice numbers.
+    /// </summary>
+    private async Task<(List<string> Voided, List<string> KeptOpen)> VoidUnpaidInvoicesAsync(
+        IReadOnlyCollection<string> invoiceIds, string reason, DateTime now, string performedBy, string? ipAddress,
+        CancellationToken ct)
+    {
+        var voided = new List<string>();
+        var keptOpen = new List<string>();
+        if (invoiceIds.Count == 0)
+            return (voided, keptOpen);
+        var invoices = await db.Invoices
+            .IgnoreQueryFilters()
+            .Include(i => i.Receipts)
+            .Include(i => i.PaymentTransactions)
+            .Where(i => invoiceIds.Contains(i.Id) && OpenInvoiceStatuses.Contains(i.Status))
+            .ToListAsync(ct);
+        var paying = await db.PaymentCheckouts
+            .IgnoreQueryFilters()
+            .Where(c => invoiceIds.Contains(c.InvoiceId) && c.Status == PaymentCheckoutStatus.Pending)
+            .Select(c => c.InvoiceId)
+            .Distinct()
+            .ToListAsync(ct);
+        foreach (var invoice in invoices)
+        {
+            if (paying.Contains(invoice.Id)
+                || BillingService.GetNetPaid(invoice) != 0
+                || invoice.Receipts.Any(r => r.Status == ReceiptStatus.Posted))
+            {
+                keptOpen.Add(invoice.InvoiceNumber);
+                continue;
+            }
+            invoice.Status = InvoiceStatus.Void;
+            invoice.UpdatedAt = now;
+            PayLinkService.Revoke(invoice);
+            voided.Add(invoice.InvoiceNumber);
+            await auditLog.WriteAsync(AuditAction.InvoiceVoided, performedBy, invoice.CustomerId, invoice.LicenseId,
+                invoice.Id, AuditJson.Serialize(new { invoiceNumber = invoice.InvoiceNumber, reason }), ipAddress, ct);
+        }
+        return (voided, keptOpen);
+    }
+
+    /// <summary>Renewal lock, then the open trial invoices (id order). Returns their ids.</summary>
+    private async Task<List<string>> LockOpenTrialInvoicesAsync(string licenseId, CancellationToken ct)
+    {
+        await LockRenewalAsync(licenseId, ct);
+        var ids = await db.Invoices
+            .IgnoreQueryFilters()
+            .Where(i => i.LicenseId == licenseId && i.IsTrialConversion && OpenInvoiceStatuses.Contains(i.Status))
+            .OrderBy(i => i.Id)
+            .Select(i => i.Id)
+            .ToListAsync(ct);
+        foreach (var invoiceId in ids)
+            await LockInvoiceRowAsync(invoiceId, ct);
+        return ids;
     }
 
     private async Task LockRenewalAsync(string licenseId, CancellationToken ct)

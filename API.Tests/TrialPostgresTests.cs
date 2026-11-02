@@ -189,4 +189,51 @@ public class TrialPostgresTests : IAsyncLifetime
         var paidList = await h.Licenses.ListAsync(kind: LicenseKind.Paid);
         Assert.Contains(paidList.Items, l => l.Id == license.Id);
     }
+
+    [Fact]
+    public async Task MixedTrialActions_Concurrently_NoDeadlock_ConsistentEnd()
+    {
+        if (_pg is null)
+            return;
+        for (var round = 0; round < 5; round++)
+        {
+            string licenseId;
+            Platform.Shared.Dtos.Billing.InvoiceDto invoice;
+            await using (var seed = _pg.NewContext())
+            {
+                var h = LicenseActivationTests.Create(seed);
+                var (c, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(seed);
+                var dto = await h.Licenses.CreateAsync(TrialAndComplimentaryTests.TrialRequest(c, p, 1200m), "admin");
+                licenseId = dto.Id;
+                invoice = (await h.Billing.CreateRenewalInvoiceAsync(licenseId, dto.ExpiresAt, BillingService.RenewalActor))!;
+            }
+
+            var errors = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+            async Task Run(Func<LicenseActivationTests.Harness, Task> action)
+            {
+                await using var db = _pg!.NewContext();
+                try { await action(LicenseActivationTests.Create(db)); }
+                catch (InvalidOperationException) { } // business refusal (state changed under it) is fine
+                catch (ConflictException) { }
+                catch (Exception ex) { errors.Add(ex); }
+            }
+
+            await Task.WhenAll(
+                Run(h => PayInFullAsync(h.Billing, invoice, "pay-" + round)),
+                Run(h => h.Licenses.RenewAsync(licenseId, new RenewLicenseRequest { ExpiresAt = Today.AddYears(2) }, "admin")),
+                Run(h => h.Licenses.ExtendTrialAsync(licenseId, new ExtendTrialRequest { TrialEndsAt = invoice.DueDate!.Value.AddDays(5) }, "admin")),
+                Run(h => h.Licenses.MakeComplimentaryAsync(licenseId, new MakeComplimentaryRequest(), "admin")));
+
+            Assert.Empty(errors);
+            await using var check = _pg.NewContext();
+            var license = await check.Licenses.IgnoreQueryFilters().SingleAsync(l => l.Id == licenseId);
+            var inv = await check.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoice.Id);
+            // Never left as a trial with nothing open, and a paid trial invoice always ended the trial.
+            if (inv.Status == InvoiceStatus.Paid)
+                Assert.False(license.IsTrial);
+            if (license.IsTrial)
+                Assert.Equal(license.ExpiresAt, inv.RenewalForExpiresAt);
+            Assert.False(license.IsTrial && license.IsComplimentary);
+        }
+    }
 }

@@ -390,15 +390,21 @@
         }
     }
 
+    // Saving dialogs close only through their own buttons, so an in-flight save is never orphaned by Esc/backdrop.
+    private static readonly DialogOptions SavingDialogOptions = new() { BackdropClick = false, CloseOnEscapeKey = false };
+
     private async Task ExtendTrialAsync(LicenseDto license)
     {
         var dialog = await DialogService.ShowAsync<ExtendTrialDialog>("Extend trial", new DialogParameters
         {
             [nameof(ExtendTrialDialog.License)] = license
-        });
+        }, SavingDialogOptions);
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto updated)
+        {
+            await ReloadGrid(); // a refused save usually means the row changed elsewhere
             return;
+        }
         Snackbar.Add($"Trial extended to {DateFormat.Date(updated.ExpiresAt)}.", Severity.Success);
         await ReloadGrid();
     }
@@ -408,10 +414,13 @@
         var dialog = await DialogService.ShowAsync<MakeComplimentaryDialog>("Make complimentary", new DialogParameters
         {
             [nameof(MakeComplimentaryDialog.License)] = license
-        });
+        }, SavingDialogOptions);
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto updated)
+        {
+            await ReloadGrid(); // a refused save usually means the row changed elsewhere
             return;
+        }
         Snackbar.Add(updated.ExpiresAt is null
             ? "License is now complimentary (free, no end date)."
             : $"License is now complimentary until {DateFormat.Date(updated.ExpiresAt)}.", Severity.Success);
@@ -423,10 +432,13 @@
         var dialog = await DialogService.ShowAsync<EndComplimentaryDialog>("Switch to paid", new DialogParameters
         {
             [nameof(EndComplimentaryDialog.License)] = license
-        });
+        }, SavingDialogOptions);
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto)
+        {
+            await ReloadGrid();
             return;
+        }
         Snackbar.Add("License switched to paid.", Severity.Success);
         await ReloadGrid();
     }
@@ -667,7 +679,10 @@
         }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto updated)
+        {
+            await ReloadGrid(); // a refused save usually means the row changed elsewhere
             return;
+        }
 
         await ShowResultDialog(updated, "Key Resent");
         await ReloadGrid();

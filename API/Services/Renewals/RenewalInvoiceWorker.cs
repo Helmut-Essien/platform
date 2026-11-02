@@ -102,11 +102,13 @@ public sealed class RenewalInvoiceWorker(
         // Trials get their first invoice with the trial-ending reminder, on the trial's own schedule.
         var trialHorizon = now.AddDays(Math.Clamp(options.TrialReminderDaysBefore, 1, 60));
         var lookback = now.AddDays(-Math.Clamp(options.RenewalLookbackDays, 0, 365));
+        var outer = horizon > trialHorizon ? horizon : trialHorizon;
         var rows = await db.Licenses
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(l => (l.Status == LicenseStatus.Active || l.Status == LicenseStatus.Expired)
                 && l.ExpiresAt != null
+                && l.ExpiresAt <= outer // plain range on ExpiresAt so the index applies; per-kind window below
                 && (l.IsTrial ? l.ExpiresAt <= trialHorizon : l.ExpiresAt <= horizon)
                 && !l.IsComplimentary
                 && l.ExpiresAt > lookback

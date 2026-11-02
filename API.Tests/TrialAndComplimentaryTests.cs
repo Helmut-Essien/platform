@@ -411,4 +411,177 @@ public class TrialAndComplimentaryTests
         Assert.DoesNotContain("Please arrange payment by the due date", html);
         Assert.Contains("https://pay.test/x", html);
     }
+
+
+    // ---- deep review ----
+
+    [Fact]
+    public async Task RefundOfTrialConversion_RestoresTrial_AndTrialEnd()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db);
+        var (c, p) = await SeedCustomerAndProductAsync(db);
+        var dto = await h.Licenses.CreateAsync(TrialRequest(c, p, 1200m), "admin");
+        var invoice = await h.Billing.CreateRenewalInvoiceAsync(dto.Id, dto.ExpiresAt, BillingService.RenewalActor);
+        var receipt = await PayInFullAsync(h.Billing, invoice!);
+        Assert.False((await Reload(db, dto.Id)).IsTrial);
+
+        await h.Billing.ReverseReceiptAsync(invoice!.Id, receipt.Id,
+            new Platform.Shared.Dtos.Billing.ReverseReceiptRequest { IdempotencyKey = "rev", Reason = "refund" }, "admin");
+
+        var license = await Reload(db, dto.Id);
+        Assert.True(license.IsTrial);
+        Assert.Equal(dto.ExpiresAt, license.ExpiresAt);
+        Assert.Equal(LicenseStatus.Active, license.Status); // trial still running
+        // Paying again converts again.
+        db.ChangeTracker.Clear();
+        var reopened = await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoice.Id);
+        Assert.NotEqual(InvoiceStatus.Paid, reopened.Status);
+    }
+
+    [Fact]
+    public async Task ManualRenewOfPricedTrial_VoidsUnpaidTrialInvoice()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db);
+        var (c, p) = await SeedCustomerAndProductAsync(db);
+        var dto = await h.Licenses.CreateAsync(TrialRequest(c, p, 1200m), "admin");
+        var invoice = await h.Billing.CreateRenewalInvoiceAsync(dto.Id, dto.ExpiresAt, BillingService.RenewalActor);
+
+        var renewed = await h.Licenses.RenewAsync(dto.Id, new RenewLicenseRequest { ExpiresAt = Today.AddYears(1) }, "admin");
+
+        Assert.False(renewed.IsTrial);
+        db.ChangeTracker.Clear();
+        var trialInvoice = await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoice!.Id);
+        Assert.Equal(InvoiceStatus.Void, trialInvoice.Status);
+        Assert.Null(trialInvoice.PayLinkNonce);
+    }
+
+    [Fact]
+    public async Task ManualRenewOfTrial_KeepsTrialInvoiceWithMoneyOnIt()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db);
+        var (c, p) = await SeedCustomerAndProductAsync(db);
+        var dto = await h.Licenses.CreateAsync(TrialRequest(c, p, 1200m), "admin");
+        var invoice = await h.Billing.CreateRenewalInvoiceAsync(dto.Id, dto.ExpiresAt, BillingService.RenewalActor);
+        await h.Billing.RecordReceiptAsync(invoice!.Id, LicenseActivationTests.Pay(100m, "part"), "admin");
+
+        await h.Licenses.RenewAsync(dto.Id, new RenewLicenseRequest { ExpiresAt = Today.AddYears(1) }, "admin");
+
+        db.ChangeTracker.Clear();
+        Assert.Equal(InvoiceStatus.PartiallyPaid, (await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoice.Id)).Status);
+    }
+
+    [Fact]
+    public async Task OverdueSupersededRenewalInvoice_DoesNotSuspend()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db);
+        var expiry = Today.AddDays(3);
+        var seeded = await SeedLicenseAsync(db, expiry);
+        var invoice = await h.Billing.CreateRenewalInvoiceAsync(seeded.Id, expiry, BillingService.RenewalActor);
+        await h.Licenses.RenewAsync(seeded.Id, new RenewLicenseRequest { ExpiresAt = Today.AddYears(1) }, "admin");
+        var tracked = await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoice!.Id);
+        tracked.Status = InvoiceStatus.Overdue;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var suspended = await OverdueInvoiceLifecycleWorker.TrySuspendForOverdueAsync(
+            db, h.Licenses, h.Audit, invoice!.Id, seeded.Id, seeded.CustomerId, CancellationToken.None);
+
+        Assert.False(suspended);
+        Assert.Equal(LicenseStatus.Active, (await Reload(db, seeded.Id)).Status);
+    }
+
+    [Fact]
+    public async Task ComplimentaryPaidComplimentary_RoundTrip()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db);
+        var seeded = await SeedLicenseAsync(db, Today.AddDays(40));
+        await h.Licenses.MakeComplimentaryAsync(seeded.Id, new MakeComplimentaryRequest(), "admin");
+        var paid = await h.Licenses.EndComplimentaryAsync(seeded.Id, new EndComplimentaryRequest
+        {
+            Billing = new LicenseBillingDto { Amount = 80m, Currency = null, PeriodMonths = 1 },
+            ExpiresAt = Today.AddDays(10)
+        }, "admin");
+        Assert.False(paid.IsComplimentary);
+        var firstInvoice = await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.LicenseId == seeded.Id);
+
+        var again = await h.Licenses.MakeComplimentaryAsync(seeded.Id, new MakeComplimentaryRequest { ExpiresAt = Today.AddDays(90) }, "admin");
+        Assert.True(again.IsComplimentary);
+        Assert.Equal(Today.AddDays(90), again.ExpiresAt);
+        db.ChangeTracker.Clear();
+        Assert.Equal(InvoiceStatus.Void, (await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == firstInvoice.Id)).Status);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Licenses.MakeComplimentaryAsync(seeded.Id, new MakeComplimentaryRequest(), "admin")
+                .ContinueWith(_ => h.Licenses.EndComplimentaryAsync(seeded.Id, new EndComplimentaryRequest
+                {
+                    Billing = new LicenseBillingDto { Amount = 0m, Currency = null, PeriodMonths = 1 }
+                }, "admin")).Unwrap());
+    }
+
+    [Fact]
+    public async Task ExtendTrial_PartiallyPaidInvoice_MovesAndKeepsPayLinkAlive()
+    {
+        await using var db = CreateDb();
+        var audit = new RecordingAudit();
+        var billing = CreateBilling(db, audit, payLinks: CreatePayLinks(validDays: 7));
+        var h = LicenseActivationTests.Create(db);
+        var (c, p) = await SeedCustomerAndProductAsync(db);
+        var dto = await h.Licenses.CreateAsync(TrialRequest(c, p, 1200m), "admin");
+        var invoice = await billing.CreateRenewalInvoiceAsync(dto.Id, dto.ExpiresAt, BillingService.RenewalActor);
+        await billing.RecordReceiptAsync(invoice!.Id, LicenseActivationTests.Pay(100m, "part"), "admin");
+        db.ChangeTracker.Clear();
+        Assert.NotNull((await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoice.Id)).PayLinkExpiresAt);
+
+        var newEnd = dto.TrialMaxEndsAt!.Value;
+        await h.Licenses.ExtendTrialAsync(dto.Id, new ExtendTrialRequest { TrialEndsAt = newEnd }, "admin");
+
+        db.ChangeTracker.Clear();
+        var moved = await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == invoice.Id);
+        Assert.Equal(InvoiceStatus.PartiallyPaid, moved.Status);
+        Assert.Equal(newEnd, moved.RenewalForExpiresAt);
+        Assert.True(moved.PayLinkExpiresAt >= newEnd);
+    }
+
+    [Fact]
+    public void TrialCap_MonthEnd_ClampsToLastDay()
+    {
+        var cap = LicenseService.TrialCap(new DateTime(2027, 1, 31, 15, 0, 0, DateTimeKind.Utc), 1);
+        Assert.Equal(new DateTime(2027, 2, 28, 0, 0, 0, DateTimeKind.Utc), cap);
+        Assert.Equal(new DateTime(2028, 2, 29, 0, 0, 0, DateTimeKind.Utc),
+            LicenseService.TrialCap(new DateTime(2027, 11, 30, 0, 0, 0, DateTimeKind.Utc), 3));
+    }
+
+    [Fact]
+    public async Task RenewalCandidates_TrialsUseTrialWindow_PaidUseRenewalWindow()
+    {
+        await using var db = CreateDb();
+        var trialSoon = await SeedLicenseAsync(db, Today.AddDays(5));
+        var trialLater = await SeedLicenseAsync(db, Today.AddDays(10));
+        var paidLater = await SeedLicenseAsync(db, Today.AddDays(10));
+        var comp = await SeedLicenseAsync(db, Today.AddDays(5));
+        foreach (var id in new[] { trialSoon.Id, trialLater.Id })
+            (await db.Licenses.SingleAsync(l => l.Id == id)).IsTrial = true;
+        (await db.Licenses.SingleAsync(l => l.Id == comp.Id)).IsComplimentary = true;
+        await db.SaveChangesAsync();
+
+        var found = await RenewalInvoiceWorker.FindCandidatesAsync(db,
+            new BillingSettings { RenewalInvoiceDaysBefore = 14, TrialReminderDaysBefore = 7 }, DateTime.UtcNow, [], CancellationToken.None);
+        var ids = found.Select(f => f.Id).ToHashSet();
+        Assert.Contains(trialSoon.Id, ids);
+        Assert.Contains(paidLater.Id, ids);
+        Assert.DoesNotContain(trialLater.Id, ids);
+        Assert.DoesNotContain(comp.Id, ids);
+
+        // Trial window longer than the renewal window still works.
+        found = await RenewalInvoiceWorker.FindCandidatesAsync(db,
+            new BillingSettings { RenewalInvoiceDaysBefore = 3, TrialReminderDaysBefore = 12 }, DateTime.UtcNow, [], CancellationToken.None);
+        ids = found.Select(f => f.Id).ToHashSet();
+        Assert.Contains(trialLater.Id, ids);
+        Assert.DoesNotContain(paidLater.Id, ids);
+    }
 }

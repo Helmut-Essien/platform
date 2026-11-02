@@ -413,6 +413,10 @@ public partial class LicenseService(
         CancellationToken cancellationToken = default) =>
         RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
+        // Same lock order as billing (renewal lock, invoice rows, license): a manual renewal of a trial voids
+        // its unpaid trial invoice, which would otherwise stay payable for a period that no longer applies.
+        var trialInvoiceIds = await LockOpenTrialInvoicesAsync(id, ct);
+        await LockLicenseRowAsync(id, ct);
         var license = await db.Licenses
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
@@ -452,6 +456,9 @@ public partial class LicenseService(
         }
         var trialConverted = license.IsTrial;
         license.IsTrial = false; // a manual renewal ends the trial: the admin has set a paid term
+        var (trialInvoicesVoided, trialInvoicesKeptOpen) = trialConverted
+            ? await VoidUnpaidInvoicesAsync(trialInvoiceIds, "trial converted by manual renewal", now, performedBy, ipAddress, ct)
+            : ([], []);
 
         if (request.RotateLicenseKey)
         {
@@ -476,7 +483,13 @@ public partial class LicenseService(
             null, AuditJson.Serialize(new { keyRotated = request.RotateLicenseKey }), ipAddress, ct);
         if (trialConverted)
             await auditLog.WriteAsync(AuditAction.LicenseTrialConverted, performedBy, license.CustomerId, license.Id,
-                null, AuditJson.Serialize(new { source = "manual-renewal", expiresAt = license.ExpiresAt }), ipAddress, ct);
+                null, AuditJson.Serialize(new
+                {
+                    source = "manual-renewal",
+                    expiresAt = license.ExpiresAt,
+                    invoicesVoided = trialInvoicesVoided,
+                    invoicesLeftOpen = trialInvoicesKeptOpen
+                }), ipAddress, ct);
 
         if (request.RotateLicenseKey)
         {

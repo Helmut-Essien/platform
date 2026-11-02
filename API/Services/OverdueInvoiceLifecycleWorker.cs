@@ -111,17 +111,21 @@ public class OverdueInvoiceLifecycleWorker(
 
             var invoice = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
                 .Where(x => x.Id == invoiceId)
-                .Select(x => new { x.Status, x.TotalAmount })
+                .Select(x => new { x.Status, x.TotalAmount, x.RenewalForExpiresAt })
                 .FirstOrDefaultAsync(ct);
             if (invoice is null || invoice.Status != InvoiceStatus.Overdue)
                 return false;
 
             var license = await db.Licenses.IgnoreQueryFilters().AsNoTracking()
                 .Where(x => x.Id == licenseId)
-                .Select(x => new { x.Status, x.IsComplimentary })
+                .Select(x => new { x.Status, x.IsComplimentary, x.ExpiresAt })
                 .FirstOrDefaultAsync(ct);
             // Complimentary (free) licenses are never suspended over an invoice.
             if (license is null || license.Status != LicenseStatus.Active || license.IsComplimentary)
+                return false;
+            // A renewal (or trial) invoice for a period the license has already moved past (renewed by hand) is
+            // not what keeps it running: paying it would not extend anything, so it must not suspend access.
+            if (invoice.RenewalForExpiresAt is { } period && license.ExpiresAt is { } current && current > period)
                 return false;
 
             await licenseService.SuspendAsync(
