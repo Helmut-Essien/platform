@@ -1,0 +1,104 @@
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Devices</MudText>
+        <MudText Typo="Typo.caption">
+            @License.CustomerName · @License.ServiceProductCode ·
+            @(License.MaxDevices is { } max ? $"{ActiveCount} of {max} in use" : $"{ActiveCount} active (unlimited)")
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_devices is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_devices.Count == 0)
+        {
+            <MudText Typo="Typo.body2">No devices have activated this license yet.</MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Hover="true">
+                <thead>
+                    <tr><th>Device</th><th>First seen</th><th>Last seen</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in _devices)
+                    {
+                        <tr>
+                            <td>
+                                <div>@(string.IsNullOrWhiteSpace(d.Name) ? "Unnamed device" : d.Name)</div>
+                                <MudText Typo="Typo.caption">@d.Fingerprint</MudText>
+                            </td>
+                            <td>@d.FirstSeenAt.ToLocalTime().ToString("g")</td>
+                            <td>@d.LastSeenAt.ToLocalTime().ToString("g")</td>
+                            <td>@(d.IsActive ? "Active" : $"Released {d.RevokedAt?.ToLocalTime():g}")</td>
+                            <td>
+                                @if (d.IsActive)
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text"
+                                               Disabled="_busy" OnClick="@(() => ReleaseAsync(d))">Release</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="@(() => MudDialog.Close())">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+    [Parameter] public required LicenseDto License { get; set; }
+
+    private List<LicenseDeviceDto>? _devices;
+    private bool _busy;
+    private int ActiveCount => _devices?.Count(d => d.IsActive) ?? 0;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _devices = (await Api.GetLicenseDevicesAsync(License.Id)).ToList();
+        }
+        catch (Exception)
+        {
+            _devices = [];
+            Snackbar.Add("Couldn't load devices.", Severity.Error);
+        }
+    }
+
+    private async Task ReleaseAsync(LicenseDeviceDto device)
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.ReleaseLicenseDeviceAsync(License.Id, device.Id);
+            if (result.IsSuccess)
+            {
+                Snackbar.Add("Device released. Its slot is free for a new device.", Severity.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Release failed.", Severity.Error);
+            }
+        }
+        catch (Exception)
+        {
+            Snackbar.Add("Couldn't reach the server.", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

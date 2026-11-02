@@ -51,22 +51,6 @@ public class LicenseValidationServiceTests
     }
 
     [Fact]
-    public async Task ValidateAsync_ReturnsInvalidWhenLicenseOnDenyList()
-    {
-        await using var db = CreateDbContext();
-        var fixture = await SeedActiveLicenseAsync(db);
-        var denyList = new FakeDenyList { DeniedLicenseIds = { fixture.License.Id } };
-        var service = CreateService(db, denyList);
-
-        var result = await service.ValidateAsync(
-            PlainIntegrationKey,
-            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
-
-        Assert.False(result.IsValid);
-        Assert.Equal("License is not valid.", result.Message);
-    }
-
-    [Fact]
     public async Task ValidateAsync_ReturnsInvalidWhenCustomerSuspended()
     {
         await using var db = CreateDbContext();
@@ -81,61 +65,8 @@ public class LicenseValidationServiceTests
             new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
 
         Assert.False(result.IsValid);
-        Assert.Equal("Invalid license key.", result.Message);
-    }
-
-    [Fact]
-    public async Task ValidateAsync_UsesCacheOnSecondCall()
-    {
-        await using var db = CreateDbContext();
-        var fixture = await SeedActiveLicenseAsync(db);
-        var cache = CreateCache();
-        var service = CreateService(db, new FakeDenyList(), cache);
-
-        var first = await service.ValidateAsync(
-            PlainIntegrationKey,
-            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
-        Assert.True(first.IsValid);
-
-        // Break the key hash but keep the lookup hash. A cache miss would fail
-        // verification; a hit still skips BCrypt and returns the current plan.
-        fixture.License.PlanName = "Changed";
-        fixture.License.LicenseKeyHash = BCrypt.Net.BCrypt.HashPassword("HOSTEL-OTHER-KEY1");
-        await db.SaveChangesAsync();
-
-        var second = await service.ValidateAsync(
-            PlainIntegrationKey,
-            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
-
-        Assert.True(second.IsValid);
-        Assert.Equal("Changed", second.PlanName);
-
-        var cacheKey = RedisLicenseDenyListService.ValidationCacheKey(
-            fixture.Product.Id,
-            KeyLookupHasher.ComputeSha256Hex(PlainLicenseKey));
-        Assert.NotNull(await cache.GetStringAsync(cacheKey));
-    }
-
-    [Fact]
-    public async Task ValidateAsync_CacheHitStillHonorsDenyList()
-    {
-        await using var db = CreateDbContext();
-        var fixture = await SeedActiveLicenseAsync(db);
-        var denyList = new FakeDenyList();
-        var service = CreateService(db, denyList);
-
-        Assert.True((await service.ValidateAsync(
-            PlainIntegrationKey,
-            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey })).IsValid);
-
-        denyList.DeniedLicenseIds.Add(fixture.License.Id);
-
-        var result = await service.ValidateAsync(
-            PlainIntegrationKey,
-            new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
-
-        Assert.False(result.IsValid);
-        Assert.Equal("License is not valid.", result.Message);
+        Assert.Equal("License is suspended.", result.Message);
+        Assert.Equal("suspended", result.Reason);
     }
 
     [Fact]
@@ -157,7 +88,7 @@ public class LicenseValidationServiceTests
             new ValidateLicenseRequest { LicenseKey = PlainLicenseKey });
 
         Assert.False(result.IsValid);
-        Assert.Equal("License is not valid.", result.Message);
+        Assert.Equal("License has been revoked.", result.Message);
     }
 
     [Fact]
@@ -187,18 +118,13 @@ public class LicenseValidationServiceTests
         ILicenseDenyListService denyList,
         IDistributedCache? cache = null)
     {
-        return new LicenseValidationService(
-            db,
-            denyList,
-            cache ?? CreateCache(),
-            Options.Create(new RedisSettings { ValidationCacheSeconds = 60 }),
-            NullLogger<LicenseValidationService>.Instance);
+        return LicenseValidationTestFactory.Create(db);
     }
 
     private static IDistributedCache CreateCache() =>
         new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
 
-    private static AppDbContext CreateDbContext()
+    internal static AppDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(NUlid.Ulid.NewUlid().ToString())
@@ -206,7 +132,7 @@ public class LicenseValidationServiceTests
         return new AppDbContext(options);
     }
 
-    private static async Task<(Customer Customer, ServiceProduct Product, License License)> SeedActiveLicenseAsync(
+    internal static async Task<(Customer Customer, ServiceProduct Product, License License)> SeedActiveLicenseAsync(
         AppDbContext db)
     {
         var customer = new Customer

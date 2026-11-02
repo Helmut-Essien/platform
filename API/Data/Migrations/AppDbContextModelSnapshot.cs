@@ -656,6 +656,9 @@ namespace Platform.Api.Data.Migrations
                     b.Property<DateTime?>("LicenseKeySentAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("MaxDevices")
+                        .HasColumnType("integer");
+
                     b.Property<string>("PlanName")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -714,6 +717,43 @@ namespace Platform.Api.Data.Migrations
                         .HasFilter("\"IsTrial\"");
 
                     b.ToTable("Licenses", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Api.Entities.LicenseDevice", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("DeviceIdHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LicenseId")
+                        .IsRequired()
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LicenseId", "DeviceIdHash")
+                        .IsUnique();
+
+                    b.ToTable("LicenseDevices", (string)null);
                 });
 
             modelBuilder.Entity("Platform.Api.Entities.PaymentCheckout", b =>
@@ -1213,6 +1253,17 @@ namespace Platform.Api.Data.Migrations
                     b.Navigation("ServiceProduct");
                 });
 
+            modelBuilder.Entity("Platform.Api.Entities.LicenseDevice", b =>
+                {
+                    b.HasOne("Platform.Api.Entities.License", "License")
+                        .WithMany("Devices")
+                        .HasForeignKey("LicenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("License");
+                });
+
             modelBuilder.Entity("Platform.Api.Entities.PaymentCheckout", b =>
                 {
                     b.HasOne("Platform.Api.Entities.Invoice", "Invoice")
@@ -1281,6 +1332,8 @@ namespace Platform.Api.Data.Migrations
             modelBuilder.Entity("Platform.Api.Entities.License", b =>
                 {
                     b.Navigation("AuditLogs");
+
+                    b.Navigation("Devices");
 
                     b.Navigation("Invoices");
                 });

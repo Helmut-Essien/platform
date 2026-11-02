@@ -337,6 +337,24 @@ public class PlatformApiClientTests
         Assert.False(result.IsSuccess);
     }
 
+    [Fact]
+    public async Task LicenseDevices_ListAndRelease_UseExpectedRoutes()
+    {
+        var handler = new CapturingHttpMessageHandler(req => req.Method == HttpMethod.Get
+            ? JsonResponse(new List<LicenseDeviceDto> { new() { Id = "d1", Fingerprint = "abc" } })
+            : JsonResponse(new LicenseDeviceDto { Id = "d1", Fingerprint = "abc", RevokedAt = DateTime.UtcNow }));
+        var client = CreateClient(handler);
+
+        var devices = await client.GetLicenseDevicesAsync("lic 1");
+        Assert.Single(devices);
+        Assert.EndsWith("api/licenses/lic%201/devices", handler.LastRequest!.RequestUri!.AbsolutePath);
+
+        var released = await client.ReleaseLicenseDeviceAsync("lic1", "d1");
+        Assert.True(released.IsSuccess);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.EndsWith("api/licenses/lic1/devices/d1/release", handler.LastRequest.RequestUri!.AbsolutePath);
+    }
+
     private static PlatformApiClient CreateClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler)

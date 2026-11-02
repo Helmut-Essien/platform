@@ -74,6 +74,12 @@
             }
             @if (_kind != IssueKind.Complimentary)
             {
+                <MudNumericField T="int?" @bind-Value="_model.MaxDevices"
+                                 Label="Max devices"
+                                 HelperText="Leave empty for the default; 0 = unlimited"
+                                 Min="0" Max="1000"
+                                 Variant="Variant.Outlined"
+                                 Class="mb-2" />
                 <LicenseBillingFields Billing="_model.Billing!" Changed="OnBillingChanged" />
             }
             @if (_kind == IssueKind.Paid)

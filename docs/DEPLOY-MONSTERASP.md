@@ -28,6 +28,17 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Https__Redirect` | no | Default `true` in Production (with HSTS). |
 | `CORS_ORIGINS` | no | Comma-separated extra origins only if a UI on another domain calls this API. |
 | `ForwardedHeaders__Enabled` (+ `__KnownProxies__0` / `__KnownNetworks__0`) | no | Keep off for IIS in-process. Only enable behind a reverse proxy you list explicitly. |
+| `Licensing__TokenSigningKey` | recommended | ECDSA P-256 private key (PKCS#8 PEM; `\n` escapes allowed) used to sign offline license tokens. Unset in Production = no tokens and a loud startup error log. See §11. |
+| `Licensing__TokenSigningKeyId` | no | Key id (`kid`). Default = RFC 7638 thumbprint of the key. |
+| `Licensing__AdditionalPublicKeys__0__Kid` / `__PublicKeyPem` | during rotation | Old public keys still published at `/api/licenses/keys` so tokens signed before a rotation keep verifying. |
+| `Licensing__RequireTokenSigning` | no | `true` = refuse to start without a signing key (default `false`). |
+| `Licensing__OfflineGraceDays` | no | How long a product may run offline on its last token (default `7`). Never extends past license expiry + `ExpiryGraceHours`. |
+| `Licensing__ExpiryGraceHours` | no | Small allowance past the license expiry for the offline window (default `0`). |
+| `Licensing__TokenRefreshHours` | no | When products should re-check (`refreshAfter`, default `12`, capped at half the grace window). |
+| `Licensing__DefaultMaxDevices` | no | Device limit for newly issued licenses (default `3`; `0` = unlimited). Existing licenses stay unlimited until edited. |
+| `Licensing__RequireDeviceId` | no | `true` = reject validations without `deviceId` (default `false` for old clients). |
+| `Licensing__LicenseKeyPermitLimit` / `__PerIpPermitLimit` / `__RateLimitWindowSeconds` | no | Validation limits per license key (default 30) and per client IP (default 300) per window (default 60 s). |
+| `Licensing__ValidationTimeoutSeconds` / `__UnavailableRetryAfterSeconds` | no | DB timeout before answering 503 (default 10) and the `Retry-After` sent with it (default 30). |
 | `Paystack__SecretKey` | no | Enables online payments (`sk_test_…` or `sk_live_…`). Unset = feature hidden, endpoints return 503. See §9. |
 | `Paystack__PublicKey` | no | `pk_test_…` / `pk_live_…`. Stored for completeness; checkout uses Paystack's hosted page. |
 | `Paystack__CollectionCap` | no | Starter Business limit in GHS for the dashboard card (default `30000`; `0` hides it). |
@@ -275,3 +286,85 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 **Migration** `AddTrialsAndComplimentaryLicenses`: adds `Licenses.IsTrial`, `TrialStartedAt`, `TrialReminderForEndsAt`, `IsComplimentary`,
 `Invoices.IsTrialConversion` (all default false/null, existing licenses unchanged) and three partial indexes. Included in
 `docs/migrations-idempotent.sql`.
+
+## 11. License validation: signed tokens, devices and client integration
+
+### Generate the signing key (once)
+
+```bash
+# Option A – the app itself (prints private PEM, public PEM and kid; nothing is stored)
+dotnet Platform.Api.dll generate-license-key        # or: dotnet run --project API -- generate-license-key
+# Option B – openssl
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out license-signing.pem
+openssl ec -in license-signing.pem -pubout -out license-signing.pub.pem
+```
+
+Put the **private** PEM in `Licensing__TokenSigningKey` (paste it with real newlines or as one line with `\n`).
+Keep it secret; anyone with it can mint licenses. Products only ever need the public key / JWKS.
+
+**Rotation:** generate a new key, move the old *public* PEM and its kid into
+`Licensing__AdditionalPublicKeys__0__PublicKeyPem` / `__Kid`, set the new private key, restart.
+Leave the old public key published for at least `OfflineGraceDays` (+ refresh), then remove it.
+
+### Endpoints
+
+`POST /api/licenses/validate` (header `X-Integration-Key`) — request (all new fields optional, old clients keep working):
+
+```json
+{ "licenseKey": "HOSTEL-XXXX", "serviceCode": "HOSTEL", "deviceId": "stable-machine-id", "deviceName": "Front desk PC" }
+```
+
+`200` — the license was judged:
+
+```json
+{ "isValid": true, "reason": "ok", "planName": "Growth", "expiresAt": "2027-01-31T00:00:00Z",
+  "serverTime": "2026-11-02T10:00:00Z", "licenseId": "…", "token": "eyJhbGciOiJFUzI1NiIs…",
+  "refreshAfter": "2026-11-02T22:00:00Z", "offlineGraceUntil": "2026-11-09T10:00:00Z",
+  "maxDevices": 3, "activeDevices": 1 }
+```
+
+`isValid:false` (still 200) only when the license really is not usable; `reason` is one of
+`invalid_key`, `invalid_integration_key`, `wrong_service`, `not_active`, `expired`, `suspended`, `revoked`,
+`device_required`, `device_limit`. Bad input = `400 invalid_request`.
+
+`429 rate_limited` and `503 service_unavailable` mean **the server did not judge the license**. Both carry a
+`Retry-After` header and `{ "reason", "message", "serverTime", "retryAfterSeconds", "retryable": true }` (no `isValid`).
+
+`GET /api/licenses/keys` — JWKS (`{ "keys": [{ "kty":"EC","crv":"P-256","alg":"ES256","use":"sig","kid","x","y" }] }`), cacheable for an hour.
+
+### Token format
+
+Compact JWS, header `{"alg":"ES256","typ":"license+jwt","kid":…}`. Claims: `iss`, `sub`/`license_id`, `aud`/`product`,
+`customer_id`, `plan`, `license_expires_at`, `device_id` (as sent), `trial`, `complimentary`, `iat`,
+`server_time`, `refresh_after`, `grace_until`, `exp` (= `grace_until`).
+
+### Client integration guide (what each product must do)
+
+1. **Device id:** derive a stable id per installation (e.g. a GUID stored on first run, or a machine id) and send it
+   with every validation. Changing it uses a new device slot.
+2. **Validate on start-up and when `refreshAfter` passes.** Store the last `token` locally.
+3. **Verify the token locally** with the JWKS (fetch and cache it; re-fetch when you meet an unknown `kid`):
+   check the ES256 signature, `iss`, `aud`/`product` = your product code, `device_id` = your device id, and that
+   now < `exp`. Use the token's `server_time` vs. your clock to spot a badly wrong clock.
+4. **Offline / server trouble:** on network errors, `5xx`, `503` or `429`, keep running while the stored token is
+   valid (until `grace_until`). Retry with exponential backoff + jitter (e.g. 30 s, 1 m, 2 m … max 30 m) and always honour
+   `Retry-After`. Never treat these as "license invalid".
+5. **Only lock the product on a `200` with `isValid:false`** (or once the stored token's grace has run out). Show the
+   `message`; on `device_limit` tell the user to ask you to release an old device (Licenses → ⋮ → Devices).
+
+### Devices
+
+Each license has `MaxDevices` (set in Issue/Edit; 0 = unlimited). The first validation from a new `deviceId`
+activates a slot (audited). Admins can see devices and release one in **Licenses → ⋮ → Devices**; the slot is
+freed at once. Lowering the limit never removes active devices; it only blocks new ones.
+
+### Proxies
+
+Client-IP rate limiting uses the connection address. If the API sits behind a reverse proxy, set
+`ForwardedHeaders__Enabled=true` and list the proxy in `ForwardedHeaders__KnownProxies__0`; the app logs a warning
+once if traffic looks proxied while this is off. Leave it off on IIS in-process (MonsterASP).
+
+### Database migration
+
+This release adds the `LicenseDevices` table and a nullable `Licenses.MaxDevices` column
+(migration `AddLicenseDevices`, included in `docs/migrations-idempotent.sql`). Run it before deploying.

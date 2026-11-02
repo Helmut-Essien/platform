@@ -18,8 +18,12 @@ public partial class LicenseService(
     IEmailOutboxService outbox,
     EmailTemplateService templates,
     Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.BillingSettings>? billingSettings = null,
-    Renewals.PayLinkService? payLinks = null) : ILicenseService
+    Renewals.PayLinkService? payLinks = null,
+    Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.LicensingSettings>? licensingSettings = null) : ILicenseService
 {
+    private readonly Platform.Api.Configuration.LicensingSettings _licensing =
+        licensingSettings?.Value ?? new Platform.Api.Configuration.LicensingSettings();
+
     private readonly Platform.Api.Configuration.BillingSettings _settings =
         billingSettings?.Value ?? new Platform.Api.Configuration.BillingSettings();
 
@@ -77,6 +81,7 @@ public partial class LicenseService(
             Status = LicenseStatus.Pending,
             ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt),
             PlanName = request.PlanName,
+            MaxDevices = ResolveMaxDevices(request.MaxDevices ?? _licensing.DefaultMaxDevices),
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -555,6 +560,9 @@ public partial class LicenseService(
             SetAnchor(license);
         }
         ApplyBilling(license, request.Billing, _defaultCurrency);
+        int? oldMaxDevices = license.MaxDevices;
+        if (request.MaxDevices is { } requestedMax)
+            license.MaxDevices = ResolveMaxDevices(requestedMax);
         license.UpdatedAt = DateTime.UtcNow;
         var becameExpired = license.Status == LicenseStatus.Active
             && DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, license.UpdatedAt);
@@ -577,6 +585,9 @@ public partial class LicenseService(
         await auditLog.WriteAsync(AuditAction.LicenseUpdated, performedBy, license.CustomerId, license.Id, null,
             AuditJson.Serialize(new { planName = license.PlanName, expiresAt = license.ExpiresAt, status = license.Status.ToString() }),
             ipAddress, cancellationToken);
+        if (oldMaxDevices != license.MaxDevices)
+            await auditLog.WriteAsync(AuditAction.LicenseDeviceLimitChanged, performedBy, license.CustomerId, license.Id, null,
+                AuditJson.Serialize(new { from = oldMaxDevices, to = license.MaxDevices }), ipAddress, cancellationToken);
 
         return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
             ?? throw new InvalidOperationException("Failed to load license.");
@@ -912,6 +923,7 @@ public partial class LicenseService(
         TrialStartedAt = license.TrialStartedAt,
         TrialMaxEndsAt = license.IsTrial ? TrialCap(license.TrialStartedAt, trialMaxMonths) : null,
         IsComplimentary = license.IsComplimentary,
+        MaxDevices = license.MaxDevices,
         Id = license.Id,
         CustomerId = license.CustomerId,
         CustomerName = license.Customer?.Name,
@@ -989,6 +1001,9 @@ public partial class LicenseService(
         _ when months % 12 == 0 => $"{months / 12} years",
         _ => $"{months} months"
     };
+
+    /// <summary>0 (or less) = unlimited (null); otherwise capped at 1000.</summary>
+    internal static int? ResolveMaxDevices(int value) => value <= 0 ? null : Math.Min(value, 1000);
 
     private async Task LockLicenseRowAsync(string licenseId, CancellationToken cancellationToken)
     {

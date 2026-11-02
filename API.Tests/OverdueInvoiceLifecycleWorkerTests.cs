@@ -295,6 +295,12 @@ public class OverdueInvoiceLifecycleWorkerTests
         public Task<LicenseDto> RotateKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<LicenseDeviceDto>> ListDevicesAsync(string licenseId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<LicenseDeviceDto> ReleaseDeviceAsync(string licenseId, string deviceId, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
     }

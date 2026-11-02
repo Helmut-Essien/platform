@@ -18,7 +18,14 @@
             <MudDatePicker @bind-Date="_model.ExpiresAt"
                            For="@(() => _model.ExpiresAt)"
                            Label="Expires"
-                           Variant="Variant.Outlined" />
+                           Variant="Variant.Outlined"
+                           Class="mb-2" />
+            <MudNumericField T="int?" @bind-Value="_model.MaxDevices"
+                             Label="Max devices"
+                             HelperText="0 = unlimited. Lowering it does not remove devices already active."
+                             Min="0" Max="1000"
+                             Variant="Variant.Outlined"
+                             Class="mb-2" />
             <LicenseBillingFields Billing="_billing" />
         </MudForm>
     </DialogContent>
@@ -54,7 +61,8 @@
         _model = new UpdateLicenseRequest
         {
             PlanName = License.PlanName,
-            ExpiresAt = License.ExpiresAt
+            ExpiresAt = License.ExpiresAt,
+            MaxDevices = License.MaxDevices ?? 0
         };
         _billing = LicenseBillingFields.Copy(License.Billing);
         _model.Billing = _billing;

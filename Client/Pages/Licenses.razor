@@ -207,6 +207,7 @@
                                 {
                                     <MudMenuItem OnClick="@(() => EditAsync(license))">Edit</MudMenuItem>
                                 }
+                                <MudMenuItem OnClick="@(() => DevicesAsync(license))">Devices</MudMenuItem>
                                 @if (license.Status == LicenseStatus.Active)
                                 {
                                     <MudMenuItem OnClick="@(() => SuspendAsync(license.Id))">Suspend</MudMenuItem>
@@ -587,6 +588,14 @@
 
         Snackbar.Add("License updated.", Severity.Success);
         await ReloadGrid();
+    }
+
+    private async Task DevicesAsync(LicenseDto license)
+    {
+        await DialogService.ShowAsync<LicenseDevicesDialog>("Devices", new DialogParameters
+        {
+            [nameof(LicenseDevicesDialog.License)] = license
+        }, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
     }
 
     private async Task ShowResultDialog(LicenseDto license, string title)

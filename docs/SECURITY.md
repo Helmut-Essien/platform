@@ -41,17 +41,21 @@ License keys are stored as **BCrypt hashes** only. Plaintext exists briefly in t
 
 ### Rate limiting
 
-`POST /api/licenses/validate` is rate-limited by **client IP and integration key** (composite partition). This reduces quota sharing behind NAT/CDN for distinct SaaS integrations on the same egress IP.
+`POST /api/licenses/validate` has three limits: the global policy (client IP + integration key, partition keys are SHA-256 hashed so no raw key sits in limiter memory), a per-**license-key** limit (default 30/min, so one leaked key cannot be hammered from many IPs) and a per-IP limit (default 300/min). Rejections are `429` with `Retry-After`. The client IP is the TCP peer unless `ForwardedHeaders__Enabled` is on with explicit known proxies (forward limit clamped to 1–5).
 
-### Redis availability
+### Source of truth and failure handling
 
-Redis is an **acceleration layer** for validation caching and deny-list invalidation. PostgreSQL remains authoritative.
+PostgreSQL is the only source of truth for validation; Redis, the deny list and the validation cache are no longer on this path, so a stale cache can never keep a revoked/rotated key valid. Each check is one indexed query (plus a write only for a new device or a throttled last-seen update). Integration keys are cached in memory for up to 60 s (hits only) and the cache is flushed when a key is created or revoked.
 
-- `AbortOnConnectFail=false` allows the API to start when Redis is temporarily unavailable.
-- When Redis read/write fails, validation **falls back to PostgreSQL** (license status, customer suspension, BCrypt verify).
-- Positive validation cache hits always **re-read license status, customer suspension, expiry, plan name, and the current key lookup hash from PostgreSQL** and return those current values. A missed cache delete cannot keep a rotated key valid or serve a downgraded plan or a shortened expiry.
-- Deny-list entries have **no TTL**. They are cleared when a license is activated or renewed, when an active license's customer is reactivated, and when an overdue payment auto-reactivates that license. Key rotation deletes the previous validation cache entry before the hash changes.
-- During a Redis outage, positive validation results are not cached — expect higher database load until Redis recovers.
+If the database (or anything in the infrastructure chain) fails or exceeds `ValidationTimeoutSeconds`, the API answers `503 service_unavailable` with `Retry-After`, never `isValid:false`. Products keep running on their last signed token until its grace ends.
+
+### Signed license tokens
+
+Valid answers include an ES256 compact JWS signed with `Licensing__TokenSigningKey` (P-256). Public keys are at `GET /api/licenses/keys` (JWKS, with extra keys for rotation). Tokens expire at `grace_until` (default 7 days, never past the license expiry + `ExpiryGraceHours`). If the key is missing in Production a loud error is logged and tokens are omitted; set `Licensing__RequireTokenSigning=true` to refuse to start instead. In Development a throw-away key is generated per process.
+
+### Devices
+
+Optional `deviceId` binds activations to devices. Only a SHA-256 hash of the id is stored (unique per license). New-device activation locks the license row (`SELECT … FOR UPDATE`) and re-counts, so concurrent activations cannot exceed `MaxDevices`. Activations, releases and limit changes are audited.
 
 ## Global query filters
 

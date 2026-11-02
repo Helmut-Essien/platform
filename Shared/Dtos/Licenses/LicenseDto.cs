@@ -47,4 +47,7 @@ public class LicenseDto
 
     /// <summary>Free until changed: never invoiced or auto-suspended.</summary>
     public bool IsComplimentary { get; set; }
+
+    /// <summary>Devices allowed at once; null = unlimited.</summary>
+    public int? MaxDevices { get; set; }
 }

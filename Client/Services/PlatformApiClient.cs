@@ -254,6 +254,16 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         return await ToApiResultAsync<LicenseDto>(response, ct);
     }
 
+    public async Task<IReadOnlyList<LicenseDeviceDto>> GetLicenseDevicesAsync(string id, CancellationToken ct = default) =>
+        await GetJsonAsync<List<LicenseDeviceDto>>($"api/licenses/{Uri.EscapeDataString(id)}/devices", ct) ?? [];
+
+    public async Task<ApiResult<LicenseDeviceDto>> ReleaseLicenseDeviceAsync(string id, string deviceId, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync(
+            $"api/licenses/{Uri.EscapeDataString(id)}/devices/{Uri.EscapeDataString(deviceId)}/release", null, ct);
+        return await ToApiResultAsync<LicenseDeviceDto>(response, ct);
+    }
+
     public async Task<LicenseOptionsDto> GetLicenseOptionsAsync(CancellationToken ct = default) =>
         await GetJsonAsync<LicenseOptionsDto>("api/licenses/options", ct) ?? new LicenseOptionsDto();
 

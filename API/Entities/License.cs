@@ -67,6 +67,9 @@ public class License
     /// </summary>
     public bool IsComplimentary { get; set; }
 
+    /// <summary>Devices allowed at once (null = unlimited). Lowering it never kicks active devices; it only blocks new ones.</summary>
+    public int? MaxDevices { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -83,4 +86,6 @@ public class License
     public ICollection<AuditLog> AuditLogs { get; set; } = [];
 
     public ICollection<Invoice> Invoices { get; set; } = [];
+
+    public ICollection<LicenseDevice> Devices { get; set; } = [];
 }

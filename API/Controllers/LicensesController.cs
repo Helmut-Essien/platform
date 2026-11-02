@@ -204,6 +204,19 @@ public class LicensesController(
         return Ok(license);
     }
 
+    [HttpGet("{id}/devices")]
+    public async Task<ActionResult<IReadOnlyList<LicenseDeviceDto>>> Devices(string id, CancellationToken cancellationToken)
+        => Ok(await licenses.ListDevicesAsync(id, cancellationToken));
+
+    [HttpPost("{id}/devices/{deviceId}/release")]
+    public async Task<ActionResult<LicenseDeviceDto>> ReleaseDevice(string id, string deviceId, CancellationToken cancellationToken)
+        => Ok(await licenses.ReleaseDeviceAsync(
+            id,
+            deviceId,
+            AdminRequestContext.GetPerformedBy(HttpContext),
+            AdminRequestContext.GetIpAddress(HttpContext),
+            cancellationToken));
+
     [HttpPost("{id}/resend-key")]
     public async Task<ActionResult<LicenseDto>> ResendKey(string id, CancellationToken cancellationToken)
         => await RotateKey(id, cancellationToken);

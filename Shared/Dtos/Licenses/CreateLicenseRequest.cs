@@ -18,6 +18,10 @@ public class CreateLicenseRequest
 
     public bool CreateInvoice { get; set; }
 
+    /// <summary>Devices allowed at once. Null = server default (Licensing:DefaultMaxDevices) on issue, unchanged on edit; 0 = unlimited.</summary>
+    [Range(0, 1000, ErrorMessage = "Max devices must be between 0 (unlimited) and 1000")]
+    public int? MaxDevices { get; set; }
+
     public bool SendInvoice { get; set; }
 
     [Range(typeof(decimal), "0", "79228162514264337593543950335")]

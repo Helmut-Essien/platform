@@ -61,5 +61,9 @@ public interface ILicenseService
     /// <summary>
     /// Marks active licenses whose expiry has passed as expired and denies them.
     /// </summary>
+    Task<IReadOnlyList<LicenseDeviceDto>> ListDevicesAsync(string licenseId, CancellationToken cancellationToken = default);
+
+    Task<LicenseDeviceDto> ReleaseDeviceAsync(string licenseId, string deviceId, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
     Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default);
 }

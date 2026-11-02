@@ -45,5 +45,8 @@ public enum AuditAction
     LicenseTrialConverted,
     LicenseTrialReminderQueued,
     LicenseMadeComplimentary,
-    LicenseComplimentaryEnded
+    LicenseComplimentaryEnded,
+    LicenseDeviceActivated,
+    LicenseDeviceReleased,
+    LicenseDeviceLimitChanged
 }

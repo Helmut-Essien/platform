@@ -69,12 +69,7 @@ public class PostgresBehaviorTests
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(async _ =>
         {
             await using var db = pg.NewContext();
-            var service = new LicenseValidationService(
-                db,
-                new AllowAllDenyList(),
-                new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())),
-                Options.Create(new RedisSettings { ValidationCacheSeconds = 60 }),
-                NullLogger<LicenseValidationService>.Instance);
+            var service = LicenseValidationTestFactory.Create(db);
             return await service.ValidateAsync(integrationKey, new ValidateLicenseRequest { LicenseKey = licenseKey, ServiceCode = "HOSTEL" });
         }));
 
@@ -92,10 +87,7 @@ public class PostgresBehaviorTests
 
         // A second validation now uses the cheap v2 path and still works.
         await using var again = pg.NewContext();
-        var second = await new LicenseValidationService(
-            again, new AllowAllDenyList(),
-            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())),
-            Options.Create(new RedisSettings()), NullLogger<LicenseValidationService>.Instance)
+        var second = await LicenseValidationTestFactory.Create(again)
             .ValidateAsync(integrationKey, new ValidateLicenseRequest { LicenseKey = licenseKey });
         Assert.True(second.IsValid);
     }
