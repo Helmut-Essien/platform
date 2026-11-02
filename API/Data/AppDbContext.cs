@@ -34,6 +34,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<PaymentCheckout> PaymentCheckouts => Set<PaymentCheckout>();
 
+    public DbSet<LicenseDevice> LicenseDevices => Set<LicenseDevice>();
+
     public override int SaveChanges()
     {
         IncrementLicenseVersions();
@@ -77,5 +79,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         // money collected for a suspended customer's invoice must still be applied.
         modelBuilder.Entity<PaymentCheckout>()
             .HasQueryFilter(c => !c.Invoice.Customer.IsSuspended);
+
+        // Matches the License filter (required end). Validation and admin device code use IgnoreQueryFilters.
+        modelBuilder.Entity<LicenseDevice>()
+            .HasQueryFilter(d => !d.License.Customer.IsSuspended);
     }
 }

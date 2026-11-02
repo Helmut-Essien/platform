@@ -29,6 +29,12 @@ public class InvoiceBrandProfileConfiguration : IEntityTypeConfiguration<Invoice
         builder.Property(p => p.Phone)
             .HasMaxLength(50);
 
+        builder.Property(p => p.ContactEmail)
+            .HasMaxLength(256);
+
+        builder.Property(p => p.TaxId)
+            .HasMaxLength(50);
+
         builder.Property(p => p.Website)
             .HasMaxLength(300);
 

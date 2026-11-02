@@ -38,7 +38,7 @@ public class PaymentsController(
 
     /// <summary>
     /// Paystack webhook. The signature (HMAC-SHA512 of the raw body) is checked first; valid events
-    /// always get 200 (processing errors are retried by the reconcile worker), invalid ones 401.
+    /// get 200 once processed, 500 when processing failed (Paystack redelivers; handling is idempotent), invalid ones 401.
     /// </summary>
     [AllowAnonymous]
     [HttpPost("api/payments/paystack/webhook")]
@@ -84,7 +84,10 @@ public class PaymentsController(
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogError(ex, "Paystack webhook processing failed; the reconcile worker will retry.");
+            // Non-200 makes Paystack redeliver (processing is idempotent). Charges are also re-verified by the
+            // reconcile worker; refunds/disputes have no other retry path.
+            logger.LogError(ex, "Paystack webhook processing failed; Paystack will redeliver.");
+            return StatusCode(StatusCodes.Status500InternalServerError);
         }
 
         return Ok();

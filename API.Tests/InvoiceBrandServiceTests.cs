@@ -16,7 +16,7 @@ public class InvoiceBrandServiceTests
 
         var dto = await service.GetAsync();
 
-        Assert.Equal("Platform License Hub", dto.CompanyName);
+        Assert.Equal("HelmutCode Solutions", dto.CompanyName);
         Assert.False(dto.HasCustomLogo);
         Assert.Single(db.InvoiceBrandProfiles);
     }

@@ -6,17 +6,18 @@
 </MudText>
 <MudGrid Spacing="2">
     <MudItem xs="6" sm="4">
-        <MudNumericField T="decimal?" @bind-Value="Billing.Amount" Label="Price per period" Min="0" Format="N2"
+        <MudNumericField T="decimal?" @bind-Value="Billing.Amount" @bind-Value:after="NotifyAsync" Label="Price per period" Min="0" Format="N2"
                          Variant="Variant.Outlined" Clearable="true" />
     </MudItem>
     <MudItem xs="6" sm="3">
-        <MudNumericField T="decimal" @bind-Value="Billing.TaxAmount" Label="Tax" Min="0" Format="N2" Variant="Variant.Outlined" />
+        <MudNumericField T="decimal" @bind-Value="Billing.TaxAmount" @bind-Value:after="NotifyAsync" Label="Tax" Min="0" Format="N2" Variant="Variant.Outlined" />
     </MudItem>
     <MudItem xs="6" sm="2">
-        <MudTextField @bind-Value="Billing.Currency" Label="Currency" MaxLength="3" Variant="Variant.Outlined" />
+        <MudTextField T="string" Value="Billing.Currency" ValueChanged="@(async v => { Billing.Currency = v?.Trim().ToUpperInvariant(); await NotifyAsync(); })"
+                      Label="Currency" MaxLength="3" Variant="Variant.Outlined" />
     </MudItem>
     <MudItem xs="6" sm="3">
-        <MudSelect T="int" @bind-Value="Billing.PeriodMonths" Label="Period" Variant="Variant.Outlined">
+        <MudSelect T="int" @bind-Value="Billing.PeriodMonths" @bind-Value:after="NotifyAsync" Label="Period" Variant="Variant.Outlined">
             <MudSelectItem Value="1">Monthly</MudSelectItem>
             <MudSelectItem Value="3">Quarterly</MudSelectItem>
             <MudSelectItem Value="6">6 months</MudSelectItem>
@@ -26,13 +27,22 @@
         </MudSelect>
     </MudItem>
 </MudGrid>
+@if (Billing.Amount is > 0 && BillingDefaults.LacksPayLink(Billing.Currency))
+{
+    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@BillingDefaults.NonPayLinkWarning</MudAlert>
+}
 <MudCheckBox @bind-Value="Billing.AutoRenewInvoice" Label="Send renewal invoices automatically" Color="Color.Primary"
              Disabled="@(Billing.Amount is not > 0)" />
 
 @code {
     [Parameter, EditorRequired] public required LicenseBillingDto Billing { get; set; }
 
-    public static LicenseBillingDto Copy(LicenseBillingDto? source, string defaultCurrency = "GHS") => new()
+    /// <summary>Raised after any field changes, so a parent can react (e.g. the first invoice follows the price).</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private Task NotifyAsync() => Changed.InvokeAsync();
+
+    public static LicenseBillingDto Copy(LicenseBillingDto? source, string defaultCurrency = BillingDefaults.Currency) => new()
     {
         Amount = source?.Amount,
         TaxAmount = source?.TaxAmount ?? 0m,

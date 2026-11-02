@@ -308,6 +308,8 @@
         {
             ["Title"] = "Suspend Customer",
             ["Message"] = $"Suspend {Customer.Name}? All licenses will be denied immediately.",
+            ["ShowReason"] = true,
+            ["ReasonLabel"] = "Reason for the customer",
             ["ConfirmText"] = "Suspend",
             ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
@@ -315,7 +317,7 @@
         if (result?.Canceled is not false)
             return;
 
-        var apiResult = await Api.SuspendCustomerAsync(Customer.Id);
+        var apiResult = await Api.SuspendCustomerAsync(Customer.Id, result.Data as string);
         if (!apiResult.IsSuccess)
         {
             Snackbar.Add(apiResult.ErrorMessage ?? "Suspend failed.", Severity.Error);

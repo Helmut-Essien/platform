@@ -73,6 +73,20 @@ public class LicenseConfiguration : IEntityTypeConfiguration<License>
             .HasFilter("\"Status\" <> 'Revoked'")
             .HasDatabaseName("IX_Licenses_OneOpenPerCustomerService");
 
+        builder.Property(l => l.IsTrial).HasDefaultValue(false);
+        builder.Property(l => l.IsComplimentary).HasDefaultValue(false);
+
+        // One free trial per customer and product, for good: revoking a trial license doesn't allow another.
+        builder.HasIndex(l => new { l.CustomerId, l.ServiceProductId }, "IX_Licenses_OneTrialPerCustomerService")
+            .IsUnique()
+            .HasFilter("\"TrialStartedAt\" IS NOT NULL");
+
+        // Small partial index for the trial reminder scan and the Trial/Complimentary list filters.
+        builder.HasIndex(l => l.ExpiresAt, "IX_Licenses_Trial_ExpiresAt")
+            .HasFilter("\"IsTrial\"");
+        builder.HasIndex(l => l.CreatedAt, "IX_Licenses_Complimentary_CreatedAt")
+            .HasFilter("\"IsComplimentary\"");
+
         builder.HasOne(l => l.Customer)
             .WithMany(c => c.Licenses)
             .HasForeignKey(l => l.CustomerId)

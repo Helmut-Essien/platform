@@ -51,6 +51,23 @@ public class Invoice
     /// <summary>Expiry the renewal set; a reversal only reverts if the license still has exactly this value.</summary>
     public DateTime? RenewalNewExpiresAt { get; set; }
 
+    /// <summary>
+    /// First invoice of a Pending license: when it becomes fully paid the license is activated automatically.
+    /// At most one non-void activation invoice per license (IX_Invoices_OneActivationPerLicense).
+    /// </summary>
+    public bool IsActivationInvoice { get; set; }
+
+    /// <summary>Term length captured when the activation invoice was created (later price edits don't change it).</summary>
+    public int? ActivationPeriodMonths { get; set; }
+
+    /// <summary>When the paid activation invoice activated the license (null = it did not, or was reverted).</summary>
+    public DateTime? ActivationAppliedAt { get; set; }
+
+    /// <summary>
+    /// A renewal invoice (period start = trial end) that converts a trial to a regular license when paid.
+    /// </summary>
+    public bool IsTrialConversion { get; set; }
+
     /// <summary>Random per-invoice secret mixed into the signed public pay link; cleared to revoke the link.</summary>
     public string? PayLinkNonce { get; set; }
 

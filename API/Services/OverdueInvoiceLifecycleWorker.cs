@@ -37,6 +37,7 @@ public class OverdueInvoiceLifecycleWorker(
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var licenseService = scope.ServiceProvider.GetRequiredService<ILicenseService>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditLogService>();
+        var denyList = scope.ServiceProvider.GetService<ILicenseDenyListService>();
         var now = DateTime.UtcNow;
 
         try
@@ -74,29 +75,8 @@ public class OverdueInvoiceLifecycleWorker(
                 if (!settings.Value.AutoSuspendOnOverdue || invoiceRow.LicenseId is null)
                     continue;
 
-                var license = await db.Licenses
-                    .IgnoreQueryFilters()
-                    .AsNoTracking()
-                    .Where(x => x.Id == invoiceRow.LicenseId)
-                    .Select(x => new { x.Status })
-                    .FirstOrDefaultAsync(cancellationToken);
-                if (license is null || license.Status != LicenseStatus.Active)
-                    continue;
-
-                await licenseService.SuspendAsync(
-                    invoiceRow.LicenseId,
-                    "system:overdue-invoice",
-                    cancellationToken: cancellationToken,
-                    notificationReason: "Access was suspended because a linked invoice is overdue.",
-                    autoSuspendedForOverdueInvoiceId: invoiceRow.Id);
-                await audit.WriteAsync(
-                    AuditAction.LicenseAutoSuspendedOverdue,
-                    "system:overdue-invoice",
-                    invoiceRow.CustomerId,
-                    invoiceRow.LicenseId,
-                    invoiceRow.Id,
-                    AuditJson.Serialize(new { invoiceId = invoiceRow.Id }),
-                    cancellationToken: cancellationToken);
+                await TrySuspendForOverdueAsync(db, licenseService, audit, invoiceRow.Id, invoiceRow.LicenseId,
+                    invoiceRow.CustomerId, cancellationToken, denyList);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -104,6 +84,77 @@ public class OverdueInvoiceLifecycleWorker(
                 db.ChangeTracker.Clear();
             }
         }
+    }
+
+    /// <summary>
+    /// Suspends the license for an overdue invoice in one transaction that holds the invoice row lock and re-checks
+    /// the invoice is still Overdue with a balance, so a payment that committed after the invoice was marked Overdue
+    /// can't be followed by a suspension (lock order invoice then license, same as RecordReceipt).
+    /// </summary>
+    internal static async Task<bool> TrySuspendForOverdueAsync(
+        AppDbContext db,
+        ILicenseService licenseService,
+        IAuditLogService audit,
+        string invoiceId,
+        string licenseId,
+        string customerId,
+        CancellationToken cancellationToken,
+        ILicenseDenyListService? denyList = null)
+    {
+        var suspended = await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+            if (db.Database.IsRelational())
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"""SELECT 1 FROM "Invoices" WHERE "Id" = {invoiceId} FOR UPDATE""", ct);
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"""SELECT 1 FROM "Licenses" WHERE "Id" = {licenseId} FOR UPDATE""", ct);
+            }
+
+            var invoice = await db.Invoices.IgnoreQueryFilters().AsNoTracking()
+                .Where(x => x.Id == invoiceId)
+                .Select(x => new { x.Status, x.TotalAmount, x.RenewalForExpiresAt })
+                .FirstOrDefaultAsync(ct);
+            if (invoice is null || invoice.Status != InvoiceStatus.Overdue)
+                return false;
+
+            var license = await db.Licenses.IgnoreQueryFilters().AsNoTracking()
+                .Where(x => x.Id == licenseId)
+                .Select(x => new { x.Status, x.IsComplimentary, x.ExpiresAt })
+                .FirstOrDefaultAsync(ct);
+            // Complimentary (free) licenses are never suspended over an invoice.
+            if (license is null || license.Status != LicenseStatus.Active || license.IsComplimentary)
+                return false;
+            // A renewal (or trial) invoice for a period the license has already moved past (renewed by hand) is
+            // not what keeps it running: paying it would not extend anything, so it must not suspend access.
+            if (invoice.RenewalForExpiresAt is { } period && license.ExpiresAt is { } current && current > period)
+                return false;
+
+            await licenseService.SuspendAsync(
+                licenseId,
+                "system:overdue-invoice",
+                cancellationToken: ct,
+                notificationReason: "Access was suspended because a linked invoice is overdue.",
+                autoSuspendedForOverdueInvoiceId: invoiceId);
+            await audit.WriteAsync(
+                AuditAction.LicenseAutoSuspendedOverdue,
+                "system:overdue-invoice",
+                customerId,
+                licenseId,
+                invoiceId,
+                AuditJson.Serialize(new { invoiceId }),
+                cancellationToken: ct);
+
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            return true;
+        }, cancellationToken);
+
+        db.ChangeTracker.Clear();
+        // After the commit (SuspendAsync leaves the deny to us inside a transaction).
+        if (suspended && denyList is not null)
+            await denyList.DenyLicenseAsync(licenseId, cancellationToken);
+        return suspended;
     }
 
     /// <summary>

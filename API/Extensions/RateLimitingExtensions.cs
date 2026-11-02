@@ -24,10 +24,18 @@ public static class RateLimitingExtensions
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = async (context, _) =>
             {
+                var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var wait) && wait > TimeSpan.Zero
+                    ? (int)Math.Ceiling(wait.TotalSeconds)
+                    : 60;
+                context.HttpContext.Response.Headers.RetryAfter = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 context.HttpContext.Response.ContentType = "application/json";
                 await context.HttpContext.Response.WriteAsJsonAsync(new
                 {
-                    message = "Too many requests. Try again later."
+                    message = "Too many requests. Try again later.",
+                    reason = Platform.Shared.Dtos.Licenses.LicenseValidationReasons.RateLimited,
+                    serverTime = DateTime.UtcNow,
+                    retryAfterSeconds = retryAfter,
+                    retryable = true
                 });
             };
 
@@ -39,7 +47,7 @@ public static class RateLimitingExtensions
                 var integrationPart = string.IsNullOrWhiteSpace(integrationKey)
                     ? "none"
                     : KeyLookupHasher.ComputeSha256Hex(integrationKey)[..16];
-                var partitionKey = $"{ip}:{integrationPart}";
+                var partitionKey = LicenseValidatePartitionKey(ip, integrationPart);
 
                 return RateLimitPartition.GetFixedWindowLimiter(
                     partitionKey,
@@ -90,4 +98,8 @@ public static class RateLimitingExtensions
 
         return services;
     }
+
+    /// <summary>Hashed so neither client addresses nor key material sit in limiter memory.</summary>
+    internal static string LicenseValidatePartitionKey(string ip, string integrationPart) =>
+        KeyLookupHasher.ComputeSha256Hex($"{ip}:{integrationPart}")[..32];
 }

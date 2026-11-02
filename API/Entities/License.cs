@@ -48,6 +48,28 @@ public class License
     /// <summary>Per-license opt-out for automatic renewal invoices (only licenses with a price are invoiced).</summary>
     public bool AutoRenewInvoice { get; set; } = true;
 
+    /// <summary>
+    /// True while the license is on a free trial; <see cref="ExpiresAt"/> is then the trial end. Cleared when a
+    /// payment (or a manual renewal) converts it to a regular paid license.
+    /// </summary>
+    public bool IsTrial { get; set; }
+
+    /// <summary>When a trial was started. Kept after conversion: one trial per customer and product
+    /// (IX_Licenses_OneTrialPerCustomerService), even across revoked licenses.</summary>
+    public DateTime? TrialStartedAt { get; set; }
+
+    /// <summary>The trial end a reminder has been queued for (re-armed when the trial is extended).</summary>
+    public DateTime? TrialReminderForEndsAt { get; set; }
+
+    /// <summary>
+    /// Free until the admin changes it: no price, never invoiced, never auto-suspended for overdue invoices,
+    /// perpetual unless the admin sets an expiry.
+    /// </summary>
+    public bool IsComplimentary { get; set; }
+
+    /// <summary>Devices allowed at once (null = unlimited). Lowering it never kicks active devices; it only blocks new ones.</summary>
+    public int? MaxDevices { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -64,4 +86,6 @@ public class License
     public ICollection<AuditLog> AuditLogs { get; set; } = [];
 
     public ICollection<Invoice> Invoices { get; set; } = [];
+
+    public ICollection<LicenseDevice> Devices { get; set; } = [];
 }

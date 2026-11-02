@@ -44,6 +44,10 @@ public static class RedisServiceExtensions
         }
 
         services.AddSingleton<ILicenseDenyListService, RedisLicenseDenyListService>();
+        services.Configure<LicensingSettings>(configuration.GetSection(LicensingSettings.SectionName));
+        services.AddSingleton<Platform.Api.Security.LicenseTokenSigner>();
+        services.AddSingleton<Platform.Api.Services.Licensing.IntegrationKeyCache>();
+        services.AddSingleton<Platform.Api.Services.Licensing.LicenseValidationRateLimiter>();
         services.AddScoped<ILicenseValidationService, LicenseValidationService>();
 
         return services;

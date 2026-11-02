@@ -1,0 +1,111 @@
+@inject PlatformApiClient Api
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Extend trial</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
+        }
+        <MudText Typo="Typo.body2" Class="mb-2">
+            Current trial end: <strong>@(License.ExpiresAt is { } e ? DateFormat.Date(e) : "—")</strong>.
+            @if (License.TrialMaxEndsAt is { } cap)
+            {
+                <span> The latest allowed end is <strong>@DateFormat.Date(cap)</strong>.</span>
+            }
+        </MudText>
+        @if (AtCap)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                This trial is already at its maximum length (Billing:TrialMaxTotalMonths). Renew it, or make it
+                complimentary, to give more time.
+            </MudAlert>
+        }
+        else
+        {
+        <MudDatePicker @bind-Date="_endsAt"
+                       Label="New trial end"
+                       MinDate="@MinDate"
+                       MaxDate="@License.TrialMaxEndsAt"
+                       Variant="Variant.Outlined" />
+        }
+        <MudText Typo="Typo.caption" Class="d-block mt-2">
+            An unpaid trial invoice moves to the new date, and the reminder is sent again before it.
+            @(License.Status == LicenseStatus.Expired ? "This trial has ended; extending it switches access back on." : "")
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || _endsAt is null || AtCap)">Extend</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+    [Parameter] public required LicenseDto License { get; set; }
+
+    private DateTime? _endsAt;
+    private bool _busy;
+    private string? _error;
+
+    private DateTime MinDate
+    {
+        get
+        {
+            var tomorrow = DateTime.Today.AddDays(1);
+            var after = License.ExpiresAt?.Date.AddDays(1) ?? tomorrow;
+            return after > tomorrow ? after : tomorrow;
+        }
+    }
+
+    private bool AtCap => License.TrialMaxEndsAt is { } cap && MinDate > cap.Date;
+
+    protected override void OnInitialized()
+    {
+        if (AtCap)
+            return;
+        var proposed = (License.ExpiresAt?.Date ?? DateTime.Today).AddDays(14);
+        if (proposed < MinDate)
+            proposed = MinDate;
+        if (License.TrialMaxEndsAt is { } cap && proposed > cap.Date)
+            proposed = cap.Date;
+        _endsAt = proposed;
+    }
+
+    private void Cancel()
+    {
+        if (!_busy)
+            MudDialog.Cancel();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy || _endsAt is null)
+            return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await Api.ExtendTrialAsync(License.Id, new ExtendTrialRequest
+            {
+                TrialEndsAt = DateTime.SpecifyKind(_endsAt.Value.Date, DateTimeKind.Utc)
+            });
+            if (!result.IsSuccess)
+            {
+                _error = result.ErrorMessage ?? "Couldn't extend the trial.";
+                return;
+            }
+            MudDialog.Close(DialogResult.Ok(result.Data));
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,12 +1,13 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Platform.Api.Configuration;
 using Platform.Api.Data;
 using Platform.Api.Entities;
 using Platform.Shared.Dtos.Settings;
 
 namespace Platform.Api.Services;
 
-public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
+public class InvoiceBrandService(AppDbContext db, Email.BrandNameCache? brandName = null) : IInvoiceBrandService
 {
     public const int MaxLogoBytes = 2 * 1024 * 1024;
     public const int MaxPaymentOptions = 10;
@@ -55,6 +56,8 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         profile.AddressLine2 = NormalizeOptional(request.AddressLine2);
         profile.Phone = NormalizeOptional(request.Phone);
         profile.Website = NormalizeOptional(request.Website);
+        profile.ContactEmail = NormalizeOptional(request.ContactEmail);
+        profile.TaxId = NormalizeOptional(request.TaxId);
         profile.PaymentOptionsJson = SerializePaymentOptions(request.PaymentOptions);
         profile.UpdatedAt = DateTime.UtcNow;
 
@@ -69,6 +72,7 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        brandName?.Set(profile);
         return Map(profile);
     }
 
@@ -77,21 +81,33 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
 
     private async Task<InvoiceBrandProfile> GetOrCreateProfileAsync(CancellationToken cancellationToken)
     {
+        // Latest saved wins (stable: saving bumps UpdatedAt, so the edited row stays the one read). Every reader of
+        // the profile (PDFs, emails, public pay page) uses this same order.
         var existing = await db.InvoiceBrandProfiles
-            .OrderBy(p => p.UpdatedAt)
+            .OrderByDescending(p => p.UpdatedAt)
+            .ThenBy(p => p.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (existing is not null)
+        {
+            brandName?.Set(existing);
             return existing;
+        }
 
         var profile = new InvoiceBrandProfile
         {
-            CompanyName = "Platform License Hub",
+            CompanyName = BrandDefaults.CompanyName,
+            AddressLine1 = BrandDefaults.AddressLine1,
+            AddressLine2 = BrandDefaults.AddressLine2,
+            Phone = BrandDefaults.Phone,
+            ContactEmail = BrandDefaults.ContactEmail,
+            Website = BrandDefaults.Website,
             UpdatedAt = DateTime.UtcNow
         };
 
         db.InvoiceBrandProfiles.Add(profile);
         await db.SaveChangesAsync(cancellationToken);
+        brandName?.Set(profile);
         return profile;
     }
 
@@ -204,6 +220,8 @@ public class InvoiceBrandService(AppDbContext db) : IInvoiceBrandService
         AddressLine2 = profile.AddressLine2,
         Phone = profile.Phone,
         Website = profile.Website,
+        ContactEmail = profile.ContactEmail,
+        TaxId = profile.TaxId,
         PaymentOptions = DeserializePaymentOptions(profile.PaymentOptionsJson),
         HasCustomLogo = profile.LogoBytes is { Length: > 0 },
         LogoContentType = profile.LogoContentType,

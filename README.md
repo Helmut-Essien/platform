@@ -45,6 +45,8 @@ The audit log provides a historical view of actions taken across the system. It 
 
 The validation flow gives administrators a quick way to test and confirm whether a license is behaving as expected. This helps reduce friction when debugging or verifying product activation scenarios.
 
+Products call `POST /api/licenses/validate` and receive a signed ES256 license token (verify with `GET /api/licenses/keys`) so they can keep working offline for a grace period, plus per-license device limits. See `docs/DEPLOY-MONSTERASP.md` §11 for settings, key generation and the client integration guide.
+
 ## Important API endpoints
 
 The backend exposes a set of administrative endpoints that power the UI and the core business workflows. Here are some of the most important ones:

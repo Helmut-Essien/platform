@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Platform.Api.Configuration;
+using Platform.Api.Entities;
 using Platform.Api.Data;
 using Platform.Shared.Enums;
 
@@ -35,6 +36,81 @@ public class LicenseExpiryReminderWorker(
 
     internal async Task EnqueueRemindersAsync(CancellationToken cancellationToken)
     {
+        await EnqueueExpiryRemindersAsync(cancellationToken);
+        try
+        {
+            await EnqueueTrialRemindersAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another instance updated one of these licenses at the same moment; the next scan retries.
+        }
+    }
+
+    /// <summary>
+    /// Trial-ending reminder for trials that won't get a trial invoice (no price, automatic invoices off for the
+    /// license, or renewal invoices switched off). Priced trials get the reminder with their first invoice from
+    /// the renewal worker. Sent once per trial end (<c>TrialReminderForEndsAt</c>), so an extended trial is
+    /// reminded again; the license's concurrency token stops two overlapping scans sending it twice.
+    /// Uses the IX_Licenses_Trial_ExpiresAt partial index.
+    /// </summary>
+    internal async Task<int> EnqueueTrialRemindersAsync(CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var outbox = scope.ServiceProvider.GetRequiredService<IEmailOutboxService>();
+        var templates = scope.ServiceProvider.GetRequiredService<EmailTemplateService>();
+        var billing = scope.ServiceProvider.GetService<IOptionsMonitor<BillingSettings>>()?.CurrentValue ?? new BillingSettings();
+        var now = DateTime.UtcNow;
+        var horizon = now.AddDays(Math.Clamp(billing.TrialReminderDaysBefore, 1, 60));
+        var invoicesOn = billing.RenewalInvoicesEnabled;
+
+        var trials = await db.Licenses
+            .IgnoreQueryFilters()
+            .Include(x => x.Customer)
+            .Include(x => x.ServiceProduct)
+            .Where(x => x.IsTrial
+                && x.Status == LicenseStatus.Active
+                && !x.Customer.IsSuspended
+                && x.ExpiresAt != null
+                && x.ExpiresAt <= horizon
+                && x.ExpiresAt >= now.Date // ended trials (not yet flipped to Expired) don't fill the batch
+                && (x.TrialReminderForEndsAt == null || x.TrialReminderForEndsAt != x.ExpiresAt)
+                && !(invoicesOn && x.AutoRenewInvoice && x.BillingAmount > 0 && x.BillingCurrency != null))
+            .OrderBy(x => x.ExpiresAt)
+            .Take(500)
+            .ToListAsync(cancellationToken);
+
+        var audits = new List<AuditEntryRequest>();
+        foreach (var license in trials)
+        {
+            if (Helpers.DateTimeNormalizer.IsPastExpiry(license.ExpiresAt, now))
+                continue;
+            var template = templates.TrialEndingReminder(license.Customer, license.ServiceProduct, license);
+            outbox.Enqueue(
+                EmailDeliveryKind.TrialReminder,
+                CustomerContactResolver.Technical(license.Customer),
+                template.Subject,
+                template.Html,
+                license.CustomerId,
+                license.Id);
+            license.TrialReminderForEndsAt = license.ExpiresAt;
+            license.UpdatedAt = now;
+            audits.Add(new AuditEntryRequest(AuditAction.LicenseTrialReminderQueued, "system:trial-reminder",
+                license.CustomerId, license.Id, null,
+                Helpers.AuditJson.Serialize(new { trialEndsAt = license.ExpiresAt, invoice = false })));
+        }
+
+        if (audits.Count == 0)
+            return 0;
+        // Save first: if another scan won the race (concurrency token), nothing is audited for a reminder not sent.
+        await db.SaveChangesAsync(cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<IAuditLogService>().WriteBatchAsync(audits, cancellationToken);
+        return audits.Count;
+    }
+
+    private async Task EnqueueExpiryRemindersAsync(CancellationToken cancellationToken)
+    {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var outbox = scope.ServiceProvider.GetRequiredService<IEmailOutboxService>();
@@ -51,6 +127,7 @@ public class LicenseExpiryReminderWorker(
             .Include(x => x.Customer)
             .Include(x => x.ServiceProduct)
             .Where(x => x.Status == LicenseStatus.Active
+                && !x.IsTrial // trials get their own reminder (EnqueueTrialRemindersAsync / the trial invoice)
                 && !x.Customer.IsSuspended
                 && x.ExpiresAt.HasValue
                 && x.ExpiresAt.Value > now
@@ -72,6 +149,24 @@ public class LicenseExpiryReminderWorker(
             .Select(g => new { LicenseId = g.Key, LastCreatedAt = g.Max(m => m.CreatedAt) })
             .ToDictionaryAsync(x => x.LicenseId, x => x.LastCreatedAt, cancellationToken);
 
+        // Open renewal invoices for these licenses (one query), so the reminder can carry the pay button.
+        // Tracked: an expired pay link is renewed (EnsureUrl) and saved with the outbox rows below.
+        var payLinks = scope.ServiceProvider.GetService<Renewals.PayLinkService>();
+        var openInvoices = await db.Invoices
+            .IgnoreQueryFilters()
+            .Include(i => i.Receipts)
+            .Where(i => i.LicenseId != null
+                && licenseIds.Contains(i.LicenseId)
+                && i.RenewalForExpiresAt != null
+                && i.TotalAmount > 0
+                && (i.Status == InvoiceStatus.Sent || i.Status == InvoiceStatus.Overdue || i.Status == InvoiceStatus.PartiallyPaid))
+            .OrderByDescending(i => i.CreatedAt)
+            .ThenBy(i => i.Id)
+            .ToListAsync(cancellationToken);
+        var openByLicense = openInvoices
+            .GroupBy(i => i.LicenseId!)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         foreach (var license in licenses)
         {
             var expiresAt = license.ExpiresAt!.Value;
@@ -82,10 +177,20 @@ public class LicenseExpiryReminderWorker(
             if (lastReminders.TryGetValue(license.Id, out var last) && last >= windowOpened)
                 continue;
 
-            var template = templates.ExpiryReminder(license.Customer, license.ServiceProduct, license);
+            // Only the invoice for the period that starts at this expiry (newest first if several): an invoice for
+            // another period would show the wrong amount/dates next to this expiry date.
+            Invoice? openInvoice = null;
+            if (openByLicense.TryGetValue(license.Id, out var candidates))
+                openInvoice = candidates.FirstOrDefault(i => i.RenewalForExpiresAt == license.ExpiresAt);
+            var payUrl = openInvoice is null ? null : payLinks?.EnsureUrl(openInvoice, now);
+            var template = templates.ExpiryReminder(license.Customer, license.ServiceProduct, license, openInvoice, payUrl);
+            // With an invoice to pay it is a billing email (billing contact, falling back to the main contact);
+            // without one it is a heads-up for whoever runs the software.
             outbox.Enqueue(
                 EmailDeliveryKind.ExpiryReminder,
-                CustomerContactResolver.Technical(license.Customer),
+                openInvoice is not null
+                    ? CustomerContactResolver.Billing(license.Customer)
+                    : CustomerContactResolver.Technical(license.Customer),
                 template.Subject,
                 template.Html,
                 license.CustomerId,

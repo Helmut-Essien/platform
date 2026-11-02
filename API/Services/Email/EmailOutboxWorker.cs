@@ -19,6 +19,7 @@ public class EmailOutboxWorker(
         var delay = TimeSpan.FromSeconds(Math.Max(2, settings.Value.Outbox.PollIntervalSeconds));
         List<string>? inFlightBatch = null;
         var lastPurge = DateTime.MinValue;
+        await WarmBrandNameAsync(stoppingToken);
 
         while (true)
         {
@@ -166,7 +167,25 @@ public class EmailOutboxWorker(
         if (message.Status != EmailDeliveryStatus.Sending)
             return;
 
-        message.AttemptCount++;
+        // Poison guard: a message whose earlier attempts crashed the worker (or hung past the stale window) is
+        // reclaimed with its attempts already counted. Stop once the limit is reached instead of looping forever.
+        var maxAttempts = Math.Max(1, settings.Value.Outbox.MaxAttempts);
+        if (message.AttemptCount >= maxAttempts)
+        {
+            message.Status = EmailDeliveryStatus.DeadLetter;
+            message.NextAttemptAt = null;
+            message.LastError ??= "Delivery did not complete after the maximum number of attempts.";
+            message.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogError("Email delivery {DeliveryId} dead-lettered after {Attempts} unfinished attempts.", id, message.AttemptCount);
+            return;
+        }
+
+        // Count the attempt durably BEFORE sending, and only if the claim is still ours: if a long batch let
+        // another worker reclaim this row as stale, its UpdatedAt changed and we skip it (no duplicate email).
+        if (!await StartAttemptAsync(db, message, cancellationToken))
+            return;
+
         try
         {
             var body = message.HtmlBody;
@@ -179,12 +198,26 @@ public class EmailOutboxWorker(
             }
 
             IReadOnlyList<EmailAttachment>? attachments = null;
+            // Brand profile: one small row, read per send so Settings changes apply to the next email.
+            var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
+            var paymentOptions = InvoiceBrandService.DeserializePaymentOptions(profile.PaymentOptionsJson)
+                .Select(x => new InvoicePaymentOption(x.Method, x.Details))
+                .ToList();
+            body = EmailTemplateService.ApplyBrand(body, EmailBrandContact.From(profile), paymentOptions.Count > 0);
+            InvoiceLetterhead Letterhead() => new(
+                profile.CompanyName, profile.AddressLine1, profile.AddressLine2,
+                profile.Phone, profile.Website, profile.LogoBytes, paymentOptions,
+                profile.ContactEmail, profile.TaxId);
+
             if (message.Kind == EmailDeliveryKind.Invoice && message.InvoiceId is not null)
             {
                 var invoice = await db.Invoices
                     .IgnoreQueryFilters()
+                    .AsNoTracking()
                     .Include(x => x.Customer)
                     .Include(x => x.ServiceProduct)
+                    .Include(x => x.Receipts)
+                    .AsSplitQuery()
                     .FirstOrDefaultAsync(x => x.Id == message.InvoiceId, cancellationToken)
                     ?? throw new InvalidOperationException("Invoice for email delivery no longer exists.");
 
@@ -195,17 +228,39 @@ public class EmailOutboxWorker(
                     return;
                 }
 
-                var profile = await invoiceBrand.GetProfileEntityAsync(cancellationToken);
-                var paymentOptions = InvoiceBrandService.DeserializePaymentOptions(profile.PaymentOptionsJson)
-                    .Select(x => new InvoicePaymentOption(x.Method, x.Details))
-                    .ToList();
-                var letterhead = new InvoiceLetterhead(
-                    profile.CompanyName, profile.AddressLine1, profile.AddressLine2,
-                    profile.Phone, profile.Website, profile.LogoBytes, paymentOptions);
                 var payUrl = scope.ServiceProvider.GetService<Platform.Api.Services.Renewals.PayLinkService>()
                     ?.BuildUrl(invoice, DateTime.UtcNow);
-                var pdf = pdfGenerator.Generate(invoice, invoice.Customer, letterhead, payUrl);
+                var pdf = pdfGenerator.Generate(invoice, invoice.Customer, Letterhead(), payUrl);
                 attachments = [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", "application/pdf", pdf)];
+            }
+            else if (message.Kind == EmailDeliveryKind.PaymentReceipt && message.ReceiptId is not null)
+            {
+                var receiptPdf = scope.ServiceProvider.GetService<IReceiptPdfGenerator>();
+                // Two no-tracking reads: Receipt -> Invoice -> Receipts would be an include cycle.
+                var receipt = await db.Receipts
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(r => r.Id == message.ReceiptId, cancellationToken);
+                // A payment refunded/reversed before its receipt email went out: don't thank the customer for it.
+                if (receipt is { Status: ReceiptStatus.Reversed })
+                {
+                    await CancelAsync(db, message, "Receipt was reversed before the email was sent.", cancellationToken);
+                    return;
+                }
+                var receiptInvoice = receipt is null || receiptPdf is null
+                    ? null
+                    : await db.Invoices
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Include(i => i.Customer)
+                        .Include(i => i.Receipts)
+                        .AsSplitQuery()
+                        .FirstOrDefaultAsync(i => i.Id == receipt.InvoiceId, cancellationToken);
+                if (receipt is not null && receiptInvoice is not null)
+                {
+                    var pdf = receiptPdf!.GenerateReceipt(receipt, receiptInvoice, receiptInvoice.Customer, Letterhead());
+                    attachments = [new EmailAttachment($"{receipt.ReceiptNumber}.pdf", "application/pdf", pdf)];
+                }
             }
 
             await sender.SendAsync(message.ToEmail, message.Subject, body, attachments, cancellationToken);
@@ -219,6 +274,41 @@ public class EmailOutboxWorker(
         // The email has been handed to the provider. From here on a bookkeeping failure must NOT
         // be recorded as a send failure, or the customer would receive the email again (E2).
         await RecordSentAsync(db, message, cancellationToken);
+    }
+
+    private static async Task<bool> StartAttemptAsync(
+        AppDbContext db,
+        Platform.Api.Entities.EmailOutboxMessage message,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        if (db.Database.IsRelational())
+        {
+            // Tolerance covers Postgres' microsecond precision vs .NET ticks; a reclaim moves UpdatedAt by minutes.
+            var claimedFrom = message.UpdatedAt.AddMilliseconds(-1);
+            var claimedTo = message.UpdatedAt.AddMilliseconds(1);
+            var rows = await db.EmailOutboxMessages
+                .Where(m => m.Id == message.Id && m.Status == EmailDeliveryStatus.Sending
+                    && m.UpdatedAt >= claimedFrom && m.UpdatedAt <= claimedTo)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(m => m.AttemptCount, m => m.AttemptCount + 1)
+                    .SetProperty(m => m.UpdatedAt, now), cancellationToken);
+            if (rows == 0)
+                return false;
+            var entry = db.Entry(message);
+            message.AttemptCount++;
+            message.UpdatedAt = now;
+            entry.Property(m => m.AttemptCount).OriginalValue = message.AttemptCount;
+            entry.Property(m => m.UpdatedAt).OriginalValue = now;
+            entry.Property(m => m.AttemptCount).IsModified = false;
+            entry.Property(m => m.UpdatedAt).IsModified = false;
+            return true;
+        }
+
+        message.AttemptCount++;
+        message.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     private async Task CancelAsync(
@@ -257,7 +347,6 @@ public class EmailOutboxWorker(
                     db.ChangeTracker.Clear();
                     message = await db.EmailOutboxMessages.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
                         ?? throw new InvalidOperationException("Outbox message disappeared.");
-                    message.AttemptCount++;
                 }
 
                 message.Status = EmailDeliveryStatus.Sent;
@@ -441,4 +530,27 @@ public class EmailOutboxWorker(
 
     private static string Sanitize(string value) =>
         value.Length <= 2000 ? value : value[..2000];
+
+    /// <summary>Loads the brand company name once at startup (read-only), so emails queued before the first send use it.</summary>
+    private async Task WarmBrandNameAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var cache = scope.ServiceProvider.GetService<BrandNameCache>();
+            if (cache is null)
+                return;
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var profile = await db.InvoiceBrandProfiles.AsNoTracking()
+                .OrderByDescending(p => p.UpdatedAt)
+                .ThenBy(p => p.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (profile is not null)
+                cache.Set(profile);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not load the brand name at startup; emails use the default until the profile is read.");
+        }
+    }
 }

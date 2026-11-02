@@ -80,6 +80,30 @@ public class OverdueInvoiceLifecycleWorkerTests
     }
 
     [Fact]
+    public async Task TrySuspendForOverdueAsync_SkipsWhenPaidAfterMarkedOverdue()
+    {
+        await using var db = CreateDbContext();
+        var customer = await SeedCustomerAsync(db);
+        var product = await SeedProductAsync(db);
+        var license = await SeedLicenseAsync(db, customer.Id, product.Id, LicenseStatus.Active);
+        var invoice = new Invoice
+        {
+            CustomerId = customer.Id, LicenseId = license.Id, ServiceProductId = product.Id,
+            InvoiceNumber = "INV-2026-00009", Status = InvoiceStatus.Paid, Currency = "GHS",
+            Subtotal = 100m, TotalAmount = 100m, DueDate = DateTime.UtcNow.AddDays(-3)
+        };
+        db.Invoices.Add(invoice);
+        await db.SaveChangesAsync();
+
+        var licenses = new TrackingLicenseService();
+        var suspended = await OverdueInvoiceLifecycleWorker.TrySuspendForOverdueAsync(
+            db, licenses, new NoopAuditLogService(), invoice.Id, license.Id, customer.Id, CancellationToken.None);
+
+        Assert.False(suspended);
+        Assert.Empty(licenses.SuspendedIds);
+    }
+
+    [Fact]
     public async Task TryMarkOverdueAsync_DoesNotOverwritePaidInvoice()
     {
         // B5: a payment that lands between the candidate scan and the update must win.
@@ -246,7 +270,13 @@ public class OverdueInvoiceLifecycleWorkerTests
 
         public Task<LicenseDto> CreateAsync(CreateLicenseRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
-        public Task<Platform.Shared.Dtos.Common.PagedResult<LicenseDto>> ListAsync(string? customerId = null, bool includeSuspendedCustomers = false, int page = 1, int pageSize = 25, int? expiringWithinDays = null, string? serviceProductId = null, LicenseStatus? status = null, string? search = null, string? sortBy = null, bool sortDesc = false, CancellationToken cancellationToken = default) =>
+        public Task<Platform.Shared.Dtos.Common.PagedResult<LicenseDto>> ListAsync(string? customerId = null, bool includeSuspendedCustomers = false, int page = 1, int pageSize = 25, int? expiringWithinDays = null, string? serviceProductId = null, LicenseStatus? status = null, string? search = null, string? sortBy = null, bool sortDesc = false, CancellationToken cancellationToken = default, LicenseKind? kind = null) =>
+            throw new NotSupportedException();
+        public Task<LicenseDto> ExtendTrialAsync(string id, ExtendTrialRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<LicenseDto> MakeComplimentaryAsync(string id, MakeComplimentaryRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public Task<LicenseDto> EndComplimentaryAsync(string id, EndComplimentaryRequest request, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<LicenseDto?> GetAsync(string id, bool includeSuspendedCustomers = false, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
@@ -263,6 +293,12 @@ public class OverdueInvoiceLifecycleWorkerTests
         public Task<LicenseDto> ResendKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<LicenseDto> RotateKeyAsync(string id, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<LicenseDeviceDto>> ListDevicesAsync(string licenseId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<LicenseDeviceDto> ReleaseDeviceAsync(string licenseId, string deviceId, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default) =>

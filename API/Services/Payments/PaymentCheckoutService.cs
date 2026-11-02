@@ -282,26 +282,103 @@ public sealed class PaymentCheckoutService(
             return;
         }
 
-        await FlagAfterPaymentAsync(checkout, kind, evt, cancellationToken);
+        // A refund/dispute can arrive before charge.success was processed (out-of-order delivery, missed webhook):
+        // record the payment first so the money and the flag are both on the books, then flag it.
+        if (checkout.Status is PaymentCheckoutStatus.Pending or PaymentCheckoutStatus.Failed or PaymentCheckoutStatus.Expired)
+        {
+            var id = checkout.Id;
+            await ConfirmAsync(checkout, cancellationToken);
+            db.ChangeTracker.Clear();
+            checkout = await ReloadAsync(id, cancellationToken);
+        }
+
+        // A full refund reverses the receipt first (idempotent key per reference, so duplicate or concurrent refund
+        // webhooks reverse once). Failures throw so the controller answers non-200 and Paystack redelivers.
+        var fullRefund = kind == WebhookKind.Refund && IsFullRefund(checkout, evt);
+        string? reversalNote = null;
+        // The receipt link can trail the receipt itself under concurrency: fall back to the posted Paystack receipt.
+        var refundReceiptId = checkout.ReceiptId;
+        if (fullRefund && refundReceiptId is null)
+        {
+            var paymentKey = $"paystack:{checkout.Reference}";
+            refundReceiptId = await db.PaymentTransactions.IgnoreQueryFilters().AsNoTracking()
+                .Where(t => t.InvoiceId == checkout.InvoiceId && t.IdempotencyKey == paymentKey && t.ReceiptId != null)
+                .Select(t => t.ReceiptId).FirstOrDefaultAsync(cancellationToken);
+        }
+        if (fullRefund && refundReceiptId is { } receiptId)
+        {
+            reversalNote = await ReverseForRefundAsync(checkout, receiptId, cancellationToken);
+            checkout = await ReloadAsync(checkout.Id, cancellationToken);
+        }
+
+        // Flags must not be lost to a concurrent update (reconcile/status poll): retry on the fresh row.
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            if (await FlagAfterPaymentAsync(checkout, kind, evt, fullRefund, reversalNote, cancellationToken))
+                return;
+            checkout = await ReloadAsync(checkout.Id, cancellationToken);
+        }
+        throw new InvalidOperationException($"Paystack {evt.Event} for {evt.Reference} could not be flagged after retries.");
     }
+
+    /// <summary>Full when Paystack reports a refunded amount covering what the invoice was charged (fees passed on excluded).</summary>
+    internal static bool IsFullRefund(PaymentCheckout checkout, PaystackWebhookEvent evt) =>
+        evt.AmountMinor is { } refunded
+        && refunded >= checkout.AmountMinor
+        && (evt.Currency is null || string.Equals(evt.Currency.Trim(), checkout.Currency, StringComparison.OrdinalIgnoreCase));
+
+    private async Task<string> ReverseForRefundAsync(PaymentCheckout checkout, string receiptId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await billing.ReverseReceiptAsync(checkout.InvoiceId, receiptId, new ReverseReceiptRequest
+            {
+                IdempotencyKey = $"paystack-refund:{checkout.Reference}",
+                Reason = $"Full refund processed at Paystack (reference {checkout.Reference})."
+            }, RefundActor, cancellationToken: cancellationToken);
+            logger.LogWarning("Paystack checkout {Reference}: full refund, receipt {ReceiptId} reversed automatically.",
+                checkout.Reference, receiptId);
+            return "Receipt reversed automatically.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Already reversed by an admin (or invoice voided): nothing more to undo.
+            logger.LogInformation("Paystack checkout {Reference}: refund reversal not applied: {Reason}", checkout.Reference, ex.Message);
+            return $"Receipt not reversed automatically: {ex.Message}";
+        }
+        finally
+        {
+            db.ChangeTracker.Clear();
+        }
+    }
+
+    public const string RefundActor = "system:paystack-refund";
 
     /// <summary>
     /// Refunds and disputes are flagged, not acted on: reversing the receipt (and any license impact) is an admin
     /// decision. Signed events are trusted for flagging only, since no money is recorded from them.
     /// </summary>
-    private async Task FlagAfterPaymentAsync(PaymentCheckout checkout, WebhookKind kind, PaystackWebhookEvent evt, CancellationToken cancellationToken)
+    private async Task<bool> FlagAfterPaymentAsync(PaymentCheckout checkout, WebhookKind kind, PaystackWebhookEvent evt,
+        bool fullRefund, string? reversalNote, CancellationToken cancellationToken)
     {
         var amount = evt.AmountMinor is { } minor ? $" {MinorUnits.ToAmount(minor):0.00} {evt.Currency ?? checkout.Currency}" : string.Empty;
         string note;
         if (kind == WebhookKind.Refund)
         {
+            // Duplicate/concurrent deliveries: a full-refund flag already on the row is final, don't fight over it.
+            if (checkout.Status == PaymentCheckoutStatus.Refunded
+                && checkout.LastError is { } existing
+                && (existing.StartsWith("Full refund", StringComparison.Ordinal) || !fullRefund))
+                return true;
             checkout.Status = PaymentCheckoutStatus.Refunded;
-            note = $"Refund{amount} processed at Paystack. Reverse the receipt if this was a full refund.";
+            note = fullRefund
+                ? $"Full refund{amount} processed at Paystack. {reversalNote ?? "No receipt was recorded for this payment."}"
+                : $"Partial refund{amount} processed at Paystack; needs review. Reverse the receipt manually if appropriate.";
         }
         else
         {
             if (checkout.Status == PaymentCheckoutStatus.Refunded)
-                return; // a refund is the more final state
+                return true; // a refund is the more final state
             checkout.Status = PaymentCheckoutStatus.Disputed;
             note = $"Chargeback/dispute{amount} opened at Paystack. Respond in the Paystack dashboard.";
         }
@@ -310,7 +387,8 @@ public sealed class PaymentCheckoutService(
         checkout.CompletedAt ??= DateTime.UtcNow;
         logger.LogWarning("Paystack checkout {Reference} on invoice {InvoiceId}: {Event}; flagged for review.",
             checkout.Reference, checkout.InvoiceId, evt.Event);
-        await SaveCheckoutAsync(checkout, cancellationToken);
+        var (saved, _) = await SaveCheckoutAsync(checkout, cancellationToken);
+        return saved;
     }
 
     private enum WebhookKind { Other, ChargeSuccess, Refund, Dispute }
@@ -512,13 +590,20 @@ public sealed class PaymentCheckoutService(
             return await MarkNeedsReviewAsync(reloaded, ex.Message, cancellationToken);
         }
 
+        // The receipt is idempotent (paystack:{reference}). A concurrent refund/dispute flag may have bumped the row
+        // meanwhile: retry so the receipt link is never lost, and keep a more final status (Refunded/Disputed/review).
         var fresh = await ReloadAsync(checkoutId, cancellationToken);
-        fresh.Status = PaymentCheckoutStatus.Paid;
-        fresh.ReceiptId = receipt.Id;
-        fresh.CompletedAt ??= now;
-        fresh.LastError = null;
-        // The receipt is idempotent (paystack:{reference}); losing this race just means another caller marked it Paid.
-        fresh = (await SaveCheckoutAsync(fresh, cancellationToken)).Current;
+        for (var attempt = 0; attempt < 3 && fresh.ReceiptId is null; attempt++)
+        {
+            if (fresh.Status is PaymentCheckoutStatus.Pending or PaymentCheckoutStatus.Failed or PaymentCheckoutStatus.Expired)
+            {
+                fresh.Status = PaymentCheckoutStatus.Paid;
+                fresh.LastError = null;
+            }
+            fresh.ReceiptId = receipt.Id;
+            fresh.CompletedAt ??= now;
+            fresh = (await SaveCheckoutAsync(fresh, cancellationToken)).Current;
+        }
         logger.LogInformation(
             "Paystack checkout {Reference} applied to invoice {InvoiceId} as receipt {ReceiptNumber}.",
             fresh.Reference, fresh.InvoiceId, receipt.ReceiptNumber);

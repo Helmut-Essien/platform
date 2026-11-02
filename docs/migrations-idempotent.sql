@@ -1181,5 +1181,187 @@ BEGIN
     VALUES ('20261030075845_AddAutoRenewalAndPayLinks', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    ALTER TABLE "Invoices" ADD "ActivationAppliedAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    ALTER TABLE "Invoices" ADD "ActivationPeriodMonths" integer;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    ALTER TABLE "Invoices" ADD "IsActivationInvoice" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    CREATE UNIQUE INDEX "IX_Invoices_OneActivationPerLicense" ON "Invoices" ("LicenseId") WHERE "IsActivationInvoice" AND "Status" <> 'Void';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102080020_AddLicenseActivationInvoices') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261102080020_AddLicenseActivationInvoices', '9.0.22');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    ALTER TABLE "Licenses" ADD "IsComplimentary" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    ALTER TABLE "Licenses" ADD "IsTrial" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    ALTER TABLE "Licenses" ADD "TrialReminderForEndsAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    ALTER TABLE "Licenses" ADD "TrialStartedAt" timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    ALTER TABLE "Invoices" ADD "IsTrialConversion" boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    CREATE INDEX "IX_Licenses_Complimentary_CreatedAt" ON "Licenses" ("CreatedAt") WHERE "IsComplimentary";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    CREATE UNIQUE INDEX "IX_Licenses_OneTrialPerCustomerService" ON "Licenses" ("CustomerId", "ServiceProductId") WHERE "TrialStartedAt" IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    CREATE INDEX "IX_Licenses_Trial_ExpiresAt" ON "Licenses" ("ExpiresAt") WHERE "IsTrial";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102091232_AddTrialsAndComplimentaryLicenses') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261102091232_AddTrialsAndComplimentaryLicenses', '9.0.22');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    ALTER TABLE "InvoiceBrandProfiles" ADD "ContactEmail" character varying(256);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    ALTER TABLE "InvoiceBrandProfiles" ADD "TaxId" character varying(50);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    UPDATE "InvoiceBrandProfiles" SET "ContactEmail" = 'helmutessien@gmail.com' WHERE NULLIF(BTRIM("ContactEmail"), '') IS NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+
+    UPDATE "InvoiceBrandProfiles" SET
+        "CompanyName" = 'HelmutCode Solutions',
+        "AddressLine1" = COALESCE(NULLIF(BTRIM("AddressLine1"), ''), 'YN13 Flask St'),
+        "AddressLine2" = COALESCE(NULLIF(BTRIM("AddressLine2"), ''), 'Accra, Ghana'),
+        "Phone" = COALESCE(NULLIF(BTRIM("Phone"), ''), '+233500785153'),
+        "Website" = COALESCE(NULLIF(BTRIM("Website"), ''), 'helmutcode.runasp.net')
+    WHERE "CompanyName" = 'Platform License Hub';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102101528_BrandContactEmailAndTaxId') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261102101528_BrandContactEmailAndTaxId', '9.0.22');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102115641_AddLicenseDevices') THEN
+    ALTER TABLE "Licenses" ADD "MaxDevices" integer;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102115641_AddLicenseDevices') THEN
+    CREATE TABLE "LicenseDevices" (
+        "Id" character varying(26) NOT NULL,
+        "LicenseId" character varying(26) NOT NULL,
+        "DeviceIdHash" character varying(64) NOT NULL,
+        "Name" character varying(100),
+        "FirstSeenAt" timestamp with time zone NOT NULL,
+        "LastSeenAt" timestamp with time zone NOT NULL,
+        "RevokedAt" timestamp with time zone,
+        CONSTRAINT "PK_LicenseDevices" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_LicenseDevices_Licenses_LicenseId" FOREIGN KEY ("LicenseId") REFERENCES "Licenses" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102115641_AddLicenseDevices') THEN
+    CREATE UNIQUE INDEX "IX_LicenseDevices_LicenseId_DeviceIdHash" ON "LicenseDevices" ("LicenseId", "DeviceIdHash");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261102115641_AddLicenseDevices') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261102115641_AddLicenseDevices', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 

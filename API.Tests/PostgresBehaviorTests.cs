@@ -69,12 +69,7 @@ public class PostgresBehaviorTests
         var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(async _ =>
         {
             await using var db = pg.NewContext();
-            var service = new LicenseValidationService(
-                db,
-                new AllowAllDenyList(),
-                new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())),
-                Options.Create(new RedisSettings { ValidationCacheSeconds = 60 }),
-                NullLogger<LicenseValidationService>.Instance);
+            var service = LicenseValidationTestFactory.Create(db);
             return await service.ValidateAsync(integrationKey, new ValidateLicenseRequest { LicenseKey = licenseKey, ServiceCode = "HOSTEL" });
         }));
 
@@ -92,10 +87,7 @@ public class PostgresBehaviorTests
 
         // A second validation now uses the cheap v2 path and still works.
         await using var again = pg.NewContext();
-        var second = await new LicenseValidationService(
-            again, new AllowAllDenyList(),
-            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())),
-            Options.Create(new RedisSettings()), NullLogger<LicenseValidationService>.Instance)
+        var second = await LicenseValidationTestFactory.Create(again)
             .ValidateAsync(integrationKey, new ValidateLicenseRequest { LicenseKey = licenseKey });
         Assert.True(second.IsValid);
     }
@@ -315,6 +307,7 @@ public class PostgresBehaviorTests
             try
             {
                 var admin = new NpgsqlConnectionStringBuilder(baseConnection) { Pooling = false };
+                await EnsureBaseDatabaseAsync(admin);
                 await using (var conn = new NpgsqlConnection(admin.ConnectionString))
                 {
                     await conn.OpenAsync();
@@ -328,9 +321,43 @@ public class PostgresBehaviorTests
                 await db.Database.MigrateAsync();
                 return temp;
             }
-            catch
+            catch (Exception ex)
             {
-                return null;
+                // PLATFORM_TEST_DB is set, so Postgres tests are expected to run: fail loudly instead of skipping.
+                throw new InvalidOperationException(
+                    "PLATFORM_TEST_DB is set but the temporary Postgres database could not be created/migrated.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Creates the PLATFORM_TEST_DB database itself when it does not exist yet (fresh CI service container or
+        /// local docker), via the server's "postgres" maintenance database. Safe when tests race to create it.
+        /// </summary>
+        private static async Task EnsureBaseDatabaseAsync(NpgsqlConnectionStringBuilder admin)
+        {
+            try
+            {
+                await using var probe = new NpgsqlConnection(admin.ConnectionString);
+                await probe.OpenAsync();
+                return;
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.InvalidCatalogName)
+            {
+                // 3D000: the base database is missing; create it below.
+            }
+
+            var maintenance = new NpgsqlConnectionStringBuilder(admin.ConnectionString) { Database = "postgres" };
+            await using var conn = new NpgsqlConnection(maintenance.ConnectionString);
+            await conn.OpenAsync();
+            try
+            {
+                var quoted = "\"" + admin.Database!.Replace("\"", "\"\"") + "\"";
+                await using var cmd = new NpgsqlCommand($"CREATE DATABASE {quoted}", conn);
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (PostgresException ex) when (ex.SqlState is PostgresErrorCodes.DuplicateDatabase or PostgresErrorCodes.UniqueViolation)
+            {
+                // Another test created it first.
             }
         }
 

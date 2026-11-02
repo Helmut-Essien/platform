@@ -28,6 +28,17 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Https__Redirect` | no | Default `true` in Production (with HSTS). |
 | `CORS_ORIGINS` | no | Comma-separated extra origins only if a UI on another domain calls this API. |
 | `ForwardedHeaders__Enabled` (+ `__KnownProxies__0` / `__KnownNetworks__0`) | no | Keep off for IIS in-process. Only enable behind a reverse proxy you list explicitly. |
+| `Licensing__TokenSigningKey` | recommended | ECDSA P-256 private key (PKCS#8 PEM; `\n` escapes allowed) used to sign offline license tokens. Unset in Production = no tokens and a loud startup error log. See §11. |
+| `Licensing__TokenSigningKeyId` | no | Key id (`kid`). Default = RFC 7638 thumbprint of the key. |
+| `Licensing__AdditionalPublicKeys__0__Kid` / `__PublicKeyPem` | during rotation | Old public keys still published at `/api/licenses/keys` so tokens signed before a rotation keep verifying. |
+| `Licensing__RequireTokenSigning` | no | `true` = refuse to start without a signing key (default `false`). |
+| `Licensing__OfflineGraceDays` | no | How long a product may run offline on its last token (default `7`). Never extends past license expiry + `ExpiryGraceHours`. |
+| `Licensing__ExpiryGraceHours` | no | Small allowance past the license expiry for the offline window (default `0`). |
+| `Licensing__TokenRefreshHours` | no | When products should re-check (`refreshAfter`, default `12`, capped at half the grace window). |
+| `Licensing__DefaultMaxDevices` | no | Device limit for newly issued licenses (default `3`; `0` = unlimited). Existing licenses stay unlimited until edited. |
+| `Licensing__RequireDeviceId` | no | `true` = reject validations without `deviceId` (default `false` for old clients). |
+| `Licensing__LicenseKeyPermitLimit` / `__PerIpPermitLimit` / `__RateLimitWindowSeconds` | no | Validation limits per license key (default 30) and per client IP (default 300) per window (default 60 s). |
+| `Licensing__ValidationTimeoutSeconds` / `__UnavailableRetryAfterSeconds` | no | DB timeout before answering 503 (default 10) and the `Retry-After` sent with it (default 30). |
 | `Paystack__SecretKey` | no | Enables online payments (`sk_test_…` or `sk_live_…`). Unset = feature hidden, endpoints return 503. See §9. |
 | `Paystack__PublicKey` | no | `pk_test_…` / `pk_live_…`. Stored for completeness; checkout uses Paystack's hosted page. |
 | `Paystack__CollectionCap` | no | Starter Business limit in GHS for the dashboard card (default `30000`; `0` hides it). |
@@ -38,6 +49,9 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Billing__PayLinkEnabled` | no | Public `/pay/{token}` links in invoice emails/PDFs (default `true`; needs Paystack). |
 | `Billing__PayLinkValidDays` | no | Pay-link lifetime, re-extended when the invoice is re-sent (default `60`, 7–365). |
 | `Billing__PayLinkSigningKey` | no | Dedicated 32+ char secret for pay-link signatures. Unset = derived from `Jwt__Key` (rotating either invalidates links already sent). |
+| `Billing__TrialMonths` | no | Length of a free trial in months (default `1`, 1–12). See §10. |
+| `Billing__TrialReminderDaysBefore` | no | Days before a trial ends that the reminder (with the first invoice, if priced) goes out (default `7`, 1–60). |
+| `Billing__TrialMaxTotalMonths` | no | Longest a trial can run, counting extensions, from its start (default `3`, at least `TrialMonths`, max 24). |
 
 ## 2. Create the site and database
 
@@ -214,6 +228,9 @@ Never put the secret key in `appsettings*.json` or the client; it is only read f
 3. When that invoice is fully paid (manual receipt or Paystack), the license is extended by one period in the same transaction:
    Expired → Active, a manual suspension stays, month-end dates keep their anniversary day (Jan 31 → Feb 28/29 → Mar 31).
    If the license was already renewed by hand, the payment does not extend it again (audit: *Renewal skipped*).
+   **Revoke** voids the license's unpaid open invoices and kills their pay links. Invoices with a payment, or a Paystack checkout
+   started within `Billing__VoidBlockAfterCheckoutMinutes`, stay open and are listed in the audit entry; a payment that still
+   arrives is recorded but does not change the revoked license.
 4. Reversing the payment restores the old expiry only if nothing else changed it; otherwise it is left and flagged
    (audit: *Renewal reversal needs review*).
 5. A voided renewal invoice is **not** re-created automatically. Use Licenses → ⋮ → *Create renewal invoice* to issue it again.
@@ -232,6 +249,128 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 4. Reopen the link the next day → 404/“no longer payable”; void another renewal invoice → its link returns 404 immediately.
 5. Reverse the receipt → expiry restored (audit shows *Renewal reverted*).
 
+### Free trials
+
+- **Issue**: Licenses → *Issue License* → type *Free trial*. It is Active at once, the key is emailed, and it ends after
+  `Billing__TrialMonths`. Set a price on it if the customer should continue paid; leave it empty for a plain trial.
+- **Reminder** `Billing__TrialReminderDaysBefore` days before the end:
+  - *With a price* (and automatic invoices on): the renewal worker sends the first invoice as the reminder — email
+    "Your … trial ends on …", PDF attached, **Pay online** link. Paying converts the trial to a normal license; the paid
+    period starts at the trial end (or at the payment date if paid more than `RenewalGraceDays` after it), same rules as renewals.
+  - *Without a price* (or automatic invoices off): `LicenseExpiryReminderWorker` sends a plain "trial ends soon" email. The normal
+    expiry reminders are not sent for trials, so the customer never gets two different messages.
+  - One reminder per trial end date; extending the trial re-arms it.
+- **Unpaid at the end**: the trial expires like any license (key stops validating). Paying the invoice later reactivates it.
+- **One trial per customer per service**, enforced by the unique index `IX_Licenses_OneTrialPerCustomerService`
+  (also after the trial is revoked or converted).
+- **Extend trial** (⋮ menu): pick a later end date, up to `Billing__TrialMaxTotalMonths` from the start. An unpaid trial invoice moves
+  to the new date; an Expired trial is switched back on. Editing the end date of a trial that already has its invoice is refused —
+  use *Extend trial*. *Renew* on a trial converts it by hand (its unpaid trial invoice is voided).
+  If the customer was already sent the trial reminder or trial invoice, extending emails them the new end date (once per date),
+  with the still-valid pay link when there is an unpaid trial invoice.
+- Grid: **Trial** badge, *Type* filter.
+
+### Complimentary (free) licenses
+
+- **Issue**: type *Complimentary*, or ⋮ → *Make complimentary* on an existing license. No price, never invoiced, never suspended for an
+  overdue invoice, no expiry unless you set one. Making a license complimentary voids its unpaid invoices (pay links stop working),
+  switches a Pending/Expired/overdue-suspended license on, keeps a manual suspension, and ends a trial. Invoices that already have a
+  payment, or a Paystack payment in progress, are left open for you to refund or void (listed in the audit entry); a payment that
+  still arrives does not change the license (audit: *Renewal skipped*).
+- **Switch to paid** (⋮): set the price and the billing start date (default: current expiry if in the future, else today + 14 days).
+  Free access runs until then; the first invoice is emailed now (or by the worker later if you untick it).
+- Expiry reminders for a complimentary license with an end date use free-access wording (nothing to pay, no invoice or pay link).
+- Grid: **Complimentary** badge, *Type* filter. All changes are in the audit log (*Made complimentary*, *Complimentary ended*,
+  *Trial started/extended/converted*, *Trial reminder queued*).
+
+**Migration** `AddTrialsAndComplimentaryLicenses`: adds `Licenses.IsTrial`, `TrialStartedAt`, `TrialReminderForEndsAt`, `IsComplimentary`,
+`Invoices.IsTrialConversion` (all default false/null, existing licenses unchanged) and three partial indexes. Included in
+`docs/migrations-idempotent.sql`.
+
+## 11. License validation: signed tokens, devices and client integration
+
+### Generate the signing key (once)
+
+```bash
+# Option A – the app itself (prints private PEM, public PEM and kid; nothing is stored)
+dotnet Platform.Api.dll generate-license-key        # or: dotnet run --project API -- generate-license-key
+# Option B – openssl
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out license-signing.pem
+openssl ec -in license-signing.pem -pubout -out license-signing.pub.pem
+```
+
+Put the **private** PEM in `Licensing__TokenSigningKey` (paste it with real newlines or as one line with `\n`).
+Keep it secret; anyone with it can mint licenses. Products only ever need the public key / JWKS.
+
+**Rotation:** generate a new key, move the old *public* PEM and its kid into
+`Licensing__AdditionalPublicKeys__0__PublicKeyPem` / `__Kid`, set the new private key, restart.
+Leave the old public key published for at least `OfflineGraceDays` (+ refresh), then remove it.
+
+### Endpoints
+
+`POST /api/licenses/validate` (header `X-Integration-Key`) — request (all new fields optional, old clients keep working):
+
+```json
+{ "licenseKey": "HOSTEL-XXXX", "serviceCode": "HOSTEL", "deviceId": "stable-machine-id", "deviceName": "Front desk PC" }
+```
+
+`200` — the license was judged:
+
+```json
+{ "isValid": true, "reason": "ok", "planName": "Growth", "expiresAt": "2027-01-31T00:00:00Z",
+  "serverTime": "2026-11-02T10:00:00Z", "licenseId": "…", "token": "eyJhbGciOiJFUzI1NiIs…",
+  "refreshAfter": "2026-11-02T22:00:00Z", "offlineGraceUntil": "2026-11-09T10:00:00Z",
+  "maxDevices": 3, "activeDevices": 1 }
+```
+
+`isValid:false` (still 200) only when the license really is not usable; `reason` is one of
+`invalid_key`, `invalid_integration_key`, `wrong_service`, `not_active`, `expired`, `suspended`, `revoked`,
+`device_required`, `device_limit`. Bad input = `400 invalid_request`.
+`wrong_service` means the `serviceCode` sent does not belong to the integration key's product (a product
+misconfiguration); `invalid_integration_key` means the key itself is unknown or revoked. Leading/trailing whitespace
+in the license key and the `X-Integration-Key` header is ignored, so pasted keys work.
+
+`429 rate_limited` and `503 service_unavailable` mean **the server did not judge the license**. Both carry a
+`Retry-After` header and `{ "reason", "message", "serverTime", "retryAfterSeconds", "retryable": true }` (no `isValid`).
+
+`GET /api/licenses/keys` — JWKS (`{ "keys": [{ "kty":"EC","crv":"P-256","alg":"ES256","use":"sig","kid","x","y" }] }`), cacheable for an hour.
+
+### Token format
+
+Compact JWS, header `{"alg":"ES256","typ":"license+jwt","kid":…}`. Claims: `iss`, `sub`/`license_id`, `aud`/`product`,
+`customer_id`, `plan`, `license_expires_at`, `device_id` (as sent), `trial`, `complimentary`, `iat`,
+`server_time`, `refresh_after`, `grace_until`, `exp` (= `grace_until`).
+
+### Client integration guide (what each product must do)
+
+1. **Device id:** derive a stable id per installation (e.g. a GUID stored on first run, or a machine id) and send it
+   with every validation. Changing it uses a new device slot.
+2. **Validate on start-up and when `refreshAfter` passes.** Store the last `token` locally.
+3. **Verify the token locally** with the JWKS (fetch and cache it; re-fetch when you meet an unknown `kid`):
+   check the ES256 signature, `iss`, `aud`/`product` = your product code, `device_id` = your device id, and that
+   now < `exp`. Use the token's `server_time` vs. your clock to spot a badly wrong clock.
+4. **Offline / server trouble:** on network errors, `5xx`, `503` or `429`, keep running while the stored token is
+   valid (until `grace_until`). Retry with exponential backoff + jitter (e.g. 30 s, 1 m, 2 m … max 30 m) and always honour
+   `Retry-After`. Never treat these as "license invalid".
+5. **Only lock the product on a `200` with `isValid:false`** (or once the stored token's grace has run out). Show the
+   `message`; on `device_limit` tell the user to ask you to release an old device (Licenses → ⋮ → Devices).
+
+### Devices
+
+Each license has `MaxDevices` (set in Issue/Edit; 0 = unlimited). The first validation from a new `deviceId`
+activates a slot (audited). Admins can see devices and release one in **Licenses → ⋮ → Devices**; the slot is
+freed at once. Lowering the limit never removes active devices; it only blocks new ones.
+
+### Proxies
+
+Client-IP rate limiting uses the connection address. If the API sits behind a reverse proxy, set
+`ForwardedHeaders__Enabled=true` and list the proxy in `ForwardedHeaders__KnownProxies__0`; the app logs a warning
+once if traffic looks proxied while this is off. Leave it off on IIS in-process (MonsterASP).
+
+### Database migration
+
+This release adds the `LicenseDevices` table and a nullable `Licenses.MaxDevices` column
+(migration `AddLicenseDevices`, included in `docs/migrations-idempotent.sql`). Run it before deploying.
 ## 11. Public landing page and SEO
 
 **Routing.** `GET /` (and `HEAD /`) serves the static, server-rendered `wwwroot/landing.html` (no WASM; critical CSS inline; one small deferred module, `wwwroot/js/landing.js`, adds the decorative WebGL hero, 3D tilt and scroll reveal after load, and the page is complete without it). Every other path is unchanged and still gets the admin SPA: `/login`, `/reset-password`, `/invoices/...`, `/pay/{token}`, and so on. Links already sent in emails, `Auth:ClientBaseUrl` and the Paystack `callback_url` keep working. The admin home moved from `/` to **`/dashboard`**. After login (or for an unsafe `returnUrl`) the app goes to `/dashboard`, and an in-app navigation to `/` redirects there. "Client login" is in the landing page footer only and links to `/login`, which goes to `/dashboard` after sign-in. The middleware is `PublicSiteExtensions.UsePublicSite()`, and it must stay before `UseBlazorFrameworkFiles/UseStaticFiles`.

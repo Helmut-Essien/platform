@@ -55,11 +55,7 @@
                                  Variant="Variant.Outlined"
                                  Min="0m"
                                  Class="mb-2" />
-                <MudTextField @bind-Value="_model.Currency"
-                              For="@(() => _model.Currency)"
-                              Label="Currency"
-                              Variant="Variant.Outlined"
-                              Class="mb-2" />
+                <CurrencyField @bind-Value="_model.Currency" />
                 <MudDatePicker @bind-Date="_model.DueDate"
                                For="@(() => _model.DueDate)"
                                Label="Invoice due date"
@@ -116,7 +112,7 @@
     private RenewLicenseRequest _model = new()
     {
         Subtotal = 99m,
-        Currency = "USD",
+        Currency = BillingDefaults.Currency,
         DueDate = DateTime.UtcNow.AddDays(30)
     };
 

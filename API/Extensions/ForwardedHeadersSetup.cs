@@ -22,7 +22,8 @@ public static class ForwardedHeadersSetup
         services.Configure<ForwardedHeadersOptions>(options =>
         {
             options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            options.ForwardLimit = section.GetValue("ForwardLimit", 1);
+            // Never trust an unbounded X-Forwarded-For chain: 1 hop by default, at most 5.
+            options.ForwardLimit = Math.Clamp(section.GetValue("ForwardLimit", 1), 1, 5);
             options.KnownProxies.Clear();
             options.KnownNetworks.Clear();
             foreach (var proxy in proxies)
@@ -35,6 +36,46 @@ public static class ForwardedHeadersSetup
         });
 
         return enabled;
+    }
+
+    private static int _proxyWarningLogged;
+
+    /// <summary>
+    /// Logs once when requests look proxied but forwarded headers are off (every client would share the proxy's
+    /// address, so per-IP rate limits would throttle all customers together), or when they are on but the
+    /// header comes from an untrusted hop. Never changes the request.
+    /// </summary>
+    public static IApplicationBuilder UseProxyDetection(this IApplicationBuilder app, bool forwardedHeadersEnabled)
+    {
+        return app.Use(async (context, next) =>
+        {
+            if (Volatile.Read(ref _proxyWarningLogged) == 0
+                && context.Request.Headers.ContainsKey("X-Forwarded-For")
+                && context.Connection.RemoteIpAddress is { } remote
+                && (IPAddress.IsLoopback(remote) || IsPrivate(remote))
+                && Interlocked.Exchange(ref _proxyWarningLogged, 1) == 0)
+            {
+                var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("ForwardedHeaders");
+                if (!forwardedHeadersEnabled)
+                    logger.LogWarning(
+                        "Requests arrive through a proxy at {ProxyAddress} with X-Forwarded-For, but ForwardedHeaders:Enabled is false. " +
+                        "All clients share that address for rate limiting. Set ForwardedHeaders__Enabled=true and ForwardedHeaders__KnownProxies__0={ProxyAddress}.",
+                        remote, remote);
+                else
+                    logger.LogInformation("Forwarded headers active; proxy hop seen at {ProxyAddress}.", remote);
+            }
+            await next();
+        });
+    }
+
+    internal static bool IsPrivate(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6UniqueLocal;
+        var b = ip.GetAddressBytes();
+        return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168) || (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
     }
 
     internal static List<IPAddress> ParseProxies(string[]? values) =>

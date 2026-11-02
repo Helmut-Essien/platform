@@ -18,6 +18,10 @@ public class CreateLicenseRequest
 
     public bool CreateInvoice { get; set; }
 
+    /// <summary>Devices allowed at once. Null = server default (Licensing:DefaultMaxDevices) on issue, unchanged on edit; 0 = unlimited.</summary>
+    [Range(0, 1000, ErrorMessage = "Max devices must be between 0 (unlimited) and 1000")]
+    public int? MaxDevices { get; set; }
+
     public bool SendInvoice { get; set; }
 
     [Range(typeof(decimal), "0", "79228162514264337593543950335")]
@@ -26,10 +30,20 @@ public class CreateLicenseRequest
     [Range(typeof(decimal), "0", "79228162514264337593543950335")]
     public decimal InvoiceTaxAmount { get; set; }
 
+    /// <summary>Blank uses the server default (GHS). Ignored when the invoice is billed from the license price.</summary>
     [MaxLength(3)]
-    public string InvoiceCurrency { get; set; } = "USD";
+    public string? InvoiceCurrency { get; set; } = "GHS";
 
     public DateTime? InvoiceDueDate { get; set; }
+
+    /// <summary>
+    /// Start a free trial: the license activates now (key emailed) and expires at the trial end. With a price, the
+    /// first invoice goes out with the trial-ending reminder. ExpiresAt and the first-invoice fields are ignored.
+    /// </summary>
+    public bool Trial { get; set; }
+
+    /// <summary>Free until changed: activates now, never invoiced, no expiry unless ExpiresAt is set. Price is ignored.</summary>
+    public bool Complimentary { get; set; }
 
     /// <summary>Recurring price for automatic renewal invoices; null leaves the license's current setting unchanged.</summary>
     public LicenseBillingDto? Billing { get; set; }

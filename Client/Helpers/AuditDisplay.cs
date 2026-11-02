@@ -40,6 +40,15 @@ public static class AuditDisplay
         AuditAction.LicenseRenewalSkipped => "Renewal not applied (already renewed)",
         AuditAction.LicenseRenewalReverted => "Renewal reverted (payment reversed)",
         AuditAction.LicenseRenewalReversalConflict => "Renewal kept: license changed since (review)",
+        AuditAction.LicenseAutoActivatedPaid => "License activated after first payment",
+        AuditAction.LicenseActivationSkipped => "Paid, but license not auto-activated (review)",
+        AuditAction.LicenseActivationReverted => "License suspended (activation payment reversed)",
+        AuditAction.LicenseTrialStarted => "Trial started",
+        AuditAction.LicenseTrialExtended => "Trial extended",
+        AuditAction.LicenseTrialConverted => "Trial converted to paid",
+        AuditAction.LicenseTrialReminderQueued => "Trial ending reminder sent",
+        AuditAction.LicenseMadeComplimentary => "License made complimentary (free)",
+        AuditAction.LicenseComplimentaryEnded => "Complimentary license switched to paid",
         _ => SplitPascal(action.ToString())
     };
 

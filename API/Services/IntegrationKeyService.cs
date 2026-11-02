@@ -10,7 +10,10 @@ using Platform.Shared.Enums;
 
 namespace Platform.Api.Services;
 
-public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) : IIntegrationKeyService
+public class IntegrationKeyService(
+    AppDbContext db,
+    IAuditLogService auditLog,
+    Platform.Api.Services.Licensing.IntegrationKeyCache? keyCache = null) : IIntegrationKeyService
 {
     private const int MaxListedKeys = 500;
 
@@ -69,6 +72,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
 
                 if (transaction is not null)
                     await transaction.CommitAsync(ct);
+                keyCache?.InvalidateAll(); // the previous key stops working on the next check
 
                 return new CreateIntegrationKeyResponse
                 {
@@ -106,6 +110,7 @@ public class IntegrationKeyService(AppDbContext db, IAuditLogService auditLog) :
 
         key.IsActive = false;
         await db.SaveChangesAsync(cancellationToken);
+        keyCache?.InvalidateAll(); // revocation takes effect on the next check, not after the cache TTL
 
         await auditLog.WriteAsync(AuditAction.IntegrationKeyRevoked, performedBy, null, null, null,
             AuditJson.Serialize(new { integrationKeyId = id }), ipAddress, cancellationToken);

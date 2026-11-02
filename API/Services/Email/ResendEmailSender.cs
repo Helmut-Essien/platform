@@ -47,6 +47,8 @@ public class ResendEmailSender(
             To = [toEmail],
             Subject = subject,
             Html = htmlBody,
+            Text = EmailPlainText.FromHtml(htmlBody),
+            ReplyTo = EmailReplyTo.Resolve(settings.ReplyToAddress, logger) is { } replyTo ? [replyTo] : null,
             Attachments = attachments is { Count: > 0 }
                 ? attachments.Select(a => new ResendAttachment
                 {
@@ -140,6 +142,13 @@ public class ResendEmailSender(
 
         [JsonPropertyName("html")]
         public required string Html { get; init; }
+
+        [JsonPropertyName("text")]
+        public required string Text { get; init; }
+
+        [JsonPropertyName("reply_to")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string[]? ReplyTo { get; init; }
 
         [JsonPropertyName("attachments")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -14,6 +14,12 @@ public class InvoiceBrandProfile
 
     public string? Website { get; set; }
 
+    /// <summary>Contact email shown on invoices, receipts and email footers.</summary>
+    public string? ContactEmail { get; set; }
+
+    /// <summary>Optional tax ID (e.g. GRA TIN) printed on invoices and receipts.</summary>
+    public string? TaxId { get; set; }
+
     /// <summary>JSON array of payment options: [{ "method": "...", "details": "..." }].</summary>
     public string? PaymentOptionsJson { get; set; }
 

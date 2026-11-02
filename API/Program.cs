@@ -9,6 +9,20 @@ using Platform.Api.Extensions;
 using Platform.Api.Services;
 using Platform.Api.Services.Email;
 
+// `dotnet Platform.Api.dll generate-license-key` prints a new ES256 key pair for Licensing__TokenSigningKey and exits.
+if (args.Length > 0 && args[0] == "generate-license-key")
+{
+    var (privatePem, publicPem, kid) = Platform.Api.Security.LicenseTokenSigner.GenerateKeyPair();
+    Console.WriteLine("# Licensing__TokenSigningKey (keep secret; one line with \\n escapes is fine for env vars):");
+    Console.WriteLine(privatePem);
+    Console.WriteLine("# Public key (published at GET /api/licenses/keys; embed in products as a fallback):");
+    Console.WriteLine(publicPem);
+    Console.WriteLine($"# Licensing__TokenSigningKeyId={kid}");
+    Console.WriteLine("# Single-line form for a panel/env var:");
+    Console.WriteLine(privatePem.Trim().Replace("\n", "\\n"));
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Forwarded headers are only honoured from explicitly configured proxies/networks.
@@ -190,6 +204,11 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 if (forwardedHeadersEnabled)
     app.UseForwardedHeaders();
+app.UseProxyDetection(forwardedHeadersEnabled);
+
+// Load the license signing key at startup: a bad PEM (or RequireTokenSigning without a key) fails fast here,
+// and a missing key is logged loudly instead of on the first customer check.
+app.Services.GetRequiredService<Platform.Api.Security.LicenseTokenSigner>();
 
 if (!app.Environment.IsDevelopment())
 {

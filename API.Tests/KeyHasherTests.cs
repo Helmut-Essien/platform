@@ -89,12 +89,7 @@ public class KeyHasherTests
         await db.SaveChangesAsync();
 
         var cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
-        var service = new LicenseValidationService(
-            db,
-            new NoDenyList(),
-            cache,
-            Options.Create(new RedisSettings()),
-            NullLogger<LicenseValidationService>.Instance);
+        var service = LicenseValidationTestFactory.Create(db);
 
         var result = await service.ValidateAsync(
             integrationKey,
@@ -108,12 +103,7 @@ public class KeyHasherTests
         Assert.False(KeyHasher.IsLegacy(storedKey.KeyHash));
 
         // Upgraded hashes keep working (fresh service, no cache).
-        var service2 = new LicenseValidationService(
-            verifyDb,
-            new NoDenyList(),
-            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())),
-            Options.Create(new RedisSettings()),
-            NullLogger<LicenseValidationService>.Instance);
+        var service2 = LicenseValidationTestFactory.Create(verifyDb);
         var again = await service2.ValidateAsync(
             integrationKey,
             new ValidateLicenseRequest { LicenseKey = licenseKey, ServiceCode = "HOSTEL" });

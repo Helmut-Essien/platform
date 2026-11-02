@@ -77,6 +77,79 @@ public class EmailOutboxWorkerTests
     }
 
     [Fact]
+    public async Task SendAsync_ReclaimedPoisonMessage_IsDeadLetteredWithoutSending()
+    {
+        // A message whose attempts crashed the worker is reclaimed with its attempts already counted.
+        await using var h = CreateHarness(maxAttempts: 3);
+        var message = await h.QueueAsync(EmailDeliveryKind.RenewalConfirmation, payload: false);
+        message.AttemptCount = 3;
+        await h.Db.SaveChangesAsync();
+
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+
+        h.Db.ChangeTracker.Clear();
+        Assert.Equal(EmailDeliveryStatus.DeadLetter, (await h.Db.EmailOutboxMessages.FirstAsync(m => m.Id == message.Id)).Status);
+        Assert.Empty(h.Sender.Sent);
+    }
+
+    [Fact]
+    public async Task SendAsync_CountsAttemptBeforeSending()
+    {
+        await using var h = CreateHarness();
+        h.Sender.Throw = new OperationCanceledException(); // e.g. shutdown mid-send: nothing else is recorded
+        var message = await h.QueueAsync(EmailDeliveryKind.RenewalConfirmation, payload: false);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => h.Worker.SendAsync(message.Id, CancellationToken.None));
+
+        h.Db.ChangeTracker.Clear();
+        Assert.Equal(1, (await h.Db.EmailOutboxMessages.FirstAsync(m => m.Id == message.Id)).AttemptCount);
+    }
+
+    [Fact]
+    public async Task Postgres_ClaimThenSend_SendsOnceAndCountsOneAttempt()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+
+        await using var h = CreateHarness(database: pg.NewContext());
+        var message = await h.QueueAsync(EmailDeliveryKind.RenewalConfirmation, payload: false, status: EmailDeliveryStatus.Pending);
+
+        var claimed = await h.Worker.ClaimBatchAsync(CancellationToken.None);
+        Assert.Contains(message.Id, claimed);
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+        await h.Worker.SendAsync(message.Id, CancellationToken.None); // a duplicate in-batch call is a no-op
+
+        Assert.Single(h.Sender.Sent);
+        await using var check = pg.NewContext();
+        var stored = await check.EmailOutboxMessages.FirstAsync(m => m.Id == message.Id);
+        Assert.Equal(EmailDeliveryStatus.Sent, stored.Status);
+        Assert.Equal(1, stored.AttemptCount);
+    }
+
+    [Fact]
+    public async Task Postgres_SendAsync_SkipsMessageReclaimedByAnotherWorker()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+
+        await using var h = CreateHarness(database: pg.NewContext());
+        var message = await h.QueueAsync(EmailDeliveryKind.RenewalConfirmation, payload: false);
+
+        // Another worker reclaims the row as stale while this worker still holds it in its batch.
+        await using (var other = pg.NewContext())
+            await other.EmailOutboxMessages.Where(m => m.Id == message.Id)
+                .ExecuteUpdateAsync(x => x.SetProperty(m => m.UpdatedAt, DateTime.UtcNow.AddMinutes(1)));
+
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+
+        Assert.Empty(h.Sender.Sent);
+        await using var check = pg.NewContext();
+        Assert.Equal(0, (await check.EmailOutboxMessages.FirstAsync(m => m.Id == message.Id)).AttemptCount);
+    }
+
+    [Fact]
     public async Task SendAsync_Failure_SchedulesBackoffAndKeepsMessageRetryable()
     {
         await using var h = CreateHarness(maxAttempts: 5);
@@ -138,6 +211,81 @@ public class EmailOutboxWorkerTests
     }
 
     [Fact]
+    public async Task SendAsync_PaymentReceipt_AttachesReceiptPdf()
+    {
+        await using var h = CreateHarness();
+        var customer = new Customer { Name = "Acme", ContactEmail = "a@acme.test" };
+        var invoice = new Invoice
+        {
+            Customer = customer,
+            CustomerId = customer.Id,
+            InvoiceNumber = "INV-2026-00100",
+            Status = InvoiceStatus.Paid,
+            Currency = "GHS",
+            Subtotal = 10m,
+            TotalAmount = 10m
+        };
+        var receipt = new Receipt
+        {
+            InvoiceId = invoice.Id,
+            ReceiptNumber = "RCP-2026-00100",
+            AmountPaid = 10m,
+            Status = ReceiptStatus.Posted,
+            PaidAt = DateTime.UtcNow
+        };
+        h.Db.AddRange(customer, invoice, receipt);
+        await h.Db.SaveChangesAsync();
+        var message = await h.QueueAsync(EmailDeliveryKind.PaymentReceipt, payload: false, invoiceId: invoice.Id, customerId: customer.Id);
+        message.ReceiptId = receipt.Id;
+        await h.Db.SaveChangesAsync();
+
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+
+        Assert.Single(h.Sender.Sent);
+        var attachment = Assert.Single(h.Sender.Attachments[0]!);
+        Assert.Equal("RCP-2026-00100.pdf", attachment.FileName);
+        Assert.Equal(new byte[] { 4, 5, 6 }, attachment.Content);
+    }
+
+    [Fact]
+    public async Task SendAsync_ReceiptReversedBeforeSending_IsCancelledAndNotSent()
+    {
+        await using var h = CreateHarness();
+        var customer = new Customer { Name = "Acme", ContactEmail = "a@acme.test" };
+        var invoice = new Invoice
+        {
+            Customer = customer,
+            CustomerId = customer.Id,
+            InvoiceNumber = "INV-2026-00101",
+            Status = InvoiceStatus.Sent,
+            Currency = "GHS",
+            Subtotal = 10m,
+            TotalAmount = 10m
+        };
+        var receipt = new Receipt
+        {
+            InvoiceId = invoice.Id,
+            ReceiptNumber = "RCP-2026-00101",
+            AmountPaid = 10m,
+            Status = ReceiptStatus.Reversed,
+            PaidAt = DateTime.UtcNow
+        };
+        h.Db.AddRange(customer, invoice, receipt);
+        await h.Db.SaveChangesAsync();
+        var message = await h.QueueAsync(EmailDeliveryKind.PaymentReceipt, payload: false, invoiceId: invoice.Id, customerId: customer.Id);
+        message.ReceiptId = receipt.Id;
+        await h.Db.SaveChangesAsync();
+
+        await h.Worker.SendAsync(message.Id, CancellationToken.None);
+
+        Assert.Empty(h.Sender.Sent);
+        h.Db.ChangeTracker.Clear();
+        var stored = await h.Db.EmailOutboxMessages.SingleAsync(m => m.Id == message.Id);
+        Assert.Equal(EmailDeliveryStatus.Cancelled, stored.Status);
+        Assert.Contains("reversed", stored.LastError);
+    }
+
+    [Fact]
     public async Task SendAsync_IgnoresMessagesThatAreNotClaimed()
     {
         await using var h = CreateHarness();
@@ -171,12 +319,11 @@ public class EmailOutboxWorkerTests
         Assert.True(await h.Db.EmailOutboxMessages.AnyAsync(m => m.Id == freshSent.Id));
     }
 
-    private static Harness CreateHarness(int maxAttempts = 5)
+    private static Harness CreateHarness(int maxAttempts = 5, AppDbContext? database = null)
     {
-        var options = new DbContextOptionsBuilder<AppDbContext>()
+        var db = database ?? new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(NUlid.Ulid.NewUlid().ToString())
-            .Options;
-        var db = new AppDbContext(options);
+            .Options);
         var settings = Options.Create(new EmailSettings
         {
             Outbox = new EmailOutboxSettings
@@ -195,7 +342,9 @@ public class EmailOutboxWorkerTests
         services.AddSingleton(db);
         services.AddSingleton<IEmailSender>(sender);
         services.AddSingleton(protector);
-        services.AddSingleton<IInvoicePdfGenerator, StubPdf>();
+        services.AddSingleton<StubPdf>();
+        services.AddSingleton<IInvoicePdfGenerator>(sp => sp.GetRequiredService<StubPdf>());
+        services.AddSingleton<IReceiptPdfGenerator>(sp => sp.GetRequiredService<StubPdf>());
         services.AddSingleton<IInvoiceBrandService, StubBrand>();
         var provider = services.BuildServiceProvider();
 
@@ -251,7 +400,9 @@ public class EmailOutboxWorkerTests
     {
         public bool Fail { get; set; }
         public bool FailPermanently { get; set; }
+        public Exception? Throw { get; set; }
         public List<(string To, string Subject, string Body)> Sent { get; } = [];
+        public List<IReadOnlyList<EmailAttachment>?> Attachments { get; } = [];
 
         public Task SendAsync(
             string toEmail,
@@ -260,18 +411,22 @@ public class EmailOutboxWorkerTests
             IReadOnlyList<EmailAttachment>? attachments = null,
             CancellationToken cancellationToken = default)
         {
+            if (Throw is not null)
+                throw Throw;
             if (FailPermanently)
                 throw new PermanentEmailFailureException("recipient rejected");
             if (Fail)
                 throw new InvalidOperationException("provider down");
             Sent.Add((toEmail, subject, htmlBody));
+            Attachments.Add(attachments);
             return Task.CompletedTask;
         }
     }
 
-    private sealed class StubPdf : IInvoicePdfGenerator
+    private sealed class StubPdf : IInvoicePdfGenerator, IReceiptPdfGenerator
     {
         public byte[] Generate(Invoice invoice, Customer customer, InvoiceLetterhead letterhead, string? payUrl = null) => [1, 2, 3];
+        public byte[] GenerateReceipt(Receipt receipt, Invoice invoice, Customer customer, InvoiceLetterhead letterhead) => [4, 5, 6];
     }
 
     private sealed class StubBrand : IInvoiceBrandService

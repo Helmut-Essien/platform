@@ -10,6 +10,10 @@ public class UpdateLicenseRequest
 
     public DateTime? ExpiresAt { get; set; }
 
+    /// <summary>Devices allowed at once. Null = server default (Licensing:DefaultMaxDevices) on issue, unchanged on edit; 0 = unlimited.</summary>
+    [Range(0, 1000, ErrorMessage = "Max devices must be between 0 (unlimited) and 1000")]
+    public int? MaxDevices { get; set; }
+
     /// <summary>Recurring price for automatic renewal invoices; null leaves the license's current setting unchanged.</summary>
     public LicenseBillingDto? Billing { get; set; }
 }

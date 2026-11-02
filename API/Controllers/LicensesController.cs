@@ -12,8 +12,23 @@ namespace Platform.Api.Controllers;
 [ApiController]
 [Authorize(Policy = PlatformAuthorizationPolicies.AdminOnly)]
 [Route("api/[controller]")]
-public class LicensesController(ILicenseService licenses) : ControllerBase
+public class LicensesController(
+    ILicenseService licenses,
+    Microsoft.Extensions.Options.IOptionsMonitor<Platform.Api.Configuration.BillingSettings> billingSettings) : ControllerBase
 {
+    [HttpGet("options")]
+    public ActionResult<LicenseOptionsDto> Options()
+    {
+        var b = billingSettings.CurrentValue;
+        var months = Math.Clamp(b.TrialMonths, 1, 12);
+        return Ok(new LicenseOptionsDto
+        {
+            TrialMonths = months,
+            TrialReminderDaysBefore = Math.Clamp(b.TrialReminderDaysBefore, 1, 60),
+            TrialMaxTotalMonths = Math.Clamp(b.TrialMaxTotalMonths, months, 24)
+        });
+    }
+
     [HttpGet]
     public async Task<ActionResult<PagedResult<LicenseDto>>> List(
         [FromQuery] string? customerId,
@@ -26,6 +41,7 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] string? sortBy = null,
         [FromQuery] bool sortDesc = false,
+        [FromQuery] LicenseKind? kind = null,
         CancellationToken cancellationToken = default)
     {
         var result = await licenses.ListAsync(
@@ -39,7 +55,8 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
             search,
             sortBy,
             sortDesc,
-            cancellationToken);
+            cancellationToken,
+            kind);
         return Ok(result);
     }
 
@@ -115,6 +132,42 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
         return Ok(license);
     }
 
+    [HttpPost("{id}/extend-trial")]
+    public async Task<ActionResult<LicenseDto>> ExtendTrial(
+        string id,
+        [FromBody] ExtendTrialRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await licenses.ExtendTrialAsync(
+            id,
+            request,
+            AdminRequestContext.GetPerformedBy(HttpContext),
+            AdminRequestContext.GetIpAddress(HttpContext),
+            cancellationToken));
+
+    [HttpPost("{id}/complimentary")]
+    public async Task<ActionResult<LicenseDto>> MakeComplimentary(
+        string id,
+        [FromBody] MakeComplimentaryRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await licenses.MakeComplimentaryAsync(
+            id,
+            request,
+            AdminRequestContext.GetPerformedBy(HttpContext),
+            AdminRequestContext.GetIpAddress(HttpContext),
+            cancellationToken));
+
+    [HttpPost("{id}/end-complimentary")]
+    public async Task<ActionResult<LicenseDto>> EndComplimentary(
+        string id,
+        [FromBody] EndComplimentaryRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await licenses.EndComplimentaryAsync(
+            id,
+            request,
+            AdminRequestContext.GetPerformedBy(HttpContext),
+            AdminRequestContext.GetIpAddress(HttpContext),
+            cancellationToken));
+
     [HttpPost("{id}/reactivate")]
     public async Task<ActionResult<LicenseDto>> Reactivate(string id, CancellationToken cancellationToken)
     {
@@ -150,6 +203,19 @@ public class LicensesController(ILicenseService licenses) : ControllerBase
 
         return Ok(license);
     }
+
+    [HttpGet("{id}/devices")]
+    public async Task<ActionResult<IReadOnlyList<LicenseDeviceDto>>> Devices(string id, CancellationToken cancellationToken)
+        => Ok(await licenses.ListDevicesAsync(id, cancellationToken));
+
+    [HttpPost("{id}/devices/{deviceId}/release")]
+    public async Task<ActionResult<LicenseDeviceDto>> ReleaseDevice(string id, string deviceId, CancellationToken cancellationToken)
+        => Ok(await licenses.ReleaseDeviceAsync(
+            id,
+            deviceId,
+            AdminRequestContext.GetPerformedBy(HttpContext),
+            AdminRequestContext.GetIpAddress(HttpContext),
+            cancellationToken));
 
     [HttpPost("{id}/resend-key")]
     public async Task<ActionResult<LicenseDto>> ResendKey(string id, CancellationToken cancellationToken)

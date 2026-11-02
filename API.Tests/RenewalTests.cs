@@ -497,6 +497,7 @@ public class RenewalTests
     internal sealed class RecordingAudit : IAuditLogService
     {
         public List<AuditAction> Actions { get; } = [];
+        public List<(AuditAction Action, string? Details)> Entries { get; } = [];
 
         public Task<IReadOnlyList<AuditLogDto>> ListAsync(string? customerId = null, string? licenseId = null,
             AuditAction? action = null, int limit = 100, CancellationToken cancellationToken = default) =>
@@ -506,7 +507,10 @@ public class RenewalTests
             string? invoiceId = null, string? detailsJson = null, string? ipAddress = null, CancellationToken cancellationToken = default)
         {
             lock (Actions)
+            {
                 Actions.Add(action);
+                Entries.Add((action, detailsJson));
+            }
             return Task.CompletedTask;
         }
     }

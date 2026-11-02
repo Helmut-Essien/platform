@@ -14,6 +14,13 @@ public class BillingSettings
 {
     public const string SectionName = "Billing";
 
+    /// <summary>
+    /// Currency used when a request leaves it empty (online pay links need GHS). Falls back to GHS when unset or invalid.
+    /// </summary>
+    public string DefaultCurrency { get; set; } = "GHS";
+
+    public const string FallbackCurrency = "GHS";
+
     /// <summary>Master switch for the automatic renewal invoice worker.</summary>
     public bool RenewalInvoicesEnabled { get; set; } = true;
 
@@ -37,4 +44,19 @@ public class BillingSettings
 
     /// <summary>Optional dedicated HMAC key (32+ chars). Defaults to a key derived from Jwt:Key.</summary>
     public string? PayLinkSigningKey { get; set; }
+
+    /// <summary>
+    /// An invoice can't be voided while an online checkout started within this many minutes is still pending
+    /// (the payer may be on the Paystack page). 0 turns the guard off.
+    /// </summary>
+    public int VoidBlockAfterCheckoutMinutes { get; set; } = 30;
+
+    /// <summary>Length of a free trial in months (1–12).</summary>
+    public int TrialMonths { get; set; } = 1;
+
+    /// <summary>Send the trial-ending reminder (with the first invoice when the license has a price) this many days before the trial ends (1–60).</summary>
+    public int TrialReminderDaysBefore { get; set; } = 7;
+
+    /// <summary>"Extend trial" can't push the trial end past this many months after the trial started (1–24).</summary>
+    public int TrialMaxTotalMonths { get; set; } = 3;
 }

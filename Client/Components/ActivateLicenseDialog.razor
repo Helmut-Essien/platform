@@ -7,60 +7,88 @@
         {
             <div class="license-action-busy">
                 <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
-                <MudText Typo="Typo.body2" Class="mt-3">Activating license and queuing selected deliveries…</MudText>
+                <MudText Typo="Typo.body2" Class="mt-3">@(_sendActivationInvoice ? "Creating the activation invoice…" : "Activating license and queuing selected deliveries…")</MudText>
             </div>
         }
         else
         {
-            <MudText Typo="Typo.caption" Class="mb-4">
-                Choose key delivery and billing independently. Email is queued and retried automatically.
-            </MudText>
             @if (!string.IsNullOrEmpty(_error))
             {
                 <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3" Variant="Variant.Outlined">@_error</MudAlert>
             }
+            @if (HasOpenActivationInvoice)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                    Invoice @License!.ActivationInvoiceNumber is waiting for payment. This license activates automatically,
+                    and the key is emailed, as soon as that invoice is paid in full. You don't need to do anything.
+                </MudAlert>
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    "Activate now" switches the license on immediately <b>without payment</b>. The open invoice stays
+                    as it is and no second invoice is created.
+                </MudAlert>
+            }
+            else if (PaidButNotActivated)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+                    Invoice @License!.ActivationInvoiceNumber is paid but the license wasn't activated automatically
+                    (see the audit log for why). Activate it now.
+                </MudAlert>
+            }
+            else if (CanSendActivationInvoice)
+            {
+                <MudRadioGroup T="bool" @bind-Value="_sendActivationInvoice" Class="mb-3">
+                    <MudRadio T="bool" Value="true" Color="Color.Primary">Send an invoice and activate when it's paid</MudRadio>
+                    <MudRadio T="bool" Value="false" Color="Color.Primary">Activate now (without waiting for payment)</MudRadio>
+                </MudRadioGroup>
+            }
+
             <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
-                <MudCheckBox @bind-Value="_model.EmailLicenseKey"
-                             Label="Email license key to technical contact"
-                             Color="Color.Primary"
-                             Class="mb-2" />
-                <MudCheckBox @bind-Value="_model.CreateInvoice"
-                             Label="Create invoice"
-                             Color="Color.Primary"
-                             Class="mb-2" />
-                @if (_model.CreateInvoice)
+                @if (!_sendActivationInvoice)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block mb-3">
+                        Choose key delivery and billing independently. Email is queued and retried automatically.
+                    </MudText>
+                    <MudCheckBox @bind-Value="_model.EmailLicenseKey"
+                                 Label="Email license key to technical contact"
+                                 Color="Color.Primary"
+                                 Class="mb-2" />
+                    @if (!HasOpenActivationInvoice)
+                    {
+                        <MudCheckBox @bind-Value="_model.CreateInvoice"
+                                     Label="Create invoice"
+                                     Color="Color.Primary"
+                                     Class="mb-2" />
+                    }
+                }
+                @if (ShowInvoiceFields)
                 {
                     <MudCheckBox @bind-Value="_model.SendInvoice"
                                  Label="Send invoice immediately"
                                  Color="Color.Primary"
                                  Class="mb-3" />
-                <MudNumericField @bind-Value="_model.Subtotal"
-                                 For="@(() => _model.Subtotal)"
-                                 Label="Subtotal"
-                                 Variant="Variant.Outlined"
-                                 Min="0m"
-                                 Class="mb-2" />
-                <MudNumericField @bind-Value="_model.TaxAmount"
-                                 For="@(() => _model.TaxAmount)"
-                                 Label="Tax"
-                                 Variant="Variant.Outlined"
-                                 Min="0m"
-                                 Class="mb-2" />
-                <MudTextField @bind-Value="_model.Currency"
-                              For="@(() => _model.Currency)"
-                              Label="Currency"
-                              Variant="Variant.Outlined"
-                              Class="mb-2" />
-                <MudDatePicker @bind-Date="_model.DueDate"
-                               For="@(() => _model.DueDate)"
-                               Label="Invoice due date"
-                               Variant="Variant.Outlined"
-                               Class="mb-2" />
-                <MudTextField @bind-Value="_model.Description"
-                              For="@(() => _model.Description)"
-                              Label="Description (optional)"
-                              Variant="Variant.Outlined"
-                              Lines="2" />
+                    <MudNumericField @bind-Value="_model.Subtotal"
+                                     For="@(() => _model.Subtotal)"
+                                     Label="Subtotal"
+                                     Variant="Variant.Outlined"
+                                     Min="0m"
+                                     Class="mb-2" />
+                    <MudNumericField @bind-Value="_model.TaxAmount"
+                                     For="@(() => _model.TaxAmount)"
+                                     Label="Tax"
+                                     Variant="Variant.Outlined"
+                                     Min="0m"
+                                     Class="mb-2" />
+                    <CurrencyField @bind-Value="_model.Currency" />
+                    <MudDatePicker @bind-Date="_model.DueDate"
+                                   For="@(() => _model.DueDate)"
+                                   Label="Invoice due date"
+                                   Variant="Variant.Outlined"
+                                   Class="mb-2" />
+                    <MudTextField @bind-Value="_model.Description"
+                                  For="@(() => _model.Description)"
+                                  Label="Description (optional)"
+                                  Variant="Variant.Outlined"
+                                  Lines="2" />
                 }
             </MudForm>
         }
@@ -68,13 +96,21 @@
     <DialogActions>
         <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Cancel</MudButton>
         <MudButton Variant="Variant.Filled"
-                   Color="Color.Primary"
+                   Color="@(HasOpenActivationInvoice ? Color.Warning : Color.Primary)"
                    OnClick="SaveAsync"
                    Disabled="@(_busy || !_formValid)">
             @if (_busy)
             {
                 <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
                 <span>Sending…</span>
+            }
+            else if (_sendActivationInvoice)
+            {
+                <span>Send activation invoice</span>
+            }
+            else if (HasOpenActivationInvoice)
+            {
+                <span>Activate now without payment</span>
             }
             else
             {
@@ -89,18 +125,50 @@
 
     [Parameter] public required string LicenseId { get; set; }
 
+    /// <summary>The license being activated (status, price and activation invoice drive the defaults).</summary>
+    [Parameter] public LicenseDto? License { get; set; }
+
     [Inject] private PlatformApiClient Api { get; set; } = default!;
 
     private MudForm? _form;
     private bool _formValid;
     private bool _busy;
     private string? _error;
+    private bool _sendActivationInvoice;
     private ActivateLicenseRequest _model = new()
     {
-        Subtotal = 99m,
-        Currency = "USD",
-        DueDate = DateTime.UtcNow.AddDays(30)
+        Currency = BillingDefaults.Currency,
+        DueDate = DateTime.UtcNow.Date.AddDays(14)
     };
+
+    private bool IsPending => License?.Status == LicenseStatus.Pending;
+
+    private bool HasOpenActivationInvoice =>
+        IsPending && License?.ActivationInvoiceId is not null
+        && License.ActivationInvoiceStatus is not (InvoiceStatus.Paid or InvoiceStatus.Void);
+
+    private bool PaidButNotActivated =>
+        IsPending && License?.ActivationInvoiceStatus == InvoiceStatus.Paid;
+
+    private bool CanSendActivationInvoice => IsPending && License?.ActivationInvoiceId is null;
+
+    private bool ShowInvoiceFields => _sendActivationInvoice || (_model.CreateInvoice && !HasOpenActivationInvoice);
+
+    protected override void OnInitialized()
+    {
+        var price = License?.Billing;
+        if (price?.Amount is > 0)
+        {
+            _model.Subtotal = price.Amount.Value;
+            _model.TaxAmount = price.TaxAmount;
+            _model.Currency = price.Currency ?? BillingDefaults.Currency;
+        }
+
+        // Pending + priced + nothing billed yet: default to "invoice first, activate on payment".
+        _sendActivationInvoice = CanSendActivationInvoice && price?.Amount is > 0;
+        if (HasOpenActivationInvoice || PaidButNotActivated)
+            _model.CreateInvoice = false;
+    }
 
     private void Cancel()
     {
@@ -119,12 +187,26 @@
         if (!_formValid)
             return;
 
+        if (_sendActivationInvoice && _model.Subtotal + _model.TaxAmount <= 0)
+        {
+            _error = "Enter an amount to invoice, or choose \"Activate now\".";
+            return;
+        }
+
         _busy = true;
         _error = null;
         StateHasChanged();
 
         try
         {
+            if (_sendActivationInvoice)
+            {
+                await SendActivationInvoiceAsync();
+                return;
+            }
+
+            if (HasOpenActivationInvoice)
+                _model.CreateInvoice = false;
             var apiResult = await Api.ActivateLicenseAsync(LicenseId, _model);
             if (!apiResult.IsSuccess || apiResult.Data is null)
             {
@@ -142,5 +224,31 @@
         {
             _busy = false;
         }
+    }
+
+    private async Task SendActivationInvoiceAsync()
+    {
+        var result = await Api.CreateInvoiceAsync(new CreateInvoiceRequest
+        {
+            CustomerId = License!.CustomerId,
+            LicenseId = LicenseId,
+            ServiceProductId = License.ServiceProductId,
+            ActivatesLicense = true,
+            SendImmediately = _model.SendInvoice,
+            Status = _model.SendInvoice ? InvoiceStatus.Sent : InvoiceStatus.Draft,
+            DueDate = _model.DueDate,
+            Currency = _model.Currency,
+            Subtotal = _model.Subtotal,
+            TaxAmount = _model.TaxAmount,
+            PlanName = License.PlanName,
+            Description = string.IsNullOrWhiteSpace(_model.Description) ? $"License {License.PlanName}" : _model.Description
+        });
+        if (!result.IsSuccess || result.Data is null)
+        {
+            _error = result.ErrorMessage ?? "Couldn't create the activation invoice.";
+            return;
+        }
+
+        MudDialog.Close(DialogResult.Ok(result.Data));
     }
 }

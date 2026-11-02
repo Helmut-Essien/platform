@@ -793,7 +793,7 @@ public class BillingServiceTests
     [InlineData("US")]
     [InlineData("US1")]
     [InlineData("US$")]
-    [InlineData("")]
+    [InlineData("USDX")] // blank now means "use Billing:DefaultCurrency"
     public async Task CreateInvoiceAsync_RejectsMalformedCurrency(string currency)
     {
         // E11

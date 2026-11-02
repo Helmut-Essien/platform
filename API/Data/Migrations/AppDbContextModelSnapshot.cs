@@ -407,6 +407,12 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(26)
                         .HasColumnType("character varying(26)");
 
+                    b.Property<DateTime?>("ActivationAppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("ActivationPeriodMonths")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -435,6 +441,12 @@ namespace Platform.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("IsActivationInvoice")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsTrialConversion")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("IssueDate")
                         .HasColumnType("timestamp with time zone");
@@ -515,6 +527,10 @@ namespace Platform.Api.Data.Migrations
 
                     b.HasIndex("Status", "DueDate");
 
+                    b.HasIndex(new[] { "LicenseId" }, "IX_Invoices_OneActivationPerLicense")
+                        .IsUnique()
+                        .HasFilter("\"IsActivationInvoice\" AND \"Status\" <> 'Void'");
+
                     b.ToTable("Invoices", (string)null);
                 });
 
@@ -537,6 +553,10 @@ namespace Platform.Api.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<byte[]>("LogoBytes")
                         .HasColumnType("bytea");
 
@@ -548,6 +568,10 @@ namespace Platform.Api.Data.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("Phone")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("TaxId")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
@@ -611,6 +635,16 @@ namespace Platform.Api.Data.Migrations
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("IsComplimentary")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsTrial")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("LicenseKeyHash")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -621,6 +655,9 @@ namespace Platform.Api.Data.Migrations
 
                     b.Property<DateTime?>("LicenseKeySentAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("MaxDevices")
+                        .HasColumnType("integer");
 
                     b.Property<string>("PlanName")
                         .IsRequired()
@@ -636,6 +673,12 @@ namespace Platform.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("TrialReminderForEndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("TrialStartedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -663,7 +706,54 @@ namespace Platform.Api.Data.Migrations
 
                     b.HasIndex("Status", "ExpiresAt");
 
+                    b.HasIndex(new[] { "CreatedAt" }, "IX_Licenses_Complimentary_CreatedAt")
+                        .HasFilter("\"IsComplimentary\"");
+
+                    b.HasIndex(new[] { "CustomerId", "ServiceProductId" }, "IX_Licenses_OneTrialPerCustomerService")
+                        .IsUnique()
+                        .HasFilter("\"TrialStartedAt\" IS NOT NULL");
+
+                    b.HasIndex(new[] { "ExpiresAt" }, "IX_Licenses_Trial_ExpiresAt")
+                        .HasFilter("\"IsTrial\"");
+
                     b.ToTable("Licenses", (string)null);
+                });
+
+            modelBuilder.Entity("Platform.Api.Entities.LicenseDevice", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("DeviceIdHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("FirstSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LicenseId")
+                        .IsRequired()
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LicenseId", "DeviceIdHash")
+                        .IsUnique();
+
+                    b.ToTable("LicenseDevices", (string)null);
                 });
 
             modelBuilder.Entity("Platform.Api.Entities.PaymentCheckout", b =>
@@ -1163,6 +1253,17 @@ namespace Platform.Api.Data.Migrations
                     b.Navigation("ServiceProduct");
                 });
 
+            modelBuilder.Entity("Platform.Api.Entities.LicenseDevice", b =>
+                {
+                    b.HasOne("Platform.Api.Entities.License", "License")
+                        .WithMany("Devices")
+                        .HasForeignKey("LicenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("License");
+                });
+
             modelBuilder.Entity("Platform.Api.Entities.PaymentCheckout", b =>
                 {
                     b.HasOne("Platform.Api.Entities.Invoice", "Invoice")
@@ -1231,6 +1332,8 @@ namespace Platform.Api.Data.Migrations
             modelBuilder.Entity("Platform.Api.Entities.License", b =>
                 {
                     b.Navigation("AuditLogs");
+
+                    b.Navigation("Devices");
 
                     b.Navigation("Invoices");
                 });

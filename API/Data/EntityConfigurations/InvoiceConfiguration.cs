@@ -77,6 +77,12 @@ public class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
             .HasFilter("\"RenewalForExpiresAt\" IS NOT NULL AND \"Status\" <> 'Void'")
             .HasDatabaseName("IX_Invoices_OneRenewalPerPeriod");
 
+        // One live activation invoice per license (void ones excluded so a replacement can be issued).
+        // Named overload: a separate index from the plain IX_Invoices_LicenseId below (same column).
+        builder.HasIndex(i => i.LicenseId, "IX_Invoices_OneActivationPerLicense")
+            .IsUnique()
+            .HasFilter("\"IsActivationInvoice\" AND \"Status\" <> 'Void'");
+
         builder.HasIndex(i => i.CustomerId);
         builder.HasIndex(i => i.LicenseId);
         builder.HasIndex(i => i.Status);

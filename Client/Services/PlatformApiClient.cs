@@ -118,9 +118,9 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         return await ToApiResultAsync<CustomerDto>(response, ct);
     }
 
-    public async Task<ApiResult<CustomerDto>> SuspendCustomerAsync(string id, CancellationToken ct = default)
+    public async Task<ApiResult<CustomerDto>> SuspendCustomerAsync(string id, string? reason = null, CancellationToken ct = default)
     {
-        var response = await http.PostAsync($"api/customers/{id}/suspend", null, ct);
+        var response = await http.PostAsJsonAsync($"api/customers/{id}/suspend", new SuspendCustomerRequest { Reason = reason }, ct);
         return await ToApiResultAsync<CustomerDto>(response, ct);
     }
 
@@ -170,9 +170,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         string? search = null,
         string? sortBy = null,
         bool sortDesc = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        LicenseKind? kind = null)
     {
         var url = $"api/licenses?page={page}&pageSize={pageSize}";
+        if (kind is not null)
+            url += $"&kind={kind}";
         url += SortQuery(sortBy, sortDesc);
         if (!string.IsNullOrEmpty(customerId))
             url += $"&customerId={Uri.EscapeDataString(customerId)}";
@@ -248,6 +251,37 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
     public async Task<ApiResult<LicenseDto>> RotateLicenseKeyAsync(string id, CancellationToken ct = default)
     {
         var response = await http.PostAsync($"api/licenses/{id}/rotate-key", null, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
+
+    public async Task<IReadOnlyList<LicenseDeviceDto>> GetLicenseDevicesAsync(string id, CancellationToken ct = default) =>
+        await GetJsonAsync<List<LicenseDeviceDto>>($"api/licenses/{Uri.EscapeDataString(id)}/devices", ct) ?? [];
+
+    public async Task<ApiResult<LicenseDeviceDto>> ReleaseLicenseDeviceAsync(string id, string deviceId, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync(
+            $"api/licenses/{Uri.EscapeDataString(id)}/devices/{Uri.EscapeDataString(deviceId)}/release", null, ct);
+        return await ToApiResultAsync<LicenseDeviceDto>(response, ct);
+    }
+
+    public async Task<LicenseOptionsDto> GetLicenseOptionsAsync(CancellationToken ct = default) =>
+        await GetJsonAsync<LicenseOptionsDto>("api/licenses/options", ct) ?? new LicenseOptionsDto();
+
+    public async Task<ApiResult<LicenseDto>> ExtendTrialAsync(string id, ExtendTrialRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/licenses/{id}/extend-trial", request, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
+
+    public async Task<ApiResult<LicenseDto>> MakeComplimentaryAsync(string id, MakeComplimentaryRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/licenses/{id}/complimentary", request, ct);
+        return await ToApiResultAsync<LicenseDto>(response, ct);
+    }
+
+    public async Task<ApiResult<LicenseDto>> EndComplimentaryAsync(string id, EndComplimentaryRequest request, CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/licenses/{id}/end-complimentary", request, ct);
         return await ToApiResultAsync<LicenseDto>(response, ct);
     }
 
