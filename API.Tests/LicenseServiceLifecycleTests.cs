@@ -426,13 +426,14 @@ public class LicenseServiceLifecycleTests
             License license,
             decimal subtotal,
             decimal taxAmount,
-            string currency,
+            string? currency,
             DateTime? dueDate,
             string? description,
             string performedBy,
             InvoiceStatus status = InvoiceStatus.Sent,
             string? ipAddress = null,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default,
+            bool activatesLicense = false) =>
             throw new NotSupportedException();
 
         public Task<InvoiceDto?> GetInvoiceAsync(string id, CancellationToken cancellationToken = default) =>
