@@ -651,7 +651,7 @@
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Revoke License", new DialogParameters
         {
             ["Title"] = "Revoke License",
-            ["Message"] = "This will permanently revoke this license. This cannot be undone. Continue?",
+            ["Message"] = "This will permanently revoke this license and cancel its unpaid invoices (invoices with payments or a payment in progress stay open). This cannot be undone. Continue?",
             ["ConfirmText"] = "Revoke",
             ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);
@@ -775,7 +775,7 @@
         var dialog = await DialogService.ShowAsync<ConfirmDialog>("Revoke Licenses", new DialogParameters
         {
             ["Title"] = "Revoke Licenses",
-            ["Message"] = $"Permanently revoke {revokable.Count} license(s)? This cannot be undone.",
+            ["Message"] = $"Permanently revoke {revokable.Count} license(s) and cancel their unpaid invoices? This cannot be undone.",
             ["ConfirmText"] = "Revoke",
             ["IsDestructive"] = true
         }, PlatformDialogOptions.Confirm);

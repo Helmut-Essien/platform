@@ -13,5 +13,6 @@ public enum EmailDeliveryKind
     Revoked,
     LicenseReactivated,
     PasswordReset,
-    TrialReminder
+    TrialReminder,
+    TrialExtended
 }

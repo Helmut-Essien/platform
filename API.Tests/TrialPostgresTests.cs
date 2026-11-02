@@ -236,4 +236,54 @@ public class TrialPostgresTests : IAsyncLifetime
             Assert.False(license.IsTrial && license.IsComplimentary);
         }
     }
+
+    [Fact]
+    public async Task Revoke_RacingPaymentAndRenewalWorker_NoDeadlock_NoPayableInvoiceLeft()
+    {
+        if (_pg is null)
+            return;
+        for (var round = 0; round < 5; round++)
+        {
+            string licenseId;
+            Platform.Shared.Dtos.Billing.InvoiceDto open;
+            DateTime? expiresAt;
+            await using (var seed = _pg.NewContext())
+            {
+                var h = LicenseActivationTests.Create(seed);
+                var license = await RenewalTests.SeedLicenseAsync(seed, Today.AddDays(10));
+                licenseId = license.Id;
+                expiresAt = license.ExpiresAt;
+                open = await h.Billing.CreateInvoiceAsync(new Platform.Shared.Dtos.Billing.CreateInvoiceRequest
+                {
+                    CustomerId = license.CustomerId, LicenseId = license.Id, Subtotal = 300m, Currency = null
+                }, "admin");
+                open = await h.Billing.SendInvoiceAsync(open.Id, "admin");
+            }
+
+            var errors = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+            async Task Run(Func<LicenseActivationTests.Harness, Task> action)
+            {
+                await using var db = _pg!.NewContext();
+                try { await action(LicenseActivationTests.Create(db)); }
+                catch (InvalidOperationException) { } // refused because the other action won
+                catch (ConflictException) { }
+                catch (Exception ex) { errors.Add(ex); }
+            }
+
+            await Task.WhenAll(
+                Run(h => h.Licenses.RevokeAsync(licenseId, "admin")),
+                Run(h => PayInFullAsync(h.Billing, open, "pay-" + round)),
+                Run(h => h.Billing.CreateRenewalInvoiceAsync(licenseId, expiresAt, BillingService.RenewalActor)));
+
+            Assert.Empty(errors);
+            await using var check = _pg.NewContext();
+            var final = await check.Licenses.IgnoreQueryFilters().SingleAsync(l => l.Id == licenseId);
+            Assert.Equal(LicenseStatus.Revoked, final.Status);
+            var invoices = await check.Invoices.IgnoreQueryFilters().Include(i => i.Receipts)
+                .Where(i => i.LicenseId == licenseId).ToListAsync();
+            // Nothing unpaid is left payable on a revoked license; a voided invoice never has money on it.
+            Assert.DoesNotContain(invoices, i => i.Status is InvoiceStatus.Sent or InvoiceStatus.Overdue or InvoiceStatus.Draft);
+            Assert.DoesNotContain(invoices, i => i.Status == InvoiceStatus.Void && i.Receipts.Any(r => r.Status == ReceiptStatus.Posted));
+        }
+    }
 }

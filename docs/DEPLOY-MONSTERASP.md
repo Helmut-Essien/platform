@@ -217,6 +217,9 @@ Never put the secret key in `appsettings*.json` or the client; it is only read f
 3. When that invoice is fully paid (manual receipt or Paystack), the license is extended by one period in the same transaction:
    Expired → Active, a manual suspension stays, month-end dates keep their anniversary day (Jan 31 → Feb 28/29 → Mar 31).
    If the license was already renewed by hand, the payment does not extend it again (audit: *Renewal skipped*).
+   **Revoke** voids the license's unpaid open invoices and kills their pay links. Invoices with a payment, or a Paystack checkout
+   started within `Billing__VoidBlockAfterCheckoutMinutes`, stay open and are listed in the audit entry; a payment that still
+   arrives is recorded but does not change the revoked license.
 4. Reversing the payment restores the old expiry only if nothing else changed it; otherwise it is left and flagged
    (audit: *Renewal reversal needs review*).
 5. A voided renewal invoice is **not** re-created automatically. Use Licenses → ⋮ → *Create renewal invoice* to issue it again.
@@ -251,7 +254,9 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
   (also after the trial is revoked or converted).
 - **Extend trial** (⋮ menu): pick a later end date, up to `Billing__TrialMaxTotalMonths` from the start. An unpaid trial invoice moves
   to the new date; an Expired trial is switched back on. Editing the end date of a trial that already has its invoice is refused —
-  use *Extend trial*. *Renew* on a trial converts it by hand.
+  use *Extend trial*. *Renew* on a trial converts it by hand (its unpaid trial invoice is voided).
+  If the customer was already sent the trial reminder or trial invoice, extending emails them the new end date (once per date),
+  with the still-valid pay link when there is an unpaid trial invoice.
 - Grid: **Trial** badge, *Type* filter.
 
 ### Complimentary (free) licenses
@@ -263,6 +268,7 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
   still arrives does not change the license (audit: *Renewal skipped*).
 - **Switch to paid** (⋮): set the price and the billing start date (default: current expiry if in the future, else today + 14 days).
   Free access runs until then; the first invoice is emailed now (or by the worker later if you untick it).
+- Expiry reminders for a complimentary license with an end date use free-access wording (nothing to pay, no invoice or pay link).
 - Grid: **Complimentary** badge, *Type* filter. All changes are in the audit log (*Made complimentary*, *Complimentary ended*,
   *Trial started/extended/converted*, *Trial reminder queued*).
 

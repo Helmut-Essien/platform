@@ -584,4 +584,138 @@ public class TrialAndComplimentaryTests
         Assert.Contains(trialLater.Id, ids);
         Assert.DoesNotContain(paidLater.Id, ids);
     }
+
+    private static Task<List<EmailOutboxMessage>> Notices(AppDbContext db, string licenseId) =>
+        db.EmailOutboxMessages.AsNoTracking()
+            .Where(m => m.LicenseId == licenseId && m.Kind == EmailDeliveryKind.TrialExtended)
+            .OrderBy(m => m.CreatedAt).ToListAsync();
+
+    [Fact]
+    public async Task ExtendTrial_AfterTrialInvoiceEmailed_TellsCustomerNewDate_WithPayLink_OncePerDate()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db, payLinks: CreatePayLinks());
+        var (c, p) = await SeedCustomerAndProductAsync(db);
+        var dto = await h.Licenses.CreateAsync(TrialRequest(c, p, 1200m), "admin");
+        var invoice = await h.Billing.CreateRenewalInvoiceAsync(dto.Id, dto.ExpiresAt, BillingService.RenewalActor);
+        Assert.NotNull(invoice);
+
+        var firstEnd = dto.ExpiresAt!.Value.AddDays(5);
+        await h.Licenses.ExtendTrialAsync(dto.Id, new ExtendTrialRequest { TrialEndsAt = firstEnd }, "admin");
+        var notices = await Notices(db, dto.Id);
+        var notice = Assert.Single(notices);
+        Assert.Contains(firstEnd.ToString("MMMM dd, yyyy"), notice.Subject);
+        Assert.Contains("/pay/", notice.HtmlBody);
+        Assert.Contains(invoice!.InvoiceNumber, notice.HtmlBody);
+        Assert.Equal(invoice.Id, notice.InvoiceId);
+
+        // Same date can't be set twice (must move forward); a later date gets its own notice.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            h.Licenses.ExtendTrialAsync(dto.Id, new ExtendTrialRequest { TrialEndsAt = firstEnd }, "admin"));
+        await h.Licenses.ExtendTrialAsync(dto.Id, new ExtendTrialRequest { TrialEndsAt = firstEnd.AddDays(3) }, "admin");
+        Assert.Equal(2, (await Notices(db, dto.Id)).Select(n => n.Subject).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task ExtendTrial_BeforeAnyReminder_SendsNothing()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db, payLinks: CreatePayLinks());
+        var (c, p) = await SeedCustomerAndProductAsync(db);
+        var dto = await h.Licenses.CreateAsync(TrialRequest(c, p, 1200m), "admin");
+        await h.Licenses.ExtendTrialAsync(dto.Id, new ExtendTrialRequest { TrialEndsAt = dto.ExpiresAt!.Value.AddDays(5) }, "admin");
+        Assert.Empty(await Notices(db, dto.Id));
+    }
+
+    [Fact]
+    public async Task ExtendTrial_UnpricedAfterReminder_NoticeWithoutPayLink_AndReminderComesAgain()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db, payLinks: CreatePayLinks());
+        var (c, p) = await SeedCustomerAndProductAsync(db);
+        var dto = await h.Licenses.CreateAsync(TrialRequest(c, p), "admin");
+        var lic = await db.Licenses.SingleAsync(l => l.Id == dto.Id);
+        lic.TrialReminderForEndsAt = lic.ExpiresAt; // the reminder worker already told them
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var newEnd = dto.ExpiresAt!.Value.AddDays(5);
+        await h.Licenses.ExtendTrialAsync(dto.Id, new ExtendTrialRequest { TrialEndsAt = newEnd }, "admin");
+        var notice = Assert.Single(await Notices(db, dto.Id));
+        Assert.DoesNotContain("/pay/", notice.HtmlBody);
+        Assert.Null(notice.InvoiceId);
+        // The ending reminder for the new date is still due (stamp is for the old end).
+        db.ChangeTracker.Clear();
+        Assert.NotEqual(newEnd, (await db.Licenses.SingleAsync(l => l.Id == dto.Id)).TrialReminderForEndsAt);
+    }
+
+    private static async Task<Invoice> OpenInvoiceAsync(LicenseActivationTests.Harness h, License license, decimal amount)
+    {
+        var dto = await h.Billing.CreateInvoiceAsync(new Platform.Shared.Dtos.Billing.CreateInvoiceRequest
+        {
+            CustomerId = license.CustomerId,
+            LicenseId = license.Id,
+            Subtotal = amount,
+            Currency = null
+        }, "admin");
+        await h.Billing.SendInvoiceAsync(dto.Id, "admin");
+        return await h.Db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == dto.Id);
+    }
+
+    [Fact]
+    public async Task Revoke_VoidsUnpaidInvoices_KeepsPaidOrPaying_PaymentAfterIsRecordedOnly()
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db, payLinks: CreatePayLinks());
+        var license = await SeedLicenseAsync(db, Today.AddDays(20));
+        var plain = await OpenInvoiceAsync(h, license, 100m);
+        var partial = await OpenInvoiceAsync(h, license, 100m);
+        var paying = await OpenInvoiceAsync(h, license, 100m);
+        var stale = await OpenInvoiceAsync(h, license, 100m);
+        await h.Billing.RecordReceiptAsync(partial.Id, LicenseActivationTests.Pay(40m, "part"), "admin");
+        db.PaymentCheckouts.Add(new PaymentCheckout { InvoiceId = paying.Id, Reference = "r1", Currency = "GHS", CreatedBy = "pay-link" });
+        db.PaymentCheckouts.Add(new PaymentCheckout { InvoiceId = stale.Id, Reference = "r2", Currency = "GHS", CreatedBy = "pay-link",
+            CreatedAt = DateTime.UtcNow.AddHours(-3) });
+        var plainTracked = await db.Invoices.SingleAsync(i => i.Id == plain.Id);
+        plainTracked.PayLinkNonce = "n";
+        plainTracked.PayLinkExpiresAt = DateTime.UtcNow.AddDays(30);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        await h.Licenses.RevokeAsync(license.Id, "admin");
+
+        db.ChangeTracker.Clear();
+        var all = await db.Invoices.IgnoreQueryFilters().AsNoTracking().Where(i => i.LicenseId == license.Id).ToDictionaryAsync(i => i.Id);
+        Assert.Equal(InvoiceStatus.Void, all[plain.Id].Status);
+        Assert.Null(all[plain.Id].PayLinkNonce);
+        Assert.Equal(InvoiceStatus.Void, all[stale.Id].Status); // older than the void block window
+        Assert.Equal(InvoiceStatus.PartiallyPaid, all[partial.Id].Status);
+        Assert.NotEqual(InvoiceStatus.Void, all[paying.Id].Status);
+        var entry = h.Audit.Entries.Last(e => e.Action == AuditAction.LicenseRevoked);
+        Assert.Contains(partial.InvoiceNumber, entry.Details!);
+        Assert.Contains(paying.InvoiceNumber, entry.Details!);
+        Assert.Contains("invoicesLeftOpen", entry.Details!);
+
+        await h.Billing.RecordReceiptAsync(partial.Id, LicenseActivationTests.Pay(60m, "rest"), "admin");
+        db.ChangeTracker.Clear();
+        Assert.Equal(InvoiceStatus.Paid, (await db.Invoices.IgnoreQueryFilters().SingleAsync(i => i.Id == partial.Id)).Status);
+        Assert.Equal(LicenseStatus.Revoked, (await Reload(db, license.Id)).Status);
+    }
+
+    [Fact]
+    public void ComplimentaryExpiryReminder_HasNoPaymentWording()
+    {
+        var templates = new EmailTemplateService();
+        var customer = new Customer { Name = "Acme", ContactEmail = "a@acme.test" };
+        var product = new ServiceProduct { Name = "Hostel", Code = "H" };
+        var license = new License { CustomerId = "c", ServiceProductId = "p", PlanName = "Standard", IsComplimentary = true,
+            ExpiresAt = new DateTime(2027, 3, 1, 0, 0, 0, DateTimeKind.Utc) };
+        var (subject, html) = templates.ExpiryReminder(customer, product, license);
+        Assert.Contains("complimentary", subject);
+        Assert.Contains("nothing to pay", html);
+        Assert.DoesNotContain("renewal", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/pay/", html);
+        license.IsComplimentary = false;
+        Assert.Contains("renewal", templates.ExpiryReminder(customer, product, license).Html);
+    }
 }

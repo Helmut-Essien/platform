@@ -68,6 +68,8 @@ public class EmailTemplateService
 
     public (string Subject, string Html) ExpiryReminder(Customer customer, ServiceProduct product, License license)
     {
+        if (license.IsComplimentary)
+            return ComplimentaryExpiryReminder(customer, product, license);
         var productName = WebUtility.HtmlEncode(product.Name);
         var expiry = license.ExpiresAt?.ToString("MMMM dd, yyyy") ?? "soon";
         return ($"Action needed: {product.Name} license expires on {expiry}",
@@ -206,6 +208,54 @@ public class EmailTemplateService
                 $"""
                 <p style="margin:0 0 16px;">We hope the trial has been useful. To keep using {productName} after that date, reply to this message or contact {WebUtility.HtmlEncode(VendorName)} and we will set up your subscription.</p>
                 <p style="margin:0;">You keep the same license key, so nothing changes in your application when you continue.</p>
+                """));
+    }
+
+    /// <summary>Complimentary (free) access ending: no payment or renewal wording, no invoice or pay link.</summary>
+    public (string Subject, string Html) ComplimentaryExpiryReminder(Customer customer, ServiceProduct product, License license)
+    {
+        var productName = WebUtility.HtmlEncode(product.Name);
+        var end = license.ExpiresAt?.ToString("MMMM dd, yyyy") ?? "soon";
+        return ($"Your complimentary {product.Name} access ends on {end}",
+            Wrap(customer.Name,
+                $"Your complimentary {productName} access ends soon.",
+                $"Your complimentary access to {productName} ends on <strong>{WebUtility.HtmlEncode(end)}</strong>.",
+                $"""
+                <p style="margin:0 0 16px;">This access was provided free of charge by {WebUtility.HtmlEncode(VendorName)}, so there is nothing to pay.</p>
+                <p style="margin:0;">If you would like to keep using {productName} after that date, reply to this message or contact us and we will discuss the options with you.</p>
+                """));
+    }
+
+    /// <summary>Trial extended after the customer was already told the old end date.</summary>
+    public (string Subject, string Html) TrialExtended(
+        Customer customer, ServiceProduct product, License license, Invoice? invoice, string? payUrl)
+    {
+        var productName = WebUtility.HtmlEncode(product.Name);
+        var end = license.ExpiresAt?.ToString("MMMM dd, yyyy") ?? "a later date";
+        var endHtml = WebUtility.HtmlEncode(end);
+        string next;
+        if (invoice is not null)
+        {
+            var number = WebUtility.HtmlEncode(invoice.InvoiceNumber);
+            var pay = payUrl is null
+                ? ""
+                : $"""<p style="margin:0 0 16px;"><a href="{WebUtility.HtmlEncode(payUrl)}" style="display:inline-block;padding:10px 18px;background:#10150c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Pay invoice {number} online</a></p>""";
+            next = $"""
+                <p style="margin:0 0 16px;">Invoice {number} is still valid and is now due on {endHtml}. To keep using {productName} after the trial, pay it by then. Your paid period starts when the trial ends, so paying early doesn't cost you any trial days.</p>
+                {pay}
+                """;
+        }
+        else
+        {
+            next = $"""<p style="margin:0 0 16px;">To keep using {productName} after that date, reply to this message or contact {WebUtility.HtmlEncode(VendorName)} and we will set up your subscription.</p>""";
+        }
+        return ($"Your {product.Name} trial has been extended to {end}",
+            Wrap(customer.Name,
+                $"Your {productName} trial has been extended.",
+                $"Good news: your free trial of {productName} has been extended. It now ends on <strong>{endHtml}</strong>.",
+                $"""
+                {next}
+                <p style="margin:0;">Your license key stays the same, so nothing changes in your application.</p>
                 """));
     }
 

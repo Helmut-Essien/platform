@@ -17,7 +17,8 @@ public partial class LicenseService(
     ILicenseDenyListService denyList,
     IEmailOutboxService outbox,
     EmailTemplateService templates,
-    Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.BillingSettings>? billingSettings = null) : ILicenseService
+    Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.BillingSettings>? billingSettings = null,
+    Renewals.PayLinkService? payLinks = null) : ILicenseService
 {
     private readonly Platform.Api.Configuration.BillingSettings _settings =
         billingSettings?.Value ?? new Platform.Api.Configuration.BillingSettings();
@@ -415,7 +416,7 @@ public partial class LicenseService(
         {
         // Same lock order as billing (renewal lock, invoice rows, license): a manual renewal of a trial voids
         // its unpaid trial invoice, which would otherwise stay payable for a period that no longer applies.
-        var trialInvoiceIds = await LockOpenTrialInvoicesAsync(id, ct);
+        var trialInvoiceIds = await LockOpenInvoicesAsync(id, trialOnly: true, ct);
         await LockLicenseRowAsync(id, ct);
         var license = await db.Licenses
             .Include(l => l.Customer)
@@ -624,43 +625,57 @@ public partial class LicenseService(
             ?? throw new InvalidOperationException("Failed to load license.");
     }
 
-    public async Task<LicenseDto> RevokeAsync(
+    public Task<LicenseDto> RevokeAsync(
         string id,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
-        var license = await db.Licenses
-            .IgnoreQueryFilters()
-            .Include(l => l.Customer)
-            .Include(l => l.ServiceProduct)
-            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
-            ?? throw new NotFoundException("License not found.");
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+            // Billing lock order: renewal lock, open invoice rows (id order), then the license row.
+            var invoiceIds = await LockOpenInvoicesAsync(id, trialOnly: false, ct);
+            await LockLicenseRowAsync(id, ct);
+            var license = await db.Licenses
+                .IgnoreQueryFilters()
+                .Include(l => l.Customer)
+                .Include(l => l.ServiceProduct)
+                .FirstOrDefaultAsync(l => l.Id == id, ct)
+                ?? throw new NotFoundException("License not found.");
 
-        if (license.Status == LicenseStatus.Revoked)
-            throw new InvalidOperationException("License is already revoked.");
+            if (license.Status == LicenseStatus.Revoked)
+                throw new InvalidOperationException("License is already revoked.");
 
-        license.Status = LicenseStatus.Revoked;
-        license.UpdatedAt = DateTime.UtcNow;
-        var revoked = templates.StatusNotice(
-            license.Customer, license.ServiceProduct, EmailDeliveryKind.Revoked);
-        outbox.Enqueue(
-            EmailDeliveryKind.Revoked,
-            CustomerContactResolver.Technical(license.Customer),
-            revoked.Subject,
-            revoked.Html,
-            license.CustomerId,
-            license.Id);
-        await db.SaveChangesAsync(cancellationToken);
+            var now = DateTime.UtcNow;
+            license.Status = LicenseStatus.Revoked;
+            license.UpdatedAt = now;
+            // Unpaid open invoices die with the license; ones with money on them or a payment in progress stay
+            // open for an admin to settle (a payment arriving later is recorded but changes nothing on the license).
+            var (voided, keptOpen) = await VoidUnpaidInvoicesAsync(invoiceIds, "license revoked", now, performedBy,
+                ipAddress, ct);
+            var revoked = templates.StatusNotice(
+                license.Customer, license.ServiceProduct, EmailDeliveryKind.Revoked);
+            outbox.Enqueue(
+                EmailDeliveryKind.Revoked,
+                CustomerContactResolver.Technical(license.Customer),
+                revoked.Subject,
+                revoked.Html,
+                license.CustomerId,
+                license.Id);
+            await db.SaveChangesAsync(ct);
 
-        await denyList.DenyLicenseAsync(license.Id, cancellationToken);
+            await auditLog.WriteAsync(AuditAction.LicenseRevoked, performedBy, license.CustomerId, license.Id,
+                null, voided.Count + keptOpen.Count == 0
+                    ? null
+                    : AuditJson.Serialize(new { invoicesVoided = voided, invoicesLeftOpen = keptOpen }),
+                ipAddress, ct);
 
-        await auditLog.WriteAsync(AuditAction.LicenseRevoked, performedBy, license.CustomerId, license.Id,
-            null, null, ipAddress, cancellationToken);
-
-        return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
-            ?? throw new InvalidOperationException("Failed to load license.");
-    }
+            var result = await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, ct)
+                ?? throw new InvalidOperationException("Failed to load license.");
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            await denyList.DenyLicenseAsync(license.Id, ct);
+            return result;
+        }, cancellationToken);
 
     public async Task<LicenseDto> ResendKeyAsync(
         string id,

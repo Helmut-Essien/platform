@@ -22,16 +22,17 @@ public class LicenseActivationTests
 {
     internal sealed record Harness(AppDbContext Db, BillingService Billing, LicenseService Licenses, RecordingAudit Audit);
 
-    internal static Harness Create(AppDbContext db, BillingSettings? settings = null)
+    internal static Harness Create(AppDbContext db, BillingSettings? settings = null,
+        Platform.Api.Services.Renewals.PayLinkService? payLinks = null)
     {
         var audit = new RecordingAudit();
         var outbox = new EmailOutboxService(db);
         var templates = new EmailTemplateService();
         var keyDelivery = new LicenseKeyDeliveryService(db, outbox, CreateProtector(), templates);
         var billing = new BillingService(db, audit, outbox, templates, new NoopDeny(),
-            billingSettings: Options.Create(settings ?? new BillingSettings()), keyDelivery: keyDelivery);
+            billingSettings: Options.Create(settings ?? new BillingSettings()), keyDelivery: keyDelivery, payLinks: payLinks);
         var licenses = new LicenseService(db, billing, audit, keyDelivery, new NoopDeny(), outbox, templates,
-            Options.Create(settings ?? new BillingSettings()));
+            Options.Create(settings ?? new BillingSettings()), payLinks);
         return new Harness(db, billing, licenses, audit);
     }
 

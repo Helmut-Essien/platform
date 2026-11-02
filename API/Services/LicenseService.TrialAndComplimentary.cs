@@ -40,6 +40,7 @@ public partial class LicenseService
             var license = await db.Licenses
                 .IgnoreQueryFilters()
                 .Include(l => l.Customer)
+                .Include(l => l.ServiceProduct)
                 .FirstOrDefaultAsync(l => l.Id == id, ct)
                 ?? throw new NotFoundException("License not found.");
 
@@ -74,9 +75,10 @@ public partial class LicenseService
             }
 
             var moved = new List<string>();
+            var invoices = new List<Invoice>();
             if (invoiceIds.Count > 0)
             {
-                var invoices = await db.Invoices
+                invoices = await db.Invoices
                     .IgnoreQueryFilters()
                     .Where(i => invoiceIds.Contains(i.Id) && OpenInvoiceStatuses.Contains(i.Status))
                     .ToListAsync(ct);
@@ -94,9 +96,13 @@ public partial class LicenseService
                 }
             }
 
+            // The customer was already told the old end (trial reminder or trial invoice email): tell them the new one.
+            var notified = license.TrialReminderForEndsAt is not null
+                && await QueueTrialExtendedNoticeAsync(license, invoices.OrderBy(i => i.Id).FirstOrDefault(), now, ct);
+
             await db.SaveChangesAsync(ct);
             await auditLog.WriteAsync(AuditAction.LicenseTrialExtended, performedBy, license.CustomerId, license.Id, null,
-                AuditJson.Serialize(new { previousEndsAt = previous, newEndsAt = newEnd, reopened, invoicesMoved = moved }),
+                AuditJson.Serialize(new { previousEndsAt = previous, newEndsAt = newEnd, reopened, invoicesMoved = moved, customerNotified = notified }),
                 ipAddress, ct);
 
             var result = await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, ct)
@@ -282,9 +288,13 @@ public partial class LicenseService
             .Include(i => i.PaymentTransactions)
             .Where(i => invoiceIds.Contains(i.Id) && OpenInvoiceStatuses.Contains(i.Status))
             .ToListAsync(ct);
-        var paying = await db.PaymentCheckouts
+        // Same rule as a manual void (the void block): a checkout started within the block window may still be
+        // paying. With the block switched off (0 minutes) nothing holds the invoice open.
+        var blockMinutes = Math.Clamp(_settings.VoidBlockAfterCheckoutMinutes, 0, 24 * 60);
+        var since = now.AddMinutes(-blockMinutes);
+        var paying = blockMinutes == 0 ? [] : await db.PaymentCheckouts
             .IgnoreQueryFilters()
-            .Where(c => invoiceIds.Contains(c.InvoiceId) && c.Status == PaymentCheckoutStatus.Pending)
+            .Where(c => invoiceIds.Contains(c.InvoiceId) && c.Status == PaymentCheckoutStatus.Pending && c.CreatedAt >= since)
             .Select(c => c.InvoiceId)
             .Distinct()
             .ToListAsync(ct);
@@ -307,19 +317,46 @@ public partial class LicenseService
         return (voided, keptOpen);
     }
 
-    /// <summary>Renewal lock, then the open trial invoices (id order). Returns their ids.</summary>
-    private async Task<List<string>> LockOpenTrialInvoicesAsync(string licenseId, CancellationToken ct)
+    /// <summary>Renewal lock, then the license's open invoices (trial ones only if asked), in id order. Returns their ids.</summary>
+    private async Task<List<string>> LockOpenInvoicesAsync(string licenseId, bool trialOnly, CancellationToken ct)
     {
         await LockRenewalAsync(licenseId, ct);
         var ids = await db.Invoices
             .IgnoreQueryFilters()
-            .Where(i => i.LicenseId == licenseId && i.IsTrialConversion && OpenInvoiceStatuses.Contains(i.Status))
+            .Where(i => i.LicenseId == licenseId && (!trialOnly || i.IsTrialConversion) && OpenInvoiceStatuses.Contains(i.Status))
             .OrderBy(i => i.Id)
             .Select(i => i.Id)
             .ToListAsync(ct);
         foreach (var invoiceId in ids)
             await LockInvoiceRowAsync(invoiceId, ct);
         return ids;
+    }
+
+    /// <summary>
+    /// Queues the "trial extended" email in the caller's transaction. Idempotent per new end date: the subject
+    /// carries the date, and an existing non-cancelled message for this license with that subject is reused.
+    /// </summary>
+    private async Task<bool> QueueTrialExtendedNoticeAsync(License license, Invoice? invoice, DateTime now, CancellationToken ct)
+    {
+        var payUrl = invoice is null ? null : payLinks?.BuildUrl(invoice, now);
+        var template = templates.TrialExtended(license.Customer, license.ServiceProduct, license, invoice, payUrl);
+        var subject = Email.EmailOutboxService.SanitizeSubject(template.Subject);
+        var already = await db.EmailOutboxMessages
+            .AnyAsync(m => m.LicenseId == license.Id
+                && m.Kind == EmailDeliveryKind.TrialExtended
+                && m.Status != EmailDeliveryStatus.Cancelled
+                && m.Subject == subject, ct);
+        if (already)
+            return false;
+        outbox.Enqueue(
+            EmailDeliveryKind.TrialExtended,
+            Email.CustomerContactResolver.Technical(license.Customer),
+            template.Subject,
+            template.Html,
+            license.CustomerId,
+            license.Id,
+            invoice?.Id);
+        return true;
     }
 
     private async Task LockRenewalAsync(string licenseId, CancellationToken ct)
