@@ -237,20 +237,53 @@ public class LicenseValidationService(
         };
     }
 
-    /// <summary>Trimmed, ordinal case-insensitive match on billing or contact email. Both are always compared.</summary>
+    /// <summary>
+    /// Trimmed, Unicode-normalized (NFC), ordinal case-insensitive match on billing or contact email; an
+    /// internationalized domain matches its punycode form. Both are always compared (no early exit).
+    /// </summary>
     internal static bool EmailMatches(string email, string? billingEmail, string? contactEmail)
     {
-        if (email.Length == 0)
+        var typed = CanonicalEmail(email);
+        if (typed.Length == 0)
             return false;
-        var billing = Same(email, billingEmail);
-        var contact = Same(email, contactEmail);
+        var billing = Same(typed, billingEmail);
+        var contact = Same(typed, contactEmail);
         return billing | contact;
 
         static bool Same(string a, string? stored)
         {
-            var b = stored?.Trim();
-            return !string.IsNullOrEmpty(b) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            var b = CanonicalEmail(stored);
+            return b.Length != 0 && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    internal static string CanonicalEmail(string? value)
+    {
+        var e = value?.Trim();
+        if (string.IsNullOrEmpty(e))
+            return string.Empty;
+        try
+        {
+            if (!e.IsNormalized(System.Text.NormalizationForm.FormC))
+                e = e.Normalize(System.Text.NormalizationForm.FormC);
+        }
+        catch (ArgumentException)
+        {
+            return e; // invalid UTF-16 (lone surrogate): compare as typed
+        }
+        var at = e.LastIndexOf('@');
+        if (at <= 0 || at == e.Length - 1)
+            return e;
+        var domain = e[(at + 1)..].TrimEnd('.');
+        var ascii = true;
+        foreach (var c in domain)
+            if (c > 0x7F) { ascii = false; break; }
+        if (!ascii)
+        {
+            try { domain = new System.Globalization.IdnMapping().GetAscii(domain); }
+            catch (ArgumentException) { /* not a valid IDN: keep as typed */ }
+        }
+        return string.Concat(e.AsSpan(0, at + 1), domain);
     }
 
     private static bool EmailMatches(string email, Candidate license) =>
@@ -281,9 +314,12 @@ public class LicenseValidationService(
             db.AuditLogs.Add(audit);
             await db.SaveChangesAsync(ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            // Bookkeeping only: the caller still gets email_mismatch.
+            // Bookkeeping only: the caller still gets email_mismatch. Free the window so the next miss is recorded.
+            _emailAuditThrottle.Release(license.Id, now);
+            if (ex is OperationCanceledException)
+                throw;
             logger.LogWarning(ex, "Failed to audit email mismatch for license {LicenseId}", license.Id);
         }
         finally

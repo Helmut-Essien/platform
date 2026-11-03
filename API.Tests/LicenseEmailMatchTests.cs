@@ -191,4 +191,49 @@ public class LicenseEmailMatchTests
             t.TryEnter("l" + i, now.AddMinutes(15), window);
         Assert.True(t.Count <= LicenseEmailAuditThrottle.MaxEntries);
     }
+
+    [Theory]
+    [InlineData("caf\u0065\u0301@example.com", "caf\u00e9@example.com")]   // NFD vs NFC
+    [InlineData("ama@b\u00fccher.de", "ama@xn--bcher-kva.de")]           // IDN vs punycode
+    [InlineData("ama@example.com.", "AMA@example.com")]                   // trailing root dot
+    [InlineData("\u00a0ama@example.com\t", "ama@example.com")]           // non-breaking / tab whitespace
+    public void EmailMatches_NormalizesUnicodeAndIdn(string typed, string stored)
+    {
+        Assert.True(LicenseValidationService.EmailMatches(typed, stored, null));
+        Assert.True(LicenseValidationService.EmailMatches(typed, null, stored));
+    }
+
+    [Theory]
+    [InlineData("\ud800@example.com")]
+    [InlineData("@")]
+    [InlineData("noat")]
+    [InlineData("a@-bad-\u00fc-.de")]
+    public void EmailMatches_OddInput_NeverThrows(string typed)
+    {
+        Assert.False(LicenseValidationService.EmailMatches(typed, "ama@example.com", "x@y.z"));
+    }
+
+    [Fact]
+    public void Throttle_Release_ReopensWindow()
+    {
+        var t = new LicenseEmailAuditThrottle();
+        var now = DateTime.UtcNow;
+        Assert.True(t.TryEnter("L1", now, TimeSpan.FromMinutes(15)));
+        Assert.False(t.TryEnter("L1", now, TimeSpan.FromMinutes(15)));
+        t.Release("L1", now);
+        Assert.True(t.TryEnter("L1", now, TimeSpan.FromMinutes(15)));
+    }
+
+    [Fact]
+    public async Task Throttle_IsRaceFree_OneWinnerPerWindow()
+    {
+        var t = new LicenseEmailAuditThrottle();
+        var now = DateTime.UtcNow;
+        var wins = 0;
+        await Task.WhenAll(Enumerable.Range(0, 64).Select(_ => Task.Run(() =>
+        {
+            if (t.TryEnter("L1", now, TimeSpan.FromMinutes(15))) Interlocked.Increment(ref wins);
+        })));
+        Assert.Equal(1, wins);
+    }
 }

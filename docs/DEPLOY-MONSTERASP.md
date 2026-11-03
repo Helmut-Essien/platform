@@ -317,7 +317,7 @@ Leave the old public key published for at least `OfflineGraceDays` (+ refresh), 
 ```
 
 `email` (optional, max 254 chars) asks Platform to confirm the license belongs to that address. It is trimmed and
-compared case-insensitively with the customer's **billing** and **contact** email (either one matches). Platform only
+compared case-insensitively (Unicode-normalized; international domains match their punycode form) with the customer's **billing** and **contact** email (either one matches). Platform only
 answers yes or no: a match adds `"emailMatches": true` to the normal answer, a mismatch is `isValid:false`,
 `reason:"email_mismatch"` with a generic message, no token, no license details and **no device slot used**. The
 stored email is never returned. A customer with no email on file never matches. Without `email` the check is

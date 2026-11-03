@@ -32,6 +32,10 @@ public sealed class LicenseEmailAuditThrottle
         }
     }
 
+    /// <summary>Forgets an entry recorded at <paramref name="at"/> (the audit write failed).</summary>
+    public void Release(string licenseId, DateTime at) =>
+        _last.TryRemove(new KeyValuePair<string, DateTime>(licenseId, at));
+
     internal int Count => _last.Count;
 
     private void Prune(DateTime now, TimeSpan window)
@@ -41,8 +45,8 @@ public sealed class LicenseEmailAuditThrottle
             if (now - at >= window)
                 _last.TryRemove(new KeyValuePair<string, DateTime>(key, at));
         }
-        // Everything is recent (a broad attack): drop the lot rather than grow without bound.
-        if (_last.Count >= MaxEntries)
+        // Barely anything expired (a broad attack): drop the lot, so a near-full map is not rescanned on every add.
+        if (_last.Count >= MaxEntries * 9 / 10)
             _last.Clear();
     }
 }
