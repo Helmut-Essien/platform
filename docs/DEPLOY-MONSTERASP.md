@@ -116,7 +116,7 @@ Repository secrets (Settings → Secrets and variables → Actions):
 - Optional (skipped when empty): `AdminSeed__Email`, `AdminSeed__Password`, `Email__Provider`, `Email__FromAddress`,
   `Email__FromName`, `Email__ResendApiKey`, `Email__Host`, `Email__Port`, `Email__EnableSsl`, `Email__Username`,
   `Email__Password`, `Redis__ConnectionString`, `Database__MigrateOnStartup`, `Https__Redirect`, `CORS_ORIGINS`,
-  `ForwardedHeaders__Enabled`, `Paystack__SecretKey`, `Paystack__PublicKey`, `Paystack__CollectionCap`.
+  `ForwardedHeaders__Enabled`, `Paystack__SecretKey`, `Paystack__PublicKey`, `Paystack__CollectionCap`, and the `Licensing__*` settings from §1 (set `Licensing__TokenSigningKey` as one line with `\n` escapes).
 
 Because the workflow writes these into `web.config`, settings in the panel for the same names are overridden by
 each deploy. Secret values are never printed; msdeploy output is masked.
@@ -371,7 +371,7 @@ once if traffic looks proxied while this is off. Leave it off on IIS in-process 
 
 This release adds the `LicenseDevices` table and a nullable `Licenses.MaxDevices` column
 (migration `AddLicenseDevices`, included in `docs/migrations-idempotent.sql`). Run it before deploying.
-## 11. Public landing page and SEO
+## 12. Public landing page and SEO
 
 **Routing.** `GET /` (and `HEAD /`) serves the static, server-rendered `wwwroot/landing.html` (no WASM; critical CSS inline; one small deferred module, `wwwroot/js/landing.js`, adds the decorative WebGL hero, 3D tilt and scroll reveal after load, and the page is complete without it). Every other path is unchanged and still gets the admin SPA: `/login`, `/reset-password`, `/invoices/...`, `/pay/{token}`, and so on. Links already sent in emails, `Auth:ClientBaseUrl` and the Paystack `callback_url` keep working. The admin home moved from `/` to **`/dashboard`**. After login (or for an unsafe `returnUrl`) the app goes to `/dashboard`, and an in-app navigation to `/` redirects there. "Client login" is in the landing page footer only and links to `/login`, which goes to `/dashboard` after sign-in. The middleware is `PublicSiteExtensions.UsePublicSite()`, and it must stay before `UseBlazorFrameworkFiles/UseStaticFiles`.
 
