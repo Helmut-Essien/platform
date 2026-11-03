@@ -48,5 +48,6 @@ public enum AuditAction
     LicenseComplimentaryEnded,
     LicenseDeviceActivated,
     LicenseDeviceReleased,
-    LicenseDeviceLimitChanged
+    LicenseDeviceLimitChanged,
+    LicenseEmailMismatch
 }

@@ -33,6 +33,9 @@ public class ValidateLicenseResponse
 
     /// <summary>Active devices on the license after this check. Only set on device-bound checks.</summary>
     public int? ActiveDevices { get; set; }
+
+    /// <summary>True when the request carried an email and it matched the license's customer. Null when no email was sent.</summary>
+    public bool? EmailMatches { get; set; }
 }
 
 /// <summary>Body of 429 / 503 answers from the validation endpoint (no isValid: the license was not judged).</summary>
@@ -62,6 +65,7 @@ public static class LicenseValidationReasons
     public const string Revoked = "revoked";
     public const string DeviceRequired = "device_required";
     public const string DeviceLimit = "device_limit";
+    public const string EmailMismatch = "email_mismatch";
     public const string RateLimited = "rate_limited";
     public const string ServiceUnavailable = "service_unavailable";
 }

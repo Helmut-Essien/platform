@@ -48,6 +48,7 @@ public static class RedisServiceExtensions
         services.AddSingleton<Platform.Api.Security.LicenseTokenSigner>();
         services.AddSingleton<Platform.Api.Services.Licensing.IntegrationKeyCache>();
         services.AddSingleton<Platform.Api.Services.Licensing.LicenseValidationRateLimiter>();
+        services.AddSingleton<Platform.Api.Services.Licensing.LicenseEmailAuditThrottle>();
         services.AddScoped<ILicenseValidationService, LicenseValidationService>();
 
         return services;

@@ -53,4 +53,37 @@ public class LicenseDevicePostgresTests : IAsyncLifetime
         Assert.Equal(2, await check.AuditLogs.CountAsync(a => a.LicenseId == licenseId
             && a.Action == Platform.Shared.Enums.AuditAction.LicenseDeviceActivated));
     }
+
+    [Fact]
+    public async Task EmailMatch_TranslatesOnPostgres_AndMismatchTakesNoSlot()
+    {
+        if (_pg is null)
+            return;
+        await using (var seed = _pg.NewContext())
+        {
+            var f = await LicenseValidationServiceTests.SeedActiveLicenseAsync(seed);
+            f.License.MaxDevices = 1;
+            f.Customer.BillingEmail = "Billing@Acme.test";
+            await seed.SaveChangesAsync();
+        }
+
+        async Task<ValidateLicenseResponse> Run(string? email, string device)
+        {
+            await using var db = _pg.NewContext();
+            await using var svc = LicenseValidationTestFactory.Create(db);
+            return await svc.ValidateAsync("ik_test_integration_key_001", new ValidateLicenseRequest
+            {
+                LicenseKey = "HOSTEL-TEST-KEY1", ServiceCode = "HOSTEL", DeviceId = device, Email = email
+            });
+        }
+
+        Assert.Equal(LicenseValidationReasons.EmailMismatch, (await Run("nope@x.test", "shop-a")).Reason);
+        var ok = await Run(" billing@ACME.test", "shop-a");
+        Assert.True(ok.IsValid);
+        Assert.True(ok.EmailMatches);
+        Assert.Equal(1, ok.ActiveDevices);
+        Assert.True((await Run(null, "shop-a")).IsValid);
+        await using var check = _pg.NewContext();
+        Assert.Equal(1, await check.AuditLogs.CountAsync(a => a.Action == Platform.Shared.Enums.AuditAction.LicenseEmailMismatch));
+    }
 }

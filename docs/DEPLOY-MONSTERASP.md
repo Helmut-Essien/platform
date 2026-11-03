@@ -37,6 +37,7 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Licensing__TokenRefreshHours` | no | When products should re-check (`refreshAfter`, default `12`, capped at half the grace window). |
 | `Licensing__DefaultMaxDevices` | no | Device limit for newly issued licenses (default `3`; `0` = unlimited). Existing licenses stay unlimited until edited. |
 | `Licensing__RequireDeviceId` | no | `true` = reject validations without `deviceId` (default `false` for old clients). |
+| `Licensing__EmailMismatchAuditMinutes` | no | A failed `email` match on validation is audited at most once per license this often (default `15`). |
 | `Licensing__LicenseKeyPermitLimit` / `__PerIpPermitLimit` / `__RateLimitWindowSeconds` | no | Validation limits per license key (default 30) and per client IP (default 300) per window (default 60 s). |
 | `Licensing__ValidationTimeoutSeconds` / `__UnavailableRetryAfterSeconds` | no | DB timeout before answering 503 (default 10) and the `Retry-After` sent with it (default 30). |
 | `Paystack__SecretKey` | no | Enables online payments (`sk_test_…` or `sk_live_…`). Unset = feature hidden, endpoints return 503. See §9. |
@@ -311,8 +312,16 @@ Leave the old public key published for at least `OfflineGraceDays` (+ refresh), 
 `POST /api/licenses/validate` (header `X-Integration-Key`) — request (all new fields optional, old clients keep working):
 
 ```json
-{ "licenseKey": "HOSTEL-XXXX", "serviceCode": "HOSTEL", "deviceId": "stable-machine-id", "deviceName": "Front desk PC" }
+{ "licenseKey": "HOSTEL-XXXX", "serviceCode": "HOSTEL", "deviceId": "stable-machine-id", "deviceName": "Front desk PC",
+  "email": "owner@example.com" }
 ```
+
+`email` (optional, max 254 chars) asks Platform to confirm the license belongs to that address. It is trimmed and
+compared case-insensitively (Unicode-normalized; international domains match their punycode form) with the customer's **billing** and **contact** email (either one matches). Platform only
+answers yes or no: a match adds `"emailMatches": true` to the normal answer, a mismatch is `isValid:false`,
+`reason:"email_mismatch"` with a generic message, no token, no license details and **no device slot used**. The
+stored email is never returned. A customer with no email on file never matches. Without `email` the check is
+exactly as before (`emailMatches` is omitted/null).
 
 `200` — the license was judged:
 
@@ -325,7 +334,16 @@ Leave the old public key published for at least `OfflineGraceDays` (+ refresh), 
 
 `isValid:false` (still 200) only when the license really is not usable; `reason` is one of
 `invalid_key`, `invalid_integration_key`, `wrong_service`, `not_active`, `expired`, `suspended`, `revoked`,
-`device_required`, `device_limit`. Bad input = `400 invalid_request`.
+`device_required`, `device_limit`, `email_mismatch`. Bad input (e.g. an email over 254 characters) =
+`400 invalid_request`.
+
+**Order of checks** (first failing one wins): `invalid_request` → `device_required` → `invalid_integration_key` →
+`wrong_service` → `invalid_key` → `email_mismatch` (only when `email` is sent) → `suspended` / `revoked` /
+`not_active` / `expired` → `device_limit`. The email is checked right after the key is found and before status,
+so someone holding a key but not its owner's email learns only that the key exists (which any non-`invalid_key`
+answer already implies), not whether it is suspended or expired, and cannot take a device slot. Failed matches are
+logged and audited (`LicenseEmailMismatch`, at most once per license per `Licensing__EmailMismatchAuditMinutes`,
+default 15; neither email is stored in the audit row).
 `wrong_service` means the `serviceCode` sent does not belong to the integration key's product (a product
 misconfiguration); `invalid_integration_key` means the key itself is unknown or revoked. Leading/trailing whitespace
 in the license key and the `X-Integration-Key` header is ignored, so pasted keys work.
@@ -360,6 +378,16 @@ Compact JWS, header `{"alg":"ES256","typ":"license+jwt","kid":…}`. Claims: `is
 Each license has `MaxDevices` (set in Issue/Edit; 0 = unlimited). The first validation from a new `deviceId`
 activates a slot (audited). Admins can see devices and release one in **Licenses → ⋮ → Devices**; the slot is
 freed at once. Lowering the limit never removes active devices; it only blocks new ones.
+
+### NeedleBase registration (one shop per key)
+
+NeedleBase's **server** (never the app) validates at shop registration with `serviceCode:"NEEDLEBASE"`, the owner's
+typed `email`, and the new shop's id as `deviceId`. Issue NeedleBase licenses with **MaxDevices = 1**: the first shop
+takes the only slot, and a second registration with the same key gets `device_limit`. Release the device in
+**Licenses → ⋮ → Devices** if a shop must re-register. Only create the shop on `isValid:true` with
+`emailMatches:true`; on `email_mismatch` tell the user the email does not match the license, and if Platform is
+unreachable (`429`/`503`/network) refuse registration and ask them to retry. The email is only enforced at
+registration; later periodic checks can omit it.
 
 ### Proxies
 
