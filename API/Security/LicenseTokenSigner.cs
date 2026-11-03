@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Formats.Asn1;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -46,9 +47,22 @@ public sealed class LicenseTokenSigner : IDisposable
         var pem = NormalizePem(settings.TokenSigningKey);
         if (pem is not null)
         {
-            _key = LoadPrivateKey(pem);
-            ActiveKid = string.IsNullOrWhiteSpace(settings.TokenSigningKeyId) ? Thumbprint(_key) : settings.TokenSigningKeyId.Trim();
-            keys.Add(ToJwk(ActiveKid, _key));
+            try
+            {
+                _key = LoadPrivateKey(pem);
+            }
+            catch (InvalidOperationException ex) when (!settings.RequireTokenSigning)
+            {
+                // A bad key must not take the whole site down: run without signed tokens and shout about it.
+                logger.LogError(ex,
+                    "LICENSE TOKENS DISABLED: Licensing__TokenSigningKey could not be loaded ({Reason}). /api/licenses/validate answers without a signed offline token. " +
+                    "Regenerate with 'dotnet Platform.Api.dll generate-license-key' and paste the PRIVATE KEY PEM (\\n escapes allowed).", ex.Message);
+            }
+            if (_key is not null)
+            {
+                ActiveKid = string.IsNullOrWhiteSpace(settings.TokenSigningKeyId) ? Thumbprint(_key) : settings.TokenSigningKeyId.Trim();
+                keys.Add(ToJwk(ActiveKid, _key));
+            }
         }
         else if (settings.RequireTokenSigning)
         {
@@ -74,16 +88,18 @@ public sealed class LicenseTokenSigner : IDisposable
             var extraPem = NormalizePem(extra.PublicKeyPem);
             if (extraPem is null)
                 continue;
-            using var pub = ECDsa.Create();
+            ECDsa pubKey;
             try
             {
-                pub.ImportFromPem(extraPem);
+                pubKey = LoadPublicKey(extraPem);
             }
-            catch (Exception ex) when (ex is ArgumentException or CryptographicException)
+            catch (InvalidOperationException ex)
             {
-                throw new InvalidOperationException("Licensing:AdditionalPublicKeys contains an invalid PEM public key.", ex);
+                // An old rotation key that won't parse only affects tokens signed before the rotation: log, keep serving.
+                logger.LogError(ex, "Licensing:AdditionalPublicKeys entry '{Kid}' was skipped: {Reason}", extra.Kid, ex.Message);
+                continue;
             }
-            EnsureP256(pub, "Licensing:AdditionalPublicKeys");
+            using var pub = pubKey;
             var kid = string.IsNullOrWhiteSpace(extra.Kid) ? Thumbprint(pub) : extra.Kid.Trim();
             if (keys.All(k => k.Kid != kid))
                 keys.Add(ToJwk(kid, pub));
@@ -160,8 +176,47 @@ public sealed class LicenseTokenSigner : IDisposable
     /// <summary>Creates a new P-256 key pair: (private PKCS#8 PEM, public SPKI PEM, kid).</summary>
     public static (string PrivatePem, string PublicPem, string Kid) GenerateKeyPair()
     {
+        // Encoded by hand (not ExportPkcs8PrivateKeyPem) so the command never touches CNG PKCS#8 key storage on Windows.
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        return (key.ExportPkcs8PrivateKeyPem(), key.ExportSubjectPublicKeyInfoPem(), Thumbprint(key));
+        var p = key.ExportParameters(includePrivateParameters: true);
+        var point = new byte[65];
+        point[0] = 0x04;
+        p.Q.X!.CopyTo(point, 1);
+        p.Q.Y!.CopyTo(point, 33);
+
+        var ec = new AsnWriter(AsnEncodingRules.DER);
+        using (ec.PushSequence())
+        {
+            ec.WriteInteger(1);
+            ec.WriteOctetString(p.D);
+            using (ec.PushSequence(new Asn1Tag(TagClass.ContextSpecific, 1, true)))
+                ec.WriteBitString(point);
+        }
+        var pkcs8 = new AsnWriter(AsnEncodingRules.DER);
+        using (pkcs8.PushSequence())
+        {
+            pkcs8.WriteInteger(0);
+            using (pkcs8.PushSequence())
+            {
+                pkcs8.WriteObjectIdentifier(EcPublicKeyOid.Value!);
+                pkcs8.WriteObjectIdentifier(P256Oid);
+            }
+            pkcs8.WriteOctetString(ec.Encode());
+        }
+        var spki = new AsnWriter(AsnEncodingRules.DER);
+        using (spki.PushSequence())
+        {
+            using (spki.PushSequence())
+            {
+                spki.WriteObjectIdentifier(EcPublicKeyOid.Value!);
+                spki.WriteObjectIdentifier(P256Oid);
+            }
+            spki.WriteBitString(point);
+        }
+        CryptographicOperations.ZeroMemory(p.D);
+        return (new string(PemEncoding.Write("PRIVATE KEY", pkcs8.Encode())) + "\n",
+                new string(PemEncoding.Write("PUBLIC KEY", spki.Encode())) + "\n",
+                Thumbprint(key));
     }
 
     internal static long ToUnix(DateTime utc) =>
@@ -174,28 +229,136 @@ public sealed class LicenseTokenSigner : IDisposable
         return value.Trim().Replace("\\n", "\n", StringComparison.Ordinal);
     }
 
-    private static ECDsa LoadPrivateKey(string pem)
+    // IMPORTANT: never use ECDsa.ImportFromPem / ImportPkcs8PrivateKey / ImportSubjectPublicKeyInfo here. On Windows
+    // they go through CNG's PKCS#8 import, which needs a loaded user profile; IIS app pools (MonsterASP) don't have
+    // one and fail with "The system cannot find the file specified". We decode the DER ourselves and import explicit
+    // ECParameters, which creates an ephemeral key and works everywhere.
+    private static readonly Oid EcPublicKeyOid = new("1.2.840.10045.2.1");
+    private const string P256Oid = "1.2.840.10045.3.1.7";
+
+    internal static ECDsa LoadPrivateKey(string pem)
     {
-        var key = ECDsa.Create();
+        const string setting = "Licensing:TokenSigningKey";
         try
         {
-            key.ImportFromPem(pem);
-            // Export fails for a public-only key: make sure we really got a private key.
-            key.ExportParameters(includePrivateParameters: true);
+            var (label, der) = DecodePem(pem, setting);
+            ECParameters p = label switch
+            {
+                "PRIVATE KEY" => ReadPkcs8(der, setting),
+                "EC PRIVATE KEY" => ReadSec1(der, null, setting),
+                _ => throw new InvalidOperationException($"{setting} must be a 'PRIVATE KEY' (PKCS#8) or 'EC PRIVATE KEY' PEM, not '{label}'."),
+            };
+            var key = ECDsa.Create(p);
+            // Round-trip sanity check: the key must sign and its own public half must verify.
+            var probe = new byte[] { 1, 2, 3 };
+            if (!key.VerifyData(probe, key.SignData(probe, HashAlgorithmName.SHA256), HashAlgorithmName.SHA256))
+            {
+                key.Dispose();
+                throw new InvalidOperationException($"{setting}: the public key does not match the private key.");
+            }
+            return key;
         }
-        catch (Exception ex) when (ex is ArgumentException or CryptographicException)
+        catch (Exception ex) when (ex is ArgumentException or CryptographicException or AsnContentException or FormatException)
         {
-            key.Dispose();
-            throw new InvalidOperationException("Licensing:TokenSigningKey is not a valid EC private key PEM.", ex);
+            throw new InvalidOperationException($"{setting} is not a valid EC P-256 private key PEM: {ex.Message}", ex);
         }
-        EnsureP256(key, "Licensing:TokenSigningKey");
-        return key;
     }
 
-    private static void EnsureP256(ECDsa key, string setting)
+    internal static ECDsa LoadPublicKey(string pem)
     {
-        if (key.KeySize != 256)
+        const string setting = "Licensing:AdditionalPublicKeys";
+        try
+        {
+            var (label, der) = DecodePem(pem, setting);
+            if (label != "PUBLIC KEY")
+                throw new InvalidOperationException($"{setting} must be a 'PUBLIC KEY' PEM, not '{label}'.");
+            var spki = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
+            var alg = spki.ReadSequence();
+            ReadAlgorithm(alg, setting);
+            var point = spki.ReadBitString(out _);
+            return ECDsa.Create(new ECParameters { Curve = ECCurve.NamedCurves.nistP256, Q = DecodePoint(point, setting) });
+        }
+        catch (Exception ex) when (ex is ArgumentException or CryptographicException or AsnContentException or FormatException)
+        {
+            throw new InvalidOperationException($"{setting} contains an invalid EC P-256 public key PEM: {ex.Message}", ex);
+        }
+    }
+
+    private static (string Label, byte[] Der) DecodePem(string pem, string setting)
+    {
+        var text = NormalizePem(pem) ?? throw new InvalidOperationException($"{setting} is empty.");
+        text = text.Replace("\\r", "", StringComparison.Ordinal).Trim('"', '\'', ' ', '\r', '\n', '\t');
+        var begin = text.IndexOf("-----BEGIN ", StringComparison.Ordinal);
+        if (begin < 0)
+            throw new InvalidOperationException($"{setting} has no '-----BEGIN ...-----' line.");
+        var labelStart = begin + "-----BEGIN ".Length;
+        var labelEnd = text.IndexOf("-----", labelStart, StringComparison.Ordinal);
+        if (labelEnd < 0)
+            throw new InvalidOperationException($"{setting} has a malformed BEGIN line.");
+        var label = text[labelStart..labelEnd].Trim();
+        var footer = "-----END " + label + "-----";
+        var end = text.IndexOf(footer, labelEnd, StringComparison.Ordinal);
+        if (end < 0)
+            throw new InvalidOperationException($"{setting} has no matching '{footer}' line.");
+        var body = text[(labelEnd + 5)..end];
+        var sb = new StringBuilder(body.Length);
+        foreach (var ch in body)
+            if (!char.IsWhiteSpace(ch))
+                sb.Append(ch);
+        return (label, Convert.FromBase64String(sb.ToString()));
+    }
+
+    private static void ReadAlgorithm(AsnReader alg, string setting)
+    {
+        if (alg.ReadObjectIdentifier() != EcPublicKeyOid.Value)
+            throw new InvalidOperationException($"{setting} is not an EC key.");
+        if (alg.ReadObjectIdentifier() != P256Oid)
             throw new InvalidOperationException($"{setting} must be an ECDSA P-256 (prime256v1) key for ES256.");
+    }
+
+    private static ECParameters ReadPkcs8(byte[] der, string setting)
+    {
+        var info = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
+        info.ReadInteger(); // version
+        ReadAlgorithm(info.ReadSequence(), setting);
+        return ReadSec1(info.ReadOctetString(), checkedCurve: true, setting);
+    }
+
+    /// <summary>RFC 5915 ECPrivateKey: SEQUENCE { version, privateKey OCTET STRING, [0] curve OID?, [1] publicKey BIT STRING? }.</summary>
+    private static ECParameters ReadSec1(byte[] der, bool? checkedCurve, string setting)
+    {
+        var seq = new AsnReader(der, AsnEncodingRules.DER).ReadSequence();
+        if (seq.ReadInteger() != 1)
+            throw new InvalidOperationException($"{setting}: unsupported ECPrivateKey version.");
+        var d = seq.ReadOctetString();
+        if (d.Length > 32)
+            throw new InvalidOperationException($"{setting} must be an ECDSA P-256 key for ES256.");
+        if (d.Length < 32)
+            d = new byte[32 - d.Length].Concat(d).ToArray();
+        var curveSeen = checkedCurve == true;
+        ECPoint? q = null;
+        var ctx0 = new Asn1Tag(TagClass.ContextSpecific, 0, true);
+        var ctx1 = new Asn1Tag(TagClass.ContextSpecific, 1, true);
+        if (seq.HasData && seq.PeekTag().HasSameClassAndValue(ctx0))
+        {
+            var oid = seq.ReadSequence(ctx0).ReadObjectIdentifier();
+            if (oid != P256Oid)
+                throw new InvalidOperationException($"{setting} must be an ECDSA P-256 (prime256v1) key for ES256.");
+            curveSeen = true;
+        }
+        if (seq.HasData && seq.PeekTag().HasSameClassAndValue(ctx1))
+            q = DecodePoint(seq.ReadSequence(ctx1).ReadBitString(out _), setting);
+        if (!curveSeen)
+            throw new InvalidOperationException($"{setting}: the EC PRIVATE KEY does not name its curve; use the PKCS#8 'PRIVATE KEY' form.");
+        // Without Q, .NET derives the public point from D during the explicit-parameter import.
+        return new ECParameters { Curve = ECCurve.NamedCurves.nistP256, D = d, Q = q ?? default };
+    }
+
+    private static ECPoint DecodePoint(byte[] point, string setting)
+    {
+        if (point.Length != 65 || point[0] != 0x04)
+            throw new InvalidOperationException($"{setting}: expected an uncompressed P-256 public point.");
+        return new ECPoint { X = point[1..33], Y = point[33..65] };
     }
 
     private static LicenseJwk ToJwk(string kid, ECDsa key)
