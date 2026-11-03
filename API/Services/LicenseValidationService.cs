@@ -25,12 +25,17 @@ public class LicenseValidationService(
     IOptions<LicensingSettings> licensingSettings,
     IOptions<RedisSettings> redisSettings,
     ILogger<LicenseValidationService> logger,
-    TimeProvider? clock = null) : ILicenseValidationService, IAsyncDisposable
+    TimeProvider? clock = null,
+    LicenseEmailAuditThrottle? emailAuditThrottle = null) : ILicenseValidationService, IAsyncDisposable
 {
     private readonly LicensingSettings _settings = licensingSettings.Value;
     private readonly RedisSettings _redisSettings = redisSettings.Value;
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+    private readonly LicenseEmailAuditThrottle _emailAuditThrottle = emailAuditThrottle ?? new LicenseEmailAuditThrottle();
     private Task? _abandoned;
+
+    /// <summary>RFC 5321 path limit; longer input can never match a stored address.</summary>
+    internal const int MaxEmailLength = 254;
 
     public async Task<ValidateLicenseResponse> ValidateAsync(
         string integrationKeyHeader,
@@ -105,6 +110,10 @@ public class LicenseValidationService(
         var deviceId = string.IsNullOrWhiteSpace(request.DeviceId) ? null : request.DeviceId.Trim();
         if (deviceId is { Length: > 200 })
             return Invalid(R.InvalidRequest, "Device id must be 200 characters or less.", now);
+        // Email: null = not sent (plain check, unchanged behaviour). Whitespace-only counts as sent and never matches.
+        var email = request.Email?.Trim();
+        if (email is { Length: > MaxEmailLength })
+            return Invalid(R.InvalidRequest, "Email must be 254 characters or less.", now);
         if (deviceId is null && _settings.RequireDeviceId)
             return Invalid(R.DeviceRequired, "A device id is required.", now);
 
@@ -134,13 +143,17 @@ public class LicenseValidationService(
             {
                 Id = l.Id, CustomerId = l.CustomerId, KeyHash = l.LicenseKeyHash!, Status = l.Status, ExpiresAt = l.ExpiresAt,
                 PlanName = l.PlanName, MaxDevices = l.MaxDevices, IsTrial = l.IsTrial, IsComplimentary = l.IsComplimentary,
-                CustomerSuspended = l.Customer.IsSuspended
+                CustomerSuspended = l.Customer.IsSuspended,
+                ContactEmail = email == null ? null : l.Customer.ContactEmail,
+                BillingEmail = email == null ? null : l.Customer.BillingEmail
             }).ToListAsync(ct)
             : await baseQuery.Select(l => new Candidate
             {
                 Id = l.Id, CustomerId = l.CustomerId, KeyHash = l.LicenseKeyHash!, Status = l.Status, ExpiresAt = l.ExpiresAt,
                 PlanName = l.PlanName, MaxDevices = l.MaxDevices, IsTrial = l.IsTrial, IsComplimentary = l.IsComplimentary,
                 CustomerSuspended = l.Customer.IsSuspended,
+                ContactEmail = email == null ? null : l.Customer.ContactEmail,
+                BillingEmail = email == null ? null : l.Customer.BillingEmail,
                 Device = l.Devices.Where(d => d.DeviceIdHash == deviceHash)
                     .Select(d => new DeviceRow { Id = d.Id, Name = d.Name, LastSeenAt = d.LastSeenAt, RevokedAt = d.RevokedAt })
                     .FirstOrDefault(),
@@ -164,6 +177,15 @@ public class LicenseValidationService(
 
         if (needsHashUpgrade)
             await UpgradeLicenseKeyHashAsync(license.Id, lookupHash, license.KeyHash, licenseKey, ct);
+
+        // Email before status and devices: a caller holding a key but not its owner's email learns nothing more
+        // than "this key exists" (already implied by any reason other than invalid_key), gets no token, and never
+        // takes a device slot. Integration key / service / key errors still come first, exactly as without email.
+        if (email is not null && !EmailMatches(email, license))
+        {
+            await AuditEmailMismatchAsync(license, integration.ServiceProductCode, now, ct);
+            return Invalid(R.EmailMismatch, "The email does not match this license.", now);
+        }
 
         // Only a caller holding the real key learns why it is refused.
         var refusal = license switch
@@ -210,8 +232,64 @@ public class LicenseValidationService(
             RefreshAfter = refreshAfter,
             OfflineGraceUntil = graceUntil,
             MaxDevices = deviceHash is null ? null : license.MaxDevices,
-            ActiveDevices = activeDevices
+            ActiveDevices = activeDevices,
+            EmailMatches = email is null ? null : true
         };
+    }
+
+    /// <summary>Trimmed, ordinal case-insensitive match on billing or contact email. Both are always compared.</summary>
+    internal static bool EmailMatches(string email, string? billingEmail, string? contactEmail)
+    {
+        if (email.Length == 0)
+            return false;
+        var billing = Same(email, billingEmail);
+        var contact = Same(email, contactEmail);
+        return billing | contact;
+
+        static bool Same(string a, string? stored)
+        {
+            var b = stored?.Trim();
+            return !string.IsNullOrEmpty(b) && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static bool EmailMatches(string email, Candidate license) =>
+        EmailMatches(email, license.BillingEmail, license.ContactEmail);
+
+    private async Task AuditEmailMismatchAsync(Candidate license, string serviceCode, DateTime now, CancellationToken ct)
+    {
+        var window = TimeSpan.FromMinutes(Math.Clamp(_settings.EmailMismatchAuditMinutes, 1, 1440));
+        if (!_emailAuditThrottle.TryEnter(license.Id, now, window))
+        {
+            logger.LogDebug("License email check failed again for license {LicenseId} (audit throttled)", license.Id);
+            return;
+        }
+        logger.LogWarning("License email check failed for license {LicenseId} ({ServiceCode})", license.Id, serviceCode);
+
+        var audit = new AuditLog
+        {
+            Action = AuditAction.LicenseEmailMismatch,
+            PerformedBy = "license-validation",
+            CustomerId = license.CustomerId,
+            LicenseId = license.Id,
+            // Never the typed or stored email: only that a mismatch happened.
+            DetailsJson = AuditJson.Serialize(new { serviceCode, throttleMinutes = (int)window.TotalMinutes }),
+            Timestamp = now
+        };
+        try
+        {
+            db.AuditLogs.Add(audit);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Bookkeeping only: the caller still gets email_mismatch.
+            logger.LogWarning(ex, "Failed to audit email mismatch for license {LicenseId}", license.Id);
+        }
+        finally
+        {
+            db.Entry(audit).State = EntityState.Detached;
+        }
     }
 
     /// <summary>
@@ -506,6 +584,8 @@ public class LicenseValidationService(
         public bool IsTrial { get; init; }
         public bool IsComplimentary { get; init; }
         public bool CustomerSuspended { get; init; }
+        public string? ContactEmail { get; init; }
+        public string? BillingEmail { get; init; }
         public DeviceRow? Device { get; init; }
         public int ActiveDevices { get; set; }
     }

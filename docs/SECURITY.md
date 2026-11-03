@@ -57,6 +57,10 @@ Valid answers include an ES256 compact JWS signed with `Licensing__TokenSigningK
 
 Optional `deviceId` binds activations to devices. Only a SHA-256 hash of the id is stored (unique per license). New-device activation locks the license row (`SELECT … FOR UPDATE`) and re-counts, so concurrent activations cannot exceed `MaxDevices`. Activations, releases and limit changes are audited.
 
+### Email match
+
+`email` on a validation is optional. It is trimmed and compared ordinal-ignore-case with the customer's billing and contact email; both comparisons always run. The answer is only `emailMatches:true` or `reason:"email_mismatch"`: the stored address is never returned, and a mismatch carries no license id, plan, expiry, device counts or token. It is checked after the key is verified and before status and device activation, so a key holder without the owner's email cannot learn the license status or consume a device slot. Guessing is bounded by the per-license-key rate limit; failed matches are logged and written to the audit log at most once per license per `Licensing:EmailMismatchAuditMinutes` (default 15, in-memory throttle, bounded to 10,000 licenses) so a flood cannot bloat `AuditLogs`. No email (typed or stored) is written to the audit row or the token. Inputs over 254 characters are `400 invalid_request`.
+
 ## Global query filters
 
 Licenses, invoices, receipts, and payment transactions have EF global filters that hide rows for **suspended customers** from default queries.

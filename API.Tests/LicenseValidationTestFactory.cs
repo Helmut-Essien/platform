@@ -37,7 +37,8 @@ internal static class LicenseValidationTestFactory
         LicensingSettings? settings = null,
         IntegrationKeyCache? cache = null,
         LicenseTokenSigner? signer = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        LicenseEmailAuditThrottle? emailAuditThrottle = null)
     {
         settings ??= Settings();
         return new LicenseValidationService(
@@ -47,6 +48,7 @@ internal static class LicenseValidationTestFactory
             Options.Create(settings),
             Options.Create(new RedisSettings()),
             NullLogger<LicenseValidationService>.Instance,
-            clock);
+            clock,
+            emailAuditThrottle);
     }
 }

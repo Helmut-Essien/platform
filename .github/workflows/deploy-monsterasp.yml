@@ -131,6 +131,7 @@ jobs:
           Licensing__RateLimitWindowSeconds: ${{ secrets.Licensing__RateLimitWindowSeconds }}
           Licensing__ValidationTimeoutSeconds: ${{ secrets.Licensing__ValidationTimeoutSeconds }}
           Licensing__UnavailableRetryAfterSeconds: ${{ secrets.Licensing__UnavailableRetryAfterSeconds }}
+          Licensing__EmailMismatchAuditMinutes: ${{ secrets.Licensing__EmailMismatchAuditMinutes }}
         run: |
           $ErrorActionPreference = 'Stop'
           $required = @('ConnectionStrings__DefaultConnection', 'Jwt__Key', 'Email__Outbox__EncryptionKey', 'Auth__ClientBaseUrl')
@@ -138,7 +139,7 @@ jobs:
             'Email__ResendApiKey', 'Email__Host', 'Email__Port', 'Email__EnableSsl', 'Email__Username', 'Email__Password',
             'Redis__ConnectionString', 'Database__MigrateOnStartup', 'Https__Redirect', 'CORS_ORIGINS', 'ForwardedHeaders__Enabled',
             'Paystack__SecretKey', 'Paystack__PublicKey', 'Paystack__CollectionCap',
-            'Licensing__TokenSigningKey', 'Licensing__TokenSigningKeyId', 'Licensing__RequireTokenSigning', 'Licensing__OfflineGraceDays', 'Licensing__ExpiryGraceHours', 'Licensing__TokenRefreshHours', 'Licensing__DefaultMaxDevices', 'Licensing__RequireDeviceId', 'Licensing__LicenseKeyPermitLimit', 'Licensing__PerIpPermitLimit', 'Licensing__RateLimitWindowSeconds', 'Licensing__ValidationTimeoutSeconds', 'Licensing__UnavailableRetryAfterSeconds')
+            'Licensing__TokenSigningKey', 'Licensing__TokenSigningKeyId', 'Licensing__RequireTokenSigning', 'Licensing__OfflineGraceDays', 'Licensing__ExpiryGraceHours', 'Licensing__TokenRefreshHours', 'Licensing__DefaultMaxDevices', 'Licensing__RequireDeviceId', 'Licensing__LicenseKeyPermitLimit', 'Licensing__PerIpPermitLimit', 'Licensing__RateLimitWindowSeconds', 'Licensing__ValidationTimeoutSeconds', 'Licensing__UnavailableRetryAfterSeconds', 'Licensing__EmailMismatchAuditMinutes')
 
           $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
           if ($missing) { throw "Missing required secrets: $($missing -join ', ')" }

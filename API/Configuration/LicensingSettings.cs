@@ -37,6 +37,9 @@ public class LicensingSettings
     /// <summary>LastSeen of a device is written at most this often (minutes).</summary>
     public int DeviceLastSeenUpdateMinutes { get; set; } = 60;
 
+    /// <summary>A failed email match is written to the audit log at most once per license this often (minutes).</summary>
+    public int EmailMismatchAuditMinutes { get; set; } = 15;
+
     /// <summary>Resolved integration keys are cached in memory this long (seconds, 0 = off). Revoking a key clears it.</summary>
     public int IntegrationKeyCacheSeconds { get; set; } = 60;
 
