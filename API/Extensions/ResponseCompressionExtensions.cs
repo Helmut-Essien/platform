@@ -18,7 +18,12 @@ public static class ResponseCompressionExtensions
             options.EnableForHttps = true;
             options.Providers.Add<BrotliCompressionProvider>();
             options.Providers.Add<GzipCompressionProvider>();
-            options.MimeTypes = ["application/json", "application/problem+json"];
+            options.MimeTypes =
+            [
+                "application/json", "application/problem+json",
+                // Public landing assets (see PublicSiteExtensions); never applied to /api HTML.
+                "text/html", "text/plain", "application/xml", "text/xml", "image/svg+xml", "application/manifest+json",
+            ];
         });
         services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
         services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
