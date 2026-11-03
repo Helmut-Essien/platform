@@ -203,15 +203,16 @@ public class LicenseHardeningTests
     }
 
     [Fact]
-    public void Signer_ProductionWithoutKey_OmitsToken_RequiredThrows_InvalidPemThrows()
+    public void Signer_ProductionWithoutKey_OmitsToken_RequiredThrows_InvalidPemDisablesSigning()
     {
         var none = LicenseValidationTestFactory.Signer(new LicensingSettings(), "Production");
         Assert.False(none.CanSign);
         Assert.Empty(none.PublicKeys);
         Assert.Throws<InvalidOperationException>(() =>
             LicenseValidationTestFactory.Signer(new LicensingSettings { RequireTokenSigning = true }, "Production"));
-        Assert.ThrowsAny<Exception>(() =>
-            LicenseValidationTestFactory.Signer(new LicensingSettings { TokenSigningKey = "not a pem" }, "Production"));
+        Assert.False(LicenseValidationTestFactory.Signer(new LicensingSettings { TokenSigningKey = "not a pem" }, "Production").CanSign);
+        Assert.Throws<InvalidOperationException>(() =>
+            LicenseValidationTestFactory.Signer(new LicensingSettings { TokenSigningKey = "not a pem", RequireTokenSigning = true }, "Production"));
         var dev = LicenseValidationTestFactory.Signer(new LicensingSettings(), "Development");
         Assert.True(dev.CanSign);
     }
