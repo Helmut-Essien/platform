@@ -118,13 +118,27 @@ jobs:
           Paystack__SecretKey: ${{ secrets.Paystack__SecretKey }}
           Paystack__PublicKey: ${{ secrets.Paystack__PublicKey }}
           Paystack__CollectionCap: ${{ secrets.Paystack__CollectionCap }}
+          Licensing__TokenSigningKey: ${{ secrets.Licensing__TokenSigningKey }}
+          Licensing__TokenSigningKeyId: ${{ secrets.Licensing__TokenSigningKeyId }}
+          Licensing__RequireTokenSigning: ${{ secrets.Licensing__RequireTokenSigning }}
+          Licensing__OfflineGraceDays: ${{ secrets.Licensing__OfflineGraceDays }}
+          Licensing__ExpiryGraceHours: ${{ secrets.Licensing__ExpiryGraceHours }}
+          Licensing__TokenRefreshHours: ${{ secrets.Licensing__TokenRefreshHours }}
+          Licensing__DefaultMaxDevices: ${{ secrets.Licensing__DefaultMaxDevices }}
+          Licensing__RequireDeviceId: ${{ secrets.Licensing__RequireDeviceId }}
+          Licensing__LicenseKeyPermitLimit: ${{ secrets.Licensing__LicenseKeyPermitLimit }}
+          Licensing__PerIpPermitLimit: ${{ secrets.Licensing__PerIpPermitLimit }}
+          Licensing__RateLimitWindowSeconds: ${{ secrets.Licensing__RateLimitWindowSeconds }}
+          Licensing__ValidationTimeoutSeconds: ${{ secrets.Licensing__ValidationTimeoutSeconds }}
+          Licensing__UnavailableRetryAfterSeconds: ${{ secrets.Licensing__UnavailableRetryAfterSeconds }}
         run: |
           $ErrorActionPreference = 'Stop'
           $required = @('ConnectionStrings__DefaultConnection', 'Jwt__Key', 'Email__Outbox__EncryptionKey', 'Auth__ClientBaseUrl')
           $optional = @('AdminSeed__Email', 'AdminSeed__Password', 'Email__Provider', 'Email__FromAddress', 'Email__FromName',
             'Email__ResendApiKey', 'Email__Host', 'Email__Port', 'Email__EnableSsl', 'Email__Username', 'Email__Password',
             'Redis__ConnectionString', 'Database__MigrateOnStartup', 'Https__Redirect', 'CORS_ORIGINS', 'ForwardedHeaders__Enabled',
-            'Paystack__SecretKey', 'Paystack__PublicKey', 'Paystack__CollectionCap')
+            'Paystack__SecretKey', 'Paystack__PublicKey', 'Paystack__CollectionCap',
+            'Licensing__TokenSigningKey', 'Licensing__TokenSigningKeyId', 'Licensing__RequireTokenSigning', 'Licensing__OfflineGraceDays', 'Licensing__ExpiryGraceHours', 'Licensing__TokenRefreshHours', 'Licensing__DefaultMaxDevices', 'Licensing__RequireDeviceId', 'Licensing__LicenseKeyPermitLimit', 'Licensing__PerIpPermitLimit', 'Licensing__RateLimitWindowSeconds', 'Licensing__ValidationTimeoutSeconds', 'Licensing__UnavailableRetryAfterSeconds')
 
           $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
           if ($missing) { throw "Missing required secrets: $($missing -join ', ')" }
