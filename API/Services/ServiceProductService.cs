@@ -101,7 +101,11 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         product.Name = request.Name.Trim();
         product.Description = request.Description?.Trim();
         product.IsAvailableForSale = request.IsAvailableForSale;
-        product.DefaultMaxDevices = NormalizeDefaultMaxDevices(request.DefaultMaxDevices);
+        // Null = unchanged (an older client that omits the field must not wipe it); clearing is explicit.
+        if (request.DefaultMaxDevices is not null)
+            product.DefaultMaxDevices = NormalizeDefaultMaxDevices(request.DefaultMaxDevices);
+        else if (request.ClearDefaultMaxDevices)
+            product.DefaultMaxDevices = null;
 
         await db.SaveChangesAsync(cancellationToken);
 

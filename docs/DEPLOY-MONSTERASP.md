@@ -401,13 +401,13 @@ Each service can define its plans (**Services → Manage plans**; table `Product
 claim are unchanged. Per service: with **no plans**, any plan name is still accepted (trimmed), exactly as before; from
 the **first plan** on, issuing or editing a license needs an active plan of that service. A key that is already on an
 unmapped old name (e.g. `Pro`) or on a deactivated plan keeps working and can still be edited as long as it keeps that
-plan. Services also get a **Default max devices** (NeedleBase: 1) used when a new license has none typed.
+plan. Services also get a **Default max devices** (NeedleBase: 1) used when a new license has none typed. API callers that `PUT` a service without `defaultMaxDevices` leave it unchanged; send `"clearDefaultMaxDevices": true` to go back to the server default.
 
 Rollout after deploying (nothing changes until you add plans): open the service's plan dialog, note the old names
 listed under "Plan names on existing licenses" (or `GET /api/serviceproducts/{id}/plans/usage`), add the plans
 (NeedleBase: `starter`, `workshop`, `production`), then map each old name onto a plan (preview, confirm; or
 `POST /api/serviceproducts/{id}/plans/remap` with `{ "fromPlanName": "Pro", "toCode": "workshop", "dryRun": true }`).
-The mapping is exact (never guessed), skips revoked licenses, is audited per license, and drops cached validations.
+The mapping is exact (never guessed), skips revoked licenses, is audited per license, and locks the affected licenses while it runs (validation reads the plan straight from the database, so there is no cache to clear).
 Invoices keep their old plan name. Shops pick up the new code on their next successful check.
 
 ### Proxies

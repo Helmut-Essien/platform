@@ -264,8 +264,8 @@
             {
                 Name = product.Name,
                 Description = product.Description,
-                IsAvailableForSale = available,
-                DefaultMaxDevices = product.DefaultMaxDevices
+                IsAvailableForSale = available
+                // DefaultMaxDevices left null = unchanged, so a stale grid row can't overwrite a newer default.
             };
 
             var result = await Api.UpdateServiceProductAsync(product.Id, request);

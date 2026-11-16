@@ -15,23 +15,8 @@ namespace API.Tests;
 /// <summary>Per-product plan catalog: CRUD, license create/edit check, mapping of old names, validate contract (in-memory).</summary>
 public class ProductPlanTests
 {
-    internal sealed class RecordingDeny : ILicenseDenyListService
-    {
-        public List<(string ProductId, string Hash)> Invalidated { get; } = [];
-        public Task DenyLicenseAsync(string licenseId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DenyCustomerLicensesAsync(string customerId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<bool> IsDeniedAsync(string licenseId, CancellationToken cancellationToken = default) => Task.FromResult(false);
-        public Task ClearLicenseDenyAsync(string licenseId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task ClearCustomerDenyAsync(string customerId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task InvalidateValidationCacheAsync(string serviceProductId, string lookupHash, CancellationToken cancellationToken = default)
-        {
-            Invalidated.Add((serviceProductId, lookupHash));
-            return Task.CompletedTask;
-        }
-    }
-
-    internal static ProductPlanService Plans(Platform.Api.Data.AppDbContext db, RecordingDeny? deny = null) =>
-        new(db, new AuditLogService(db), deny ?? new RecordingDeny());
+    internal static ProductPlanService Plans(Platform.Api.Data.AppDbContext db) =>
+        new(db, new AuditLogService(db));
 
     internal static async Task<ProductPlanDto> AddPlanAsync(
         Platform.Api.Data.AppDbContext db, string productId, string code, string? name = null, bool active = true, int order = 0) =>
@@ -102,6 +87,8 @@ public class ProductPlanTests
     [InlineData("a--b")]
     [InlineData("pro!")]
     [InlineData("café")]
+    [InlineData("\u212Aey")]   // Kelvin sign: culture lowering would fold it to "key"
+    [InlineData("\u0130stanbul")] // dotted capital I
     [InlineData("a123456789a123456789a123456789a123456789a123456789x")] // 51 chars
     public async Task CreatePlan_RejectsInvalidCodes(string code)
     {
@@ -229,6 +216,20 @@ public class ProductPlanTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => h.Licenses.CreateAsync(Issue(c, p, "retired"), "admin"));
 
         Assert.Empty(db.Licenses.IgnoreQueryFilters());
+    }
+
+    [Theory]
+    [InlineData("\u212Aey")]
+    [InlineData("\u0130stanbul")]
+    public async Task Create_ProductWithPlans_DoesNotFoldLookAlikeLettersOntoACode(string typed)
+    {
+        await using var db = CreateDb();
+        var h = LicenseActivationTests.Create(db);
+        var (c, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
+        await AddPlanAsync(db, p, "key");
+        await AddPlanAsync(db, p, "istanbul");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => h.Licenses.CreateAsync(Issue(c, p, typed), "admin"));
     }
 
     [Fact]
@@ -399,9 +400,15 @@ public class ProductPlanTests
         Assert.Equal(1, listed.DefaultMaxDevices);
         Assert.Equal(2, (await svc.GetAsync(created.Id))!.Plans.Count);
 
+        // Null = unchanged: an older client that omits the field must not wipe the default.
         var updated = await svc.UpdateAsync(created.Id, new UpdateServiceProductRequest { Name = "NeedleBase", DefaultMaxDevices = null }, "admin");
-        Assert.Null(updated.DefaultMaxDevices);
+        Assert.Equal(1, updated.DefaultMaxDevices);
         Assert.Equal(2, updated.Plans.Count);
+        var cleared = await svc.UpdateAsync(created.Id, new UpdateServiceProductRequest { Name = "NeedleBase", ClearDefaultMaxDevices = true }, "admin");
+        Assert.Null(cleared.DefaultMaxDevices);
+        // A value wins over the clear flag.
+        var both = await svc.UpdateAsync(created.Id, new UpdateServiceProductRequest { Name = "NeedleBase", DefaultMaxDevices = 2, ClearDefaultMaxDevices = true }, "admin");
+        Assert.Equal(2, both.DefaultMaxDevices);
         var clamped = await svc.UpdateAsync(created.Id, new UpdateServiceProductRequest { Name = "NeedleBase", DefaultMaxDevices = 5000 }, "admin");
         Assert.Equal(1000, clamped.DefaultMaxDevices);
     }
@@ -451,7 +458,7 @@ public class ProductPlanTests
     }
 
     [Fact]
-    public async Task Remap_MovesNonRevokedLicenses_ToTheCode_Audited_VersionBumped_CacheInvalidated()
+    public async Task Remap_MovesNonRevokedLicenses_ToTheCode_Audited_VersionBumped()
     {
         await using var db = CreateDb();
         var (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
@@ -462,9 +469,8 @@ public class ProductPlanTests
         var untouchedName = await SeedLicenseAsync(db, p, "Growth");
         var otherProduct = await SeedLicenseAsync(db, other, "Pro");
         await AddPlanAsync(db, p, "workshop");
-        var deny = new RecordingDeny();
 
-        var r = await Plans(db, deny).RemapAsync(p, new RemapProductPlanRequest { FromPlanName = "Pro", ToCode = " WORKSHOP " }, "admin@x", "1.2.3.4");
+        var r = await Plans(db).RemapAsync(p, new RemapProductPlanRequest { FromPlanName = "Pro", ToCode = " WORKSHOP " }, "admin@x", "1.2.3.4");
 
         Assert.False(r.DryRun);
         Assert.Equal(2, r.UpdatedCount);
@@ -485,8 +491,6 @@ public class ProductPlanTests
         Assert.Contains(updates, u => u.LicenseId == a.Id && u.CustomerId == a.CustomerId && u.PerformedBy == "admin@x" && u.IpAddress == "1.2.3.4");
         var summary = await db.AuditLogs.SingleAsync(x => x.Action == AuditAction.LicensePlansRemapped);
         Assert.Contains("\"updated\":2", summary.DetailsJson);
-        Assert.Equal(2, deny.Invalidated.Count);
-        Assert.All(deny.Invalidated, i => Assert.Equal(p, i.ProductId));
     }
 
     [Fact]

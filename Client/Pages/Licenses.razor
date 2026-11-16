@@ -603,6 +603,8 @@
 
     private async Task DevicesAsync(LicenseDto license)
     {
+        // The grid row can be minutes old: show the current device limit in the slots bar.
+        license = await Api.GetLicenseAsync(license.Id) ?? license;
         await DialogService.ShowAsync<LicenseDevicesDialog>("Devices", new DialogParameters
         {
             [nameof(LicenseDevicesDialog.License)] = license

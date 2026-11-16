@@ -13,7 +13,14 @@ public class UpdateServiceProductRequest
 
     public bool IsAvailableForSale { get; set; }
 
-    /// <summary>Devices a new license of this product gets when none is typed. Null = server default; 0 = unlimited.</summary>
+    /// <summary>
+    /// Devices a new license of this product gets when none is typed (0 = unlimited). Null leaves the stored value
+    /// unchanged, so a client that doesn't know the field can't wipe it; to go back to the server default send
+    /// <see cref="ClearDefaultMaxDevices"/> instead.
+    /// </summary>
     [Range(0, 1000, ErrorMessage = "Default max devices must be between 0 (unlimited) and 1000")]
     public int? DefaultMaxDevices { get; set; }
+
+    /// <summary>True (with <see cref="DefaultMaxDevices"/> null) removes the product default: new licenses use the server default again.</summary>
+    public bool ClearDefaultMaxDevices { get; set; }
 }

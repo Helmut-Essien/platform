@@ -31,6 +31,12 @@
         }
         else
         {
+            @if (Truncated)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Showing the first @ListCap devices (active ones first). "Release all" still frees every active device.
+                </MudAlert>
+            }
             <MudText Typo="Typo.caption" Class="d-block mb-2">
                 Releasing frees the slot at once. A released device that checks the license again registers again if a slot is free
                 (otherwise it gets <code>device_limit</code>). Until its stored token runs out it keeps working offline.
@@ -66,7 +72,7 @@
     <DialogActions>
         @if (ActiveCount > 1)
         {
-            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="ReleaseAllAsync">Release all (@ActiveCount)</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="ReleaseAllAsync">Release all@(Truncated ? "" : $" ({ActiveCount})")</MudButton>
         }
         <MudSpacer />
         <MudButton Variant="Variant.Text" OnClick="@(() => MudDialog.Close())">Close</MudButton>
@@ -79,6 +85,8 @@
 
     private List<LicenseDeviceDto>? _devices;
     private bool _busy;
+    private const int ListCap = 200; // the API lists at most this many devices
+    private bool Truncated => _devices is { Count: >= ListCap };
     private int ActiveCount => _devices?.Count(d => d.IsActive) ?? 0;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
@@ -147,7 +155,7 @@
         if (_busy)
             return;
         if (!await ConfirmAsync("Release all devices",
-                $"Release all {ActiveCount} active devices of this license? Every slot is freed now, and each device registers again on its next check if a slot is free.",
+                $"Release all {(Truncated ? "" : ActiveCount + " ")}active devices of this license? Every slot is freed now, and each device registers again on its next check if a slot is free.",
                 "Release all"))
             return;
 

@@ -166,7 +166,7 @@ public class ProductPlanPostgresTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ConcurrentRemaps_NeverCorrupt_AtMostRetryableConflicts()
+    public async Task ConcurrentRemaps_SerializeOnTheRowLocks_NoConflicts_EachLicenseMovedAndAuditedOnce()
     {
         if (_pg is null)
             return;
@@ -179,23 +179,123 @@ public class ProductPlanPostgresTests : IAsyncLifetime
                 await SeedLicenseAsync(seed, p, "Pro");
         }
 
-        var outcomes = await Task.WhenAll(Enumerable.Range(0, 3).Select(async _ =>
+        var counts = await Task.WhenAll(Enumerable.Range(0, 3).Select(async _ =>
         {
             await using var db = _pg.NewContext();
-            try
-            {
-                return (await Plans(db).RemapAsync(p, new RemapProductPlanRequest { FromPlanName = "Pro", ToCode = "workshop" }, "admin")).UpdatedCount;
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                return -1; // surfaced as a 409 "refresh and try again"
-            }
+            return (await Plans(db).RemapAsync(p, new RemapProductPlanRequest { FromPlanName = "Pro", ToCode = "workshop" }, "admin")).UpdatedCount;
         }));
 
-        Assert.Contains(outcomes, n => n > 0);
+        // Whoever got the locks first moved all 8; the others waited, found nothing left, and changed nothing.
+        Assert.Equal(8, counts.Sum());
         await using var check = _pg.NewContext();
         Assert.Equal(8, await check.Licenses.IgnoreQueryFilters().CountAsync(l => l.ServiceProductId == p && l.PlanName == "workshop"));
-        // Every license is bumped exactly once overall (a losing writer rolls back entirely).
         Assert.All(await check.Licenses.IgnoreQueryFilters().Where(l => l.ServiceProductId == p).ToListAsync(), l => Assert.Equal(1, l.Version));
+        Assert.Equal(8, await check.AuditLogs.CountAsync(a => a.Action == AuditAction.LicenseUpdated));
+        Assert.Equal(counts.Count(n => n > 0), await check.AuditLogs.CountAsync(a => a.Action == AuditAction.LicensePlansRemapped));
+    }
+
+    [Fact]
+    public async Task Remap_WaitsForAnInFlightLicenseEdit_ThenBuildsOnItInsteadOfOverwritingIt()
+    {
+        if (_pg is null)
+            return;
+        string p;
+        string id;
+        await using (var seed = _pg.NewContext())
+        {
+            (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(seed);
+            await AddPlanAsync(seed, p, "workshop");
+            id = (await SeedLicenseAsync(seed, p, "Pro")).Id;
+        }
+
+        // An admin's edit is mid-write on the license (device limit 3 -> 7, version bumped, not yet committed).
+        await using var editor = _pg.NewContext();
+        await using var tx = await editor.Database.BeginTransactionAsync();
+        await editor.Database.ExecuteSqlInterpolatedAsync(
+            $"""UPDATE "Licenses" SET "MaxDevices" = 7, "Version" = "Version" + 1 WHERE "Id" = {id}""");
+
+        var remap = Task.Run(async () =>
+        {
+            await using var db = _pg.NewContext();
+            return await Plans(db).RemapAsync(p, new RemapProductPlanRequest { FromPlanName = "Pro", ToCode = "workshop" }, "admin");
+        });
+        await Task.Delay(750);
+        Assert.False(remap.IsCompleted); // waiting on the row lock, not reading a stale copy
+
+        await tx.CommitAsync();
+        Assert.Equal(1, (await remap).UpdatedCount);
+
+        await using var check = _pg.NewContext();
+        var row = await check.Licenses.IgnoreQueryFilters().SingleAsync(l => l.Id == id);
+        Assert.Equal(("workshop", 7, 2), (row.PlanName, row.MaxDevices, row.Version)); // both changes survived
+    }
+
+    [Fact]
+    public async Task DeletePlan_WaitsForALicenseBeingCreatedOnIt_ThenRefusesBecauseItIsInUse()
+    {
+        if (_pg is null)
+            return;
+        string p;
+        string planId;
+        await using (var seed = _pg.NewContext())
+        {
+            (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(seed);
+            planId = (await AddPlanAsync(seed, p, "workshop")).Id;
+        }
+
+        // A license create holds the shared plan lock (as ProductPlanRules does) and is about to insert its row.
+        await using var creator = _pg.NewContext();
+        await using var tx = await creator.Database.BeginTransactionAsync();
+        await creator.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ProductPlans" WHERE "ServiceProductId" = {p} FOR SHARE""");
+
+        var delete = Task.Run(async () =>
+        {
+            await using var db = _pg.NewContext();
+            await Plans(db).DeleteAsync(p, planId, "admin");
+        });
+        await Task.Delay(750);
+        Assert.False(delete.IsCompleted); // blocked behind the creator, not racing it
+
+        await SeedLicenseAsync(creator, p, "workshop");
+        await tx.CommitAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => delete);
+        await using var check = _pg.NewContext();
+        Assert.Equal(1, await check.ProductPlans.CountAsync(x => x.ServiceProductId == p));
+    }
+
+    [Fact]
+    public async Task LicenseCreate_TakesTheSharedPlanLock_SoItWaitsForAPlanBeingDeleted()
+    {
+        if (_pg is null)
+            return;
+        string c, p;
+        await using (var seed = _pg.NewContext())
+        {
+            (c, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(seed);
+            await AddPlanAsync(seed, p, "workshop");
+            await AddPlanAsync(seed, p, "starter");
+        }
+
+        // A plan delete holds the exclusive lock (as DeleteAsync does) and is about to remove "workshop".
+        await using var deleter = _pg.NewContext();
+        await using var tx = await deleter.Database.BeginTransactionAsync();
+        await deleter.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ProductPlans" WHERE "ServiceProductId" = {p} FOR UPDATE""");
+
+        var create = Task.Run(async () =>
+        {
+            await using var db = _pg.NewContext();
+            return await LicenseActivationTests.Create(db).Licenses.CreateAsync(Issue(c, p, "workshop"), "admin");
+        });
+        await Task.Delay(750);
+        Assert.False(create.IsCompleted);
+
+        await deleter.Database.ExecuteSqlInterpolatedAsync($"""DELETE FROM "ProductPlans" WHERE "ServiceProductId" = {p} AND "Code" = 'workshop'""");
+        await tx.CommitAsync();
+
+        // The create re-reads the catalog after the delete committed: "workshop" is gone, so it is refused.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => create);
+        await using var check = _pg.NewContext();
+        Assert.Equal(0, await check.Licenses.IgnoreQueryFilters().CountAsync(l => l.ServiceProductId == p));
     }
 }

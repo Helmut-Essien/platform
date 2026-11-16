@@ -91,6 +91,13 @@
         {
             <MudProgressLinear Indeterminate="true" Class="mb-2" />
         }
+        else if (_usageFailed)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                Couldn't load the plan names in use, so this list may be incomplete.
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="LoadUsageAsync" Disabled="@_busy">Try again</MudButton>
+            </MudAlert>
+        }
         else if (_usage.Count == 0)
         {
             <MudText Typo="Typo.body2">No licenses for this service yet.</MudText>
@@ -153,6 +160,7 @@
     private List<ProductPlanUsageDto> _usage = [];
     private readonly Dictionary<string, string> _targets = new(StringComparer.Ordinal);
     private bool _usageLoading = true;
+    private bool _usageFailed;
     private bool _busy;
     private string? _error;
 
@@ -178,8 +186,11 @@
     private async Task LoadUsageAsync()
     {
         _usageLoading = true;
+        _usageFailed = false;
         var result = await Api.GetProductPlanUsageAsync(Product.Id);
         _usage = result.IsSuccess ? result.Data ?? [] : [];
+        // A failed load must not read as "no licenses": show it as an error with a retry.
+        _usageFailed = !result.IsSuccess;
         if (!result.IsSuccess)
             Snackbar.Add(result.ErrorMessage ?? "Couldn't load the plan names in use.", Severity.Error);
         _usageLoading = false;
@@ -224,7 +235,7 @@
             {
                 var result = await Api.CreateProductPlanAsync(Product.Id, new CreateProductPlanRequest
                 {
-                    Code = _code.Trim().ToLowerInvariant(),
+                    Code = _code.Trim(), // the server lowercases (A-Z only) and validates
                     DisplayName = _displayName.Trim(),
                     SortOrder = _sortOrder,
                     IsActive = _isActive

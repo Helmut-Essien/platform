@@ -91,6 +91,8 @@
         if (!_formValid)
             return;
 
+        // An emptied field means "back to the server default"; null alone would mean "leave it as it is".
+        _model.ClearDefaultMaxDevices = _model.DefaultMaxDevices is null;
         await SubmitAndCloseAsync(_model);
     }
 

@@ -9,9 +9,10 @@ namespace Platform.Api.Services;
 
 public class ProductPlanService(
     AppDbContext db,
-    IAuditLogService auditLog,
-    ILicenseDenyListService denyList) : IProductPlanService
+    IAuditLogService auditLog) : IProductPlanService
 {
+    private const int MaxUsageRows = 500;
+
     public async Task<IReadOnlyList<ProductPlanDto>> ListAsync(string serviceProductId, CancellationToken cancellationToken = default)
     {
         await EnsureProductAsync(serviceProductId, cancellationToken);
@@ -55,7 +56,10 @@ public class ProductPlanService(
         db.ProductPlans.Add(plan);
         try
         {
-            await db.SaveChangesAsync(cancellationToken);
+            // One save for the plan and its audit row: a plan can't exist without its audit entry.
+            await auditLog.WriteAsync(AuditAction.ProductPlanCreated, performedBy, null, null, null,
+                AuditJson.Serialize(new { serviceProductId, productCode = product.Code, code, plan.DisplayName, plan.IsActive }),
+                ipAddress, cancellationToken);
         }
         catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
         {
@@ -70,9 +74,6 @@ public class ProductPlanService(
             throw new InvalidOperationException("The plan could not be saved. Refresh and try again.", ex);
         }
 
-        await auditLog.WriteAsync(AuditAction.ProductPlanCreated, performedBy, null, null, null,
-            AuditJson.Serialize(new { serviceProductId, productCode = product.Code, code, plan.DisplayName, plan.IsActive }),
-            ipAddress, cancellationToken);
         return Map(plan);
     }
 
@@ -112,29 +113,36 @@ public class ProductPlanService(
         return Map(plan);
     }
 
-    public async Task DeleteAsync(
+    public Task DeleteAsync(
         string serviceProductId,
         string planId,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
-        var product = await EnsureProductAsync(serviceProductId, cancellationToken);
-        var plan = await db.ProductPlans
-            .FirstOrDefaultAsync(p => p.Id == planId && p.ServiceProductId == serviceProductId, cancellationToken)
-            ?? throw new NotFoundException("Plan not found.");
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
+            var product = await EnsureProductAsync(serviceProductId, ct);
+            // Exclusive plan lock: a license being created onto this plan holds the shared one, so either it
+            // commits first (and the in-use check below sees it) or it waits and finds the plan gone.
+            await ProductPlanRules.LockPlansAsync(db, serviceProductId, exclusive: true, ct);
+            var plan = await db.ProductPlans
+                .FirstOrDefaultAsync(p => p.Id == planId && p.ServiceProductId == serviceProductId, ct)
+                ?? throw new NotFoundException("Plan not found.");
 
-        var inUse = await db.Licenses.IgnoreQueryFilters()
-            .AnyAsync(l => l.ServiceProductId == serviceProductId && l.PlanName.ToLower() == plan.Code, cancellationToken);
-        if (inUse)
-            throw new InvalidOperationException(
-                $"Licenses are on the '{plan.Code}' plan. Deactivate it instead (existing keys keep working), or map them to another plan first.");
+            var inUse = await db.Licenses.IgnoreQueryFilters()
+                .AnyAsync(l => l.ServiceProductId == serviceProductId && l.PlanName.ToLower() == plan.Code, ct);
+            if (inUse)
+                throw new InvalidOperationException(
+                    $"Licenses are on the '{plan.Code}' plan. Deactivate it instead (existing keys keep working), or map them to another plan first.");
 
-        db.ProductPlans.Remove(plan);
-        await auditLog.WriteAsync(AuditAction.ProductPlanDeleted, performedBy, null, null, null,
-            AuditJson.Serialize(new { serviceProductId, productCode = product.Code, code = plan.Code }),
-            ipAddress, cancellationToken);
-    }
+            db.ProductPlans.Remove(plan);
+            await auditLog.WriteAsync(AuditAction.ProductPlanDeleted, performedBy, null, null, null,
+                AuditJson.Serialize(new { serviceProductId, productCode = product.Code, code = plan.Code }),
+                ipAddress, ct);
+            await db.SaveChangesAsync(ct);
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+        }, cancellationToken);
 
     public async Task<IReadOnlyList<ProductPlanUsageDto>> GetUsageAsync(string serviceProductId, CancellationToken cancellationToken = default)
     {
@@ -151,6 +159,8 @@ public class ProductPlanService(
                 Count = g.Count(),
                 Remappable = g.Count(l => l.Status != LicenseStatus.Revoked)
             })
+            .OrderByDescending(r => r.Count).ThenBy(r => r.PlanName)
+            .Take(MaxUsageRows)
             .ToListAsync(cancellationToken);
 
         var activeCodes = (await db.ProductPlans
@@ -212,41 +222,55 @@ public class ProductPlanService(
             };
         }
 
-        var licenses = await query.ToListAsync(cancellationToken);
-        if (licenses.Count == 0)
-            return new RemapProductPlanResultDto { FromPlanName = from, ToCode = toCode, SkippedRevokedCount = revokedCount };
-
-        var now = DateTime.UtcNow;
-        var audits = new List<AuditEntryRequest>(licenses.Count + 1);
-        foreach (var license in licenses)
+        // One transaction: the matching rows are locked first (in id order, so two remaps can't deadlock), then
+        // loaded, changed and saved together with their audit rows. A concurrent edit of one of these licenses
+        // either committed before the lock (and is seen) or waits for the remap and then gets a retryable 409 for
+        // its stale version; the remap itself never half-applies.
+        var updated = await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
-            license.PlanName = toCode;
-            license.UpdatedAt = now;
-            audits.Add(new AuditEntryRequest(AuditAction.LicenseUpdated, performedBy, license.CustomerId, license.Id, null,
-                AuditJson.Serialize(new { planName = toCode, previousPlanName = from, source = "plan_remap" }), ipAddress));
-        }
-        audits.Add(new AuditEntryRequest(AuditAction.LicensePlansRemapped, performedBy, null, null, null,
-            AuditJson.Serialize(new
+            if (db.Database.IsRelational())
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"""
+                     SELECT 1 FROM "Licenses"
+                     WHERE "ServiceProductId" = {serviceProductId} AND "PlanName" = {from} AND "Status" <> 'Revoked'
+                     ORDER BY "Id" FOR UPDATE
+                     """, ct);
+
+            var licenses = await query.ToListAsync(ct);
+            if (licenses.Count == 0)
+                return 0;
+
+            var now = DateTime.UtcNow;
+            var audits = new List<AuditEntryRequest>(licenses.Count + 1);
+            foreach (var license in licenses)
             {
-                serviceProductId,
-                productCode = product.Code,
-                from,
-                to = toCode,
-                updated = licenses.Count,
-                skippedRevoked = revokedCount
-            }), ipAddress));
+                license.PlanName = toCode;
+                license.UpdatedAt = now;
+                audits.Add(new AuditEntryRequest(AuditAction.LicenseUpdated, performedBy, license.CustomerId, license.Id, null,
+                    AuditJson.Serialize(new { planName = toCode, previousPlanName = from, source = "plan_remap" }), ipAddress));
+            }
+            audits.Add(new AuditEntryRequest(AuditAction.LicensePlansRemapped, performedBy, null, null, null,
+                AuditJson.Serialize(new
+                {
+                    serviceProductId,
+                    productCode = product.Code,
+                    from,
+                    to = toCode,
+                    updated = licenses.Count,
+                    skippedRevoked = revokedCount
+                }), ipAddress));
 
-        // One SaveChanges: the plan changes and their audit rows commit together (a concurrent edit of any of
-        // these licenses fails the whole remap with a retryable 409 instead of half-applying).
-        await auditLog.WriteBatchAsync(audits, cancellationToken);
+            await auditLog.WriteBatchAsync(audits, ct); // one SaveChanges: licenses + audit rows
+            await db.SaveChangesAsync(ct);              // no-op when the audit writer already saved
+            if (transaction is not null)
+                await transaction.CommitAsync(ct);
+            return licenses.Count;
+        }, cancellationToken);
 
-        // Cached positive validations carry the old plan name until they expire; drop them now.
-        foreach (var license in licenses.Where(l => !string.IsNullOrEmpty(l.LicenseKeyLookupHash)))
-            await denyList.InvalidateValidationCacheAsync(serviceProductId, license.LicenseKeyLookupHash!, cancellationToken);
-
+        // No validation cache to invalidate: validation reads PlanName from PostgreSQL on every check.
         return new RemapProductPlanResultDto
         {
-            FromPlanName = from, ToCode = toCode, UpdatedCount = licenses.Count, SkippedRevokedCount = revokedCount
+            FromPlanName = from, ToCode = toCode, UpdatedCount = updated, SkippedRevokedCount = revokedCount
         };
     }
 

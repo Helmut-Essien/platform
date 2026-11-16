@@ -20,8 +20,42 @@ internal static partial class ProductPlanRules
     [GeneratedRegex("^[a-z0-9]+(?:[-_][a-z0-9]+)*$")]
     private static partial Regex CodePattern();
 
-    /// <summary>Trim + lowercase (invariant). The only normalization a plan code ever gets.</summary>
-    internal static string NormalizeCode(string? value) => (value ?? "").Trim().ToLowerInvariant();
+    /// <summary>Trim + lowercase A-Z only. The only normalization a plan code ever gets. ASCII-only on purpose:
+    /// culture-aware lowering would fold look-alikes (Kelvin sign, dotted capital I) onto ordinary letters.</summary>
+    internal static string NormalizeCode(string? value) => ToLowerAscii((value ?? "").Trim());
+
+    internal static string ToLowerAscii(string value)
+    {
+        foreach (var c in value)
+        {
+            if (c is >= 'A' and <= 'Z')
+                return string.Create(value.Length, value, static (span, v) =>
+                {
+                    for (var i = 0; i < v.Length; i++)
+                        span[i] = v[i] is >= 'A' and <= 'Z' ? (char)(v[i] + 32) : v[i];
+                });
+        }
+        return value;
+    }
+
+    /// <summary>
+    /// Row-locks the product's plans so deleting or deactivating a plan cannot interleave with a license being
+    /// created onto it: licenses take a shared lock, plan deletion an exclusive one. Only inside a transaction on a
+    /// relational database (a no-op otherwise), so edits (no transaction) keep their old, lock-free behaviour; an
+    /// edit racing a plan delete can at worst leave a key on a code that is no longer listed, which stays editable
+    /// and shows up for mapping.
+    /// </summary>
+    internal static async Task LockPlansAsync(AppDbContext db, string serviceProductId, bool exclusive, CancellationToken cancellationToken)
+    {
+        if (!db.Database.IsRelational() || db.Database.CurrentTransaction is null)
+            return;
+        if (exclusive)
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""SELECT 1 FROM "ProductPlans" WHERE "ServiceProductId" = {serviceProductId} FOR UPDATE""", cancellationToken);
+        else
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""SELECT 1 FROM "ProductPlans" WHERE "ServiceProductId" = {serviceProductId} FOR SHARE""", cancellationToken);
+    }
 
     internal static bool IsValidCode(string normalized) =>
         normalized.Length is > 0 and <= MaxCodeLength && CodePattern().IsMatch(normalized);
@@ -48,6 +82,7 @@ internal static partial class ProductPlanRules
         if (trimmed.Length == 0)
             throw new InvalidOperationException("Plan name is required.");
 
+        await LockPlansAsync(db, serviceProductId, exclusive: false, cancellationToken);
         var plans = await db.ProductPlans
             .AsNoTracking()
             .Where(p => p.ServiceProductId == serviceProductId)
@@ -57,7 +92,7 @@ internal static partial class ProductPlanRules
         if (plans.Count == 0)
             return trimmed;
 
-        var code = trimmed.ToLowerInvariant();
+        var code = ToLowerAscii(trimmed);
         if (plans.Any(p => p.IsActive && p.Code == code))
             return code;
 
