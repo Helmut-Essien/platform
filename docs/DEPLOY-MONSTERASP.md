@@ -377,7 +377,12 @@ Compact JWS, header `{"alg":"ES256","typ":"license+jwt","kid":…}`. Claims: `is
 
 Each license has `MaxDevices` (set in Issue/Edit; 0 = unlimited). The first validation from a new `deviceId`
 activates a slot (audited). Admins can see devices and release one in **Licenses → ⋮ → Devices**; the slot is
-freed at once. Lowering the limit never removes active devices; it only blocks new ones.
+freed at once (no cache to wait for: validation reads the device table directly). **Release all** frees every active
+device of the license in one step (audited per device; safe to repeat). Typical use: a NeedleBase shop moved or rebuilt
+its server and now gets `device_limit` with MaxDevices = 1: open the license's Devices, release the old one, and the
+new server registers on its next check. A released device that comes back first takes the slot again; one that is still
+running offline keeps working until its stored token's grace time ends, then re-registers (or gets `device_limit`).
+Lowering the limit never removes active devices; it only blocks new ones.
 
 ### NeedleBase registration (one shop per key)
 

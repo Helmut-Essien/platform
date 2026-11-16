@@ -55,7 +55,7 @@ Valid answers include an ES256 compact JWS signed with `Licensing__TokenSigningK
 
 ### Devices
 
-Optional `deviceId` binds activations to devices. Only a SHA-256 hash of the id is stored (unique per license). New-device activation locks the license row (`SELECT … FOR UPDATE`) and re-counts, so concurrent activations cannot exceed `MaxDevices`. Activations, releases and limit changes are audited.
+Optional `deviceId` binds activations to devices. Only a SHA-256 hash of the id is stored (unique per license). New-device activation locks the license row (`SELECT … FOR UPDATE`) and re-counts, so concurrent activations cannot exceed `MaxDevices`. Activations, releases and limit changes are audited. Admins release one device (`POST api/licenses/{id}/devices/{deviceId}/release`) or all of a license's devices (`POST .../devices/release-all`); both take the same row lock as activation, are idempotent (a second release writes no second audit row) and need no cache invalidation because validation reads the device table directly. A released device that checks in again re-registers if a slot is free, otherwise gets `device_limit`; its stored token keeps it running offline only until the token's grace time ends.
 
 ### Email match
 

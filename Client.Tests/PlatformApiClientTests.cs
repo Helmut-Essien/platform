@@ -418,6 +418,32 @@ public class PlatformApiClientTests
         Assert.Empty(old.Plans);
     }
 
+    [Fact]
+    public async Task ReleaseAllLicenseDevicesAsync_PostsToReleaseAll_AndReadsTheCount()
+    {
+        var handler = new CapturingHttpMessageHandler(_ => JsonResponse(new ReleaseAllDevicesResultDto { ReleasedCount = 3 }));
+        var client = CreateClient(handler);
+
+        var result = await client.ReleaseAllLicenseDevicesAsync("lic 1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, result.Data!.ReleasedCount);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.EndsWith("api/licenses/lic%201/devices/release-all", handler.LastRequest.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task ReleaseAllLicenseDevicesAsync_NotFound_SurfacesTheMessage()
+    {
+        var client = CreateClient(new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new { message = "License not found." }, HttpStatusCode.NotFound)));
+
+        var result = await client.ReleaseAllLicenseDevicesAsync("x");
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("License not found", result.ErrorMessage);
+    }
+
     private static PlatformApiClient CreateClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler)

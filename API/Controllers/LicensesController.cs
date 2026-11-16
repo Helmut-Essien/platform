@@ -217,6 +217,18 @@ public class LicensesController(
             AdminRequestContext.GetIpAddress(HttpContext),
             cancellationToken));
 
+    /// <summary>Frees every active device of the license (one audit row each). Safe to repeat.</summary>
+    [HttpPost("{id}/devices/release-all")]
+    public async Task<ActionResult<ReleaseAllDevicesResultDto>> ReleaseAllDevices(string id, CancellationToken cancellationToken)
+        => Ok(new ReleaseAllDevicesResultDto
+        {
+            ReleasedCount = await licenses.ReleaseAllDevicesAsync(
+                id,
+                AdminRequestContext.GetPerformedBy(HttpContext),
+                AdminRequestContext.GetIpAddress(HttpContext),
+                cancellationToken)
+        });
+
     [HttpPost("{id}/resend-key")]
     public async Task<ActionResult<LicenseDto>> ResendKey(string id, CancellationToken cancellationToken)
         => await RotateKey(id, cancellationToken);

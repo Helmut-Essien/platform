@@ -497,6 +497,8 @@ Fixed bottom glass panel when rows selected: **Rotate & Email Keys** (destructiv
 
 **Built:** Plan is a dropdown of the chosen service's active plans (no `"Pro"` default; a service with no plans keeps a free-text field). Edit License shows the same dropdown and keeps a key's current, non-selectable plan as an option. See [product-plans.md](../platform-license-hub/product-plans.md).
 
+`LicenseDevicesDialog` (Licenses → ⋮ → Devices): slots used/max bar (warning alert when all slots are taken), device list (name, fingerprint, first/last seen, status), a Release button per active device and "Release all", each behind a destructive `ConfirmDialog`. API: `GET api/licenses/{id}/devices`, `POST .../devices/{deviceId}/release`, `POST .../devices/release-all` (admin-only, audited, idempotent, row-locked; no cache to invalidate because validation reads PostgreSQL). A released device re-registers on its next check if a slot is free, else gets `device_limit`.
+
 `ProductPlansDialog` (Services → Manage plans): plan table with active switch, add/edit form, and the list of plan names found on existing licenses with a preview-and-confirm "Map to" action. Add/Edit Service has a "Default max devices" field.
 
 ### Activate License flow (hybrid)
