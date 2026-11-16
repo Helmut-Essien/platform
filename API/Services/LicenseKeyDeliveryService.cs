@@ -41,7 +41,8 @@ public class LicenseKeyDeliveryService(
         license.LicenseKeyLookupHash = KeyLookupHasher.ComputeSha256Hex(plainKey);
         license.UpdatedAt = DateTime.UtcNow;
 
-        var template = templates.LicenseKey(customer, serviceProduct, license, "{{LICENSE_KEY}}", isRenewal);
+        var planLabel = await ProductPlanDisplay.NameAsync(db, license.ServiceProductId, license.PlanName, cancellationToken);
+        var template = templates.LicenseKey(customer, serviceProduct, license, "{{LICENSE_KEY}}", isRenewal, planLabel);
         outbox.Enqueue(
             isRenewal ? EmailDeliveryKind.LicenseKeyRotated : EmailDeliveryKind.LicenseKey,
             CustomerContactResolver.Technical(customer),

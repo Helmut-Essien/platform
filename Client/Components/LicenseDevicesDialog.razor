@@ -1,5 +1,6 @@
 @inject PlatformApiClient Api
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <MudDialog>
     <TitleContent>
@@ -10,6 +11,16 @@
         </MudText>
     </TitleContent>
     <DialogContent>
+        @if (_devices is not null && License.MaxDevices is { } limit)
+        {
+            <MudProgressLinear Color="@(ActiveCount >= limit ? Color.Warning : Color.Primary)" Value="@Math.Min(100.0, ActiveCount * 100.0 / Math.Max(1, limit))" Class="mb-2" />
+            @if (ActiveCount >= limit)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                    All @limit slot@(limit == 1 ? "" : "s") in use. A new device is refused (<code>device_limit</code>) until you release one.
+                </MudAlert>
+            }
+        }
         @if (_devices is null)
         {
             <MudProgressLinear Indeterminate="true" />
@@ -20,6 +31,16 @@
         }
         else
         {
+            @if (Truncated)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Showing the first @ListCap devices (active ones first). "Release all" still frees every active device.
+                </MudAlert>
+            }
+            <MudText Typo="Typo.caption" Class="d-block mb-2">
+                Releasing frees the slot at once. A released device that checks the license again registers again if a slot is free
+                (otherwise it gets <code>device_limit</code>). Until its stored token runs out it keeps working offline.
+            </MudText>
             <MudSimpleTable Dense="true" Hover="true">
                 <thead>
                     <tr><th>Device</th><th>First seen</th><th>Last seen</th><th>Status</th><th></th></tr>
@@ -49,6 +70,11 @@
         }
     </DialogContent>
     <DialogActions>
+        @if (ActiveCount > 1)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="_busy" OnClick="ReleaseAllAsync">Release all@(Truncated ? "" : $" ({ActiveCount})")</MudButton>
+        }
+        <MudSpacer />
         <MudButton Variant="Variant.Text" OnClick="@(() => MudDialog.Close())">Close</MudButton>
     </DialogActions>
 </MudDialog>
@@ -59,6 +85,8 @@
 
     private List<LicenseDeviceDto>? _devices;
     private bool _busy;
+    private const int ListCap = 200; // the API lists at most this many devices
+    private bool Truncated => _devices is { Count: >= ListCap };
     private int ActiveCount => _devices?.Count(d => d.IsActive) ?? 0;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
@@ -76,8 +104,28 @@
         }
     }
 
+    private async Task<bool> ConfirmAsync(string title, string message, string confirmText)
+    {
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>(title, new DialogParameters
+        {
+            ["Title"] = title,
+            ["Message"] = message,
+            ["ConfirmText"] = confirmText,
+            ["IsDestructive"] = true
+        }, PlatformDialogOptions.Confirm);
+        var confirmation = await dialog.Result;
+        return confirmation?.Canceled is false;
+    }
+
     private async Task ReleaseAsync(LicenseDeviceDto device)
     {
+        if (_busy)
+            return;
+        var label = string.IsNullOrWhiteSpace(device.Name) ? $"device {device.Fingerprint}" : $"\"{device.Name}\" ({device.Fingerprint})";
+        if (!await ConfirmAsync("Release device",
+                $"Release {label}? Its slot is freed now. That device can register again if a slot is free.", "Release"))
+            return;
+
         _busy = true;
         try
         {
@@ -85,6 +133,40 @@
             if (result.IsSuccess)
             {
                 Snackbar.Add("Device released. Its slot is free for a new device.", Severity.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Release failed.", Severity.Error);
+            }
+        }
+        catch (Exception)
+        {
+            Snackbar.Add("Couldn't reach the server.", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ReleaseAllAsync()
+    {
+        if (_busy)
+            return;
+        if (!await ConfirmAsync("Release all devices",
+                $"Release all {(Truncated ? "" : ActiveCount + " ")}active devices of this license? Every slot is freed now, and each device registers again on its next check if a slot is free.",
+                "Release all"))
+            return;
+
+        _busy = true;
+        try
+        {
+            var result = await Api.ReleaseAllLicenseDevicesAsync(License.Id);
+            if (result.IsSuccess)
+            {
+                var n = result.Data?.ReleasedCount ?? 0;
+                Snackbar.Add(n == 0 ? "No active devices to release." : $"{n} device{(n == 1 ? "" : "s")} released.", Severity.Success);
                 await LoadAsync();
             }
             else

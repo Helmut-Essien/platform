@@ -101,7 +101,11 @@
                         @GetServiceLabel(context.Item)
                     </CellTemplate>
                 </TemplateColumn>
-                <PropertyColumn Property="x => x.PlanName" Title="Plan" />
+                <TemplateColumn Title="Plan" Sortable="true">
+                    <CellTemplate>
+                        @(context.Item.PlanDisplayName ?? context.Item.PlanName)
+                    </CellTemplate>
+                </TemplateColumn>
                 <TemplateColumn Title="Status" Sortable="true">
                     <CellTemplate>
                         <StatusBadge LicenseStatus="context.Item.Status" />
@@ -446,8 +450,17 @@
 
     private void ClearSelection() => _selected.Clear();
 
+    /// <summary>Plans are managed on another page; re-read them so the dialogs never offer a stale list.</summary>
+    private async Task RefreshProductsAsync()
+    {
+        var fresh = await Api.GetServiceProductsAsync();
+        if (fresh.Count > 0)
+            _products = fresh.ToList();
+    }
+
     private async Task OpenIssueDialogAsync()
     {
+        await RefreshProductsAsync();
         // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
         ApiResult<LicenseDto>? result = null;
         Task<ApiResult<LicenseDto>>? pending = null;
@@ -561,6 +574,7 @@
 
     private async Task EditAsync(LicenseDto license)
     {
+        await RefreshProductsAsync();
         // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
         ApiResult<LicenseDto>? apiResult = null;
         Task<ApiResult<LicenseDto>>? pending = null;
@@ -573,6 +587,7 @@
         var dialog = await DialogService.ShowAsync<LicenseEditDialog>("Edit License", new DialogParameters
         {
             [nameof(LicenseEditDialog.License)] = license,
+            [nameof(LicenseEditDialog.Product)] = _products.FirstOrDefault(p => p.Id == license.ServiceProductId),
             [nameof(LicenseEditDialog.Submit)] = submit
         });
         await dialog.Result;
@@ -592,6 +607,8 @@
 
     private async Task DevicesAsync(LicenseDto license)
     {
+        // The grid row can be minutes old: show the current device limit in the slots bar.
+        license = await Api.GetLicenseAsync(license.Id) ?? license;
         await DialogService.ShowAsync<LicenseDevicesDialog>("Devices", new DialogParameters
         {
             [nameof(LicenseDevicesDialog.License)] = license
@@ -684,7 +701,7 @@
         var dialog = await DialogService.ShowAsync<RotateLicenseKeyDialog>("Rotate & Email License Key", new DialogParameters
         {
             [nameof(RotateLicenseKeyDialog.LicenseId)] = license.Id,
-            [nameof(RotateLicenseKeyDialog.CustomerLabel)] = $"{license.CustomerName} — {license.PlanName}"
+            [nameof(RotateLicenseKeyDialog.CustomerLabel)] = $"{license.CustomerName} — {license.PlanDisplayName ?? license.PlanName}"
         }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto updated)

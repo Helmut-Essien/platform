@@ -1,0 +1,402 @@
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Plans · @Product.Name (@Product.Code)</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_plans.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                No plans yet, so licenses of this service accept any plan name. As soon as you add the first plan, only
+                active plans can be chosen when issuing or editing a license. Add the plans, then map the old names below.
+                Existing keys keep working either way.
+            </MudAlert>
+        }
+        else
+        {
+            <MudTable Items="_plans" Dense="true" Hover="false" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Code</MudTh>
+                    <MudTh>Display name</MudTh>
+                    <MudTh Class="cell-right">Order</MudTh>
+                    <MudTh>Active</MudTh>
+                    <MudTh Class="cell-right">Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><code>@context.Code</code></MudTd>
+                    <MudTd>@context.DisplayName</MudTd>
+                    <MudTd Class="cell-right">@context.SortOrder</MudTd>
+                    <MudTd>
+                        <MudSwitch T="bool" Value="context.IsActive" Color="Color.Primary" Disabled="@_busy"
+                                   ValueChanged="@(async (bool v) => await SetActiveAsync(context, v))"
+                                   aria-label="@($"Plan {context.Code} active")" />
+                    </MudTd>
+                    <MudTd Class="cell-right">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Disabled="@_busy"
+                                       aria-label="Edit plan" OnClick="@(() => StartEdit(context))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" Disabled="@_busy"
+                                       aria-label="Delete plan" OnClick="@(() => DeleteAsync(context))" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+            <MudText Typo="Typo.caption" Class="d-block mt-1">
+                Deactivating a plan only blocks choosing it for new issues and edits; keys already on it keep working.
+            </MudText>
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">@(_editing is null ? "Add a plan" : $"Edit plan {_editing.Code}")</MudText>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@_error</MudAlert>
+        }
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="4">
+                <MudTextField @bind-Value="_code" Label="Code" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Disabled="@(_editing is not null)" MaxLength="50"
+                              HelperText="Lowercase, e.g. workshop. Can't be changed later." />
+            </MudItem>
+            <MudItem xs="12" sm="5">
+                <MudTextField @bind-Value="_displayName" Label="Display name" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="100" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudNumericField T="int" @bind-Value="_sortOrder" Label="Order" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Max="100000" />
+            </MudItem>
+        </MudGrid>
+        <div class="d-flex align-center gap-2 mt-1">
+            @if (_editing is null)
+            {
+                <MudSwitch T="bool" @bind-Value="_isActive" Color="Color.Primary" Label="Active" />
+            }
+            <MudSpacer />
+            @if (_editing is not null)
+            {
+                <MudButton Variant="Variant.Text" OnClick="CancelEdit" Disabled="_busy">Cancel edit</MudButton>
+            }
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync"
+                       Disabled="@(_busy || string.IsNullOrWhiteSpace(_displayName) || (_editing is null && string.IsNullOrWhiteSpace(_code)))">
+                @(_editing is null ? "Add plan" : "Save plan")
+            </MudButton>
+        </div>
+
+        <MudDivider Class="my-4" />
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Plan names on existing licenses</MudText>
+        <MudText Typo="Typo.caption" Class="d-block mb-2">
+            Old free-text names (like "Pro") don't match a plan code. Map each one onto a plan; revoked licenses are left as they are.
+            The names are never guessed.
+        </MudText>
+        @if (_usageLoading)
+        {
+            <MudProgressLinear Indeterminate="true" Class="mb-2" />
+        }
+        else if (_usageFailed)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                Couldn't load the plan names in use, so this list may be incomplete.
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="LoadUsageAsync" Disabled="@_busy">Try again</MudButton>
+            </MudAlert>
+        }
+        else if (_usage.Count == 0)
+        {
+            <MudText Typo="Typo.body2">No licenses for this service yet.</MudText>
+        }
+        else
+        {
+            <MudTable Items="_usage" Dense="true" Hover="false" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Plan name on licenses</MudTh>
+                    <MudTh Class="cell-right">Licenses</MudTh>
+                    <MudTh>Map to</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><code>@context.PlanName</code></MudTd>
+                    <MudTd Class="cell-right">@context.LicenseCount</MudTd>
+                    <MudTd>
+                        @if (context.IsActivePlanCode)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">Matches a plan</MudChip>
+                        }
+                        else if (context.RemappableCount == 0)
+                        {
+                            <MudText Typo="Typo.caption">Revoked only</MudText>
+                        }
+                        else if (ActivePlans.Count == 0)
+                        {
+                            <MudText Typo="Typo.caption">Add a plan first</MudText>
+                        }
+                        else
+                        {
+                            <div class="d-flex align-center gap-2">
+                                <MudSelect T="string" Value="@TargetFor(context.PlanName)"
+                                           ValueChanged="@((string v) => _targets[context.PlanName] = v)"
+                                           Label="Plan" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 10rem;">
+                                    @foreach (var plan in ActivePlans)
+                                    {
+                                        <MudSelectItem Value="@plan.Code">@plan.DisplayName (@plan.Code)</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_busy || string.IsNullOrEmpty(TargetFor(context.PlanName)))"
+                                           OnClick="@(() => MapAsync(context))">Map</MudButton>
+                            </div>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Done</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public required ServiceProductDto Product { get; set; }
+
+    private List<ProductPlanDto> _plans = [];
+    private List<ProductPlanUsageDto> _usage = [];
+    private readonly Dictionary<string, string> _targets = new(StringComparer.Ordinal);
+    private bool _usageLoading = true;
+    private bool _usageFailed;
+    private bool _busy;
+    private string? _error;
+
+    private ProductPlanDto? _editing;
+    private string _code = "";
+    private string _displayName = "";
+    private int _sortOrder;
+    private bool _isActive = true;
+
+    private List<ProductPlanDto> ActivePlans => _plans.Where(p => p.IsActive).ToList();
+
+    private string TargetFor(string planName) => _targets.GetValueOrDefault(planName, "");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plans = Product.Plans.OrderBy(p => p.SortOrder).ThenBy(p => p.Code).ToList();
+        _sortOrder = NextSortOrder();
+        await LoadUsageAsync();
+    }
+
+    private int NextSortOrder() => _plans.Count == 0 ? 10 : _plans.Max(p => p.SortOrder) + 10;
+
+    private async Task LoadUsageAsync()
+    {
+        _usageLoading = true;
+        _usageFailed = false;
+        var result = await Api.GetProductPlanUsageAsync(Product.Id);
+        _usage = result.IsSuccess ? result.Data ?? [] : [];
+        // A failed load must not read as "no licenses": show it as an error with a retry.
+        _usageFailed = !result.IsSuccess;
+        if (!result.IsSuccess)
+            Snackbar.Add(result.ErrorMessage ?? "Couldn't load the plan names in use.", Severity.Error);
+        _usageLoading = false;
+    }
+
+    /// <summary>Keeps the product object in step so the Services page shows the new plan count without a reload.</summary>
+    private void Publish()
+    {
+        _plans = _plans.OrderBy(p => p.SortOrder).ThenBy(p => p.Code).ToList();
+        Product.Plans = _plans.ToList();
+    }
+
+    private void StartEdit(ProductPlanDto plan)
+    {
+        _editing = plan;
+        _code = plan.Code;
+        _displayName = plan.DisplayName;
+        _sortOrder = plan.SortOrder;
+        _isActive = plan.IsActive;
+        _error = null;
+    }
+
+    private void CancelEdit()
+    {
+        _editing = null;
+        _code = "";
+        _displayName = "";
+        _sortOrder = NextSortOrder();
+        _isActive = true;
+        _error = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy)
+            return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (_editing is null)
+            {
+                var result = await Api.CreateProductPlanAsync(Product.Id, new CreateProductPlanRequest
+                {
+                    Code = _code.Trim(), // the server lowercases (A-Z only) and validates
+                    DisplayName = _displayName.Trim(),
+                    SortOrder = _sortOrder,
+                    IsActive = _isActive
+                });
+                if (!result.IsSuccess)
+                {
+                    _error = result.ErrorMessage ?? "Couldn't add the plan.";
+                    return;
+                }
+                _plans.Add(result.Data!);
+                Snackbar.Add($"Plan '{result.Data!.Code}' added.", Severity.Success);
+            }
+            else
+            {
+                var result = await Api.UpdateProductPlanAsync(Product.Id, _editing.Id, new UpdateProductPlanRequest
+                {
+                    DisplayName = _displayName.Trim(),
+                    SortOrder = _sortOrder,
+                    IsActive = _editing.IsActive
+                });
+                if (!result.IsSuccess)
+                {
+                    _error = result.ErrorMessage ?? "Couldn't save the plan.";
+                    return;
+                }
+                Replace(result.Data!);
+                Snackbar.Add("Plan saved.", Severity.Success);
+            }
+            Publish();
+            CancelEdit();
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Replace(ProductPlanDto saved)
+    {
+        var i = _plans.FindIndex(p => p.Id == saved.Id);
+        if (i >= 0)
+            _plans[i] = saved;
+    }
+
+    private async Task SetActiveAsync(ProductPlanDto plan, bool active)
+    {
+        if (_busy || plan.IsActive == active)
+            return;
+        _busy = true;
+        try
+        {
+            var result = await Api.UpdateProductPlanAsync(Product.Id, plan.Id, new UpdateProductPlanRequest
+            {
+                DisplayName = plan.DisplayName,
+                SortOrder = plan.SortOrder,
+                IsActive = active
+            });
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Couldn't update the plan.", Severity.Error);
+                return;
+            }
+            Replace(result.Data!);
+            Publish();
+            if (_editing?.Id == plan.Id)
+                CancelEdit();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(ProductPlanDto plan)
+    {
+        var dialog = await DialogService.ShowAsync<ConfirmDialog>("Delete plan", new DialogParameters
+        {
+            ["Title"] = "Delete plan",
+            ["Message"] = $"Delete plan \"{plan.DisplayName}\" ({plan.Code})? This only works while no license is on it; otherwise deactivate it instead.",
+            ["ConfirmText"] = "Delete",
+            ["IsDestructive"] = true
+        }, PlatformDialogOptions.Confirm);
+        var confirmation = await dialog.Result;
+        if (confirmation?.Canceled is not false)
+            return;
+
+        _busy = true;
+        try
+        {
+            var (success, error) = await Api.DeleteProductPlanAsync(Product.Id, plan.Id);
+            if (!success)
+            {
+                Snackbar.Add(error ?? "Couldn't delete the plan.", Severity.Error);
+                return;
+            }
+            _plans.RemoveAll(p => p.Id == plan.Id);
+            Publish();
+            if (_editing?.Id == plan.Id)
+                CancelEdit();
+            Snackbar.Add($"Plan '{plan.Code}' deleted.", Severity.Success);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task MapAsync(ProductPlanUsageDto usage)
+    {
+        var target = TargetFor(usage.PlanName);
+        if (_busy || string.IsNullOrEmpty(target))
+            return;
+        _busy = true;
+        try
+        {
+            // Preview first so the confirmation states the real number of licenses it will change.
+            var preview = await Api.RemapProductPlanAsync(Product.Id,
+                new RemapProductPlanRequest { FromPlanName = usage.PlanName, ToCode = target, DryRun = true });
+            if (!preview.IsSuccess)
+            {
+                Snackbar.Add(preview.ErrorMessage ?? "Couldn't preview the mapping.", Severity.Error);
+                return;
+            }
+
+            var count = preview.Data!.UpdatedCount;
+            var dialog = await DialogService.ShowAsync<ConfirmDialog>("Map plan", new DialogParameters
+            {
+                ["Title"] = "Map plan",
+                ["Message"] = count == 0
+                    ? $"No active licenses are on \"{usage.PlanName}\" any more."
+                    : $"Move {count} license{(count == 1 ? "" : "s")} from \"{usage.PlanName}\" to \"{target}\"? Apps pick up the new plan on their next license check. Old invoices keep their plan name.",
+                ["ConfirmText"] = count == 0 ? "OK" : "Map",
+            }, PlatformDialogOptions.Confirm);
+            var confirmation = await dialog.Result;
+            if (confirmation?.Canceled is not false || count == 0)
+            {
+                if (count == 0)
+                    await LoadUsageAsync();
+                return;
+            }
+
+            var result = await Api.RemapProductPlanAsync(Product.Id,
+                new RemapProductPlanRequest { FromPlanName = usage.PlanName, ToCode = target });
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Couldn't map the licenses.", Severity.Error);
+                return;
+            }
+            Snackbar.Add($"{result.Data!.UpdatedCount} license(s) moved to '{target}'.", Severity.Success);
+            _targets.Remove(usage.PlanName);
+            await LoadUsageAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

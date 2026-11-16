@@ -160,6 +160,57 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         return (false, errorMessage ?? "Failed to delete service product.");
     }
 
+    public async Task<ApiResult<ProductPlanDto>> CreateProductPlanAsync(
+        string serviceProductId,
+        CreateProductPlanRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/serviceproducts/{Uri.EscapeDataString(serviceProductId)}/plans", request, ct);
+        return await ToApiResultAsync<ProductPlanDto>(response, ct);
+    }
+
+    public async Task<ApiResult<ProductPlanDto>> UpdateProductPlanAsync(
+        string serviceProductId,
+        string planId,
+        UpdateProductPlanRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PutAsJsonAsync(
+            $"api/serviceproducts/{Uri.EscapeDataString(serviceProductId)}/plans/{Uri.EscapeDataString(planId)}", request, ct);
+        return await ToApiResultAsync<ProductPlanDto>(response, ct);
+    }
+
+    public async Task<(bool Success, string? ErrorMessage)> DeleteProductPlanAsync(
+        string serviceProductId,
+        string planId,
+        CancellationToken ct = default)
+    {
+        var response = await http.DeleteAsync(
+            $"api/serviceproducts/{Uri.EscapeDataString(serviceProductId)}/plans/{Uri.EscapeDataString(planId)}", ct);
+        if (response.IsSuccessStatusCode)
+            return (true, null);
+
+        return (false, await GetErrorMessageAsync(response, ct) ?? "Failed to delete plan.");
+    }
+
+    /// <summary>Distinct plan names on a product's licenses, with counts (what still needs mapping).</summary>
+    public async Task<ApiResult<List<ProductPlanUsageDto>>> GetProductPlanUsageAsync(
+        string serviceProductId,
+        CancellationToken ct = default)
+    {
+        var response = await http.GetAsync($"api/serviceproducts/{Uri.EscapeDataString(serviceProductId)}/plans/usage", ct);
+        return await ToApiResultAsync<List<ProductPlanUsageDto>>(response, ct);
+    }
+
+    public async Task<ApiResult<RemapProductPlanResultDto>> RemapProductPlanAsync(
+        string serviceProductId,
+        RemapProductPlanRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync($"api/serviceproducts/{Uri.EscapeDataString(serviceProductId)}/plans/remap", request, ct);
+        return await ToApiResultAsync<RemapProductPlanResultDto>(response, ct);
+    }
+
     public async Task<PagedResult<LicenseDto>> GetLicensesPagedAsync(
         string? customerId = null,
         int page = 1,
@@ -262,6 +313,12 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         var response = await http.PostAsync(
             $"api/licenses/{Uri.EscapeDataString(id)}/devices/{Uri.EscapeDataString(deviceId)}/release", null, ct);
         return await ToApiResultAsync<LicenseDeviceDto>(response, ct);
+    }
+
+    public async Task<ApiResult<ReleaseAllDevicesResultDto>> ReleaseAllLicenseDevicesAsync(string id, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync($"api/licenses/{Uri.EscapeDataString(id)}/devices/release-all", null, ct);
+        return await ToApiResultAsync<ReleaseAllDevicesResultDto>(response, ct);
     }
 
     public async Task<LicenseOptionsDto> GetLicenseOptionsAsync(CancellationToken ct = default) =>

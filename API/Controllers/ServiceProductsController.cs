@@ -10,7 +10,7 @@ namespace Platform.Api.Controllers;
 [ApiController]
 [Authorize(Policy = PlatformAuthorizationPolicies.AdminOnly)]
 [Route("api/[controller]")]
-public class ServiceProductsController(IServiceProductService serviceProducts) : ControllerBase
+public class ServiceProductsController(IServiceProductService serviceProducts, IProductPlanService productPlans) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ServiceProductDto>>> List(CancellationToken cancellationToken)
@@ -67,4 +67,50 @@ public class ServiceProductsController(IServiceProductService serviceProducts) :
 
         return NoContent();
     }
+
+    [HttpGet("{id}/plans")]
+    public async Task<ActionResult<IReadOnlyList<ProductPlanDto>>> ListPlans(string id, CancellationToken cancellationToken) =>
+        Ok(await productPlans.ListAsync(id, cancellationToken));
+
+    [HttpPost("{id}/plans")]
+    public async Task<ActionResult<ProductPlanDto>> CreatePlan(
+        string id,
+        [FromBody] CreateProductPlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var plan = await productPlans.CreateAsync(
+            id, request, AdminRequestContext.GetPerformedBy(HttpContext), AdminRequestContext.GetIpAddress(HttpContext), cancellationToken);
+        return CreatedAtAction(nameof(ListPlans), new { id }, plan);
+    }
+
+    [HttpPut("{id}/plans/{planId}")]
+    public async Task<ActionResult<ProductPlanDto>> UpdatePlan(
+        string id,
+        string planId,
+        [FromBody] UpdateProductPlanRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await productPlans.UpdateAsync(
+            id, planId, request, AdminRequestContext.GetPerformedBy(HttpContext), AdminRequestContext.GetIpAddress(HttpContext), cancellationToken));
+
+    [HttpDelete("{id}/plans/{planId}")]
+    public async Task<ActionResult> DeletePlan(string id, string planId, CancellationToken cancellationToken)
+    {
+        await productPlans.DeleteAsync(
+            id, planId, AdminRequestContext.GetPerformedBy(HttpContext), AdminRequestContext.GetIpAddress(HttpContext), cancellationToken);
+        return NoContent();
+    }
+
+    /// <summary>Distinct plan names on this product's licenses, with counts (what still needs mapping).</summary>
+    [HttpGet("{id}/plans/usage")]
+    public async Task<ActionResult<IReadOnlyList<ProductPlanUsageDto>>> PlanUsage(string id, CancellationToken cancellationToken) =>
+        Ok(await productPlans.GetUsageAsync(id, cancellationToken));
+
+    /// <summary>One-off: move licenses from an old plan name onto a plan code. Send <c>dryRun: true</c> to preview.</summary>
+    [HttpPost("{id}/plans/remap")]
+    public async Task<ActionResult<RemapProductPlanResultDto>> RemapPlans(
+        string id,
+        [FromBody] RemapProductPlanRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await productPlans.RemapAsync(
+            id, request, AdminRequestContext.GetPerformedBy(HttpContext), AdminRequestContext.GetIpAddress(HttpContext), cancellationToken));
 }

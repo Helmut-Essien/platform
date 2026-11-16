@@ -132,6 +132,7 @@ builder.Services.AddScoped<IAuditLogQueryService>(sp => (AuditLogService)sp.GetR
 builder.Services.AddScoped<IBillingService, BillingService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IServiceProductService, ServiceProductService>();
+builder.Services.AddScoped<IProductPlanService, ProductPlanService>();
 builder.Services.AddScoped<ILicenseService, LicenseService>();
 builder.Services.AddScoped<IIntegrationKeyService, IntegrationKeyService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();

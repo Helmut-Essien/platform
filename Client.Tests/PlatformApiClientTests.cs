@@ -8,6 +8,7 @@ using Platform.Shared.Dtos.Billing;
 using Platform.Shared.Dtos.Common;
 using Platform.Shared.Dtos.Customers;
 using Platform.Shared.Dtos.Licenses;
+using Platform.Shared.Dtos.ServiceProducts;
 using Platform.Shared.Enums;
 using Xunit;
 
@@ -353,6 +354,109 @@ public class PlatformApiClientTests
         Assert.True(released.IsSuccess);
         Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
         Assert.EndsWith("api/licenses/lic1/devices/d1/release", handler.LastRequest.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task ProductPlans_CrudUsageAndRemap_UseExpectedRoutes()
+    {
+        var plan = new ProductPlanDto { Id = "pl1", ServiceProductId = "prod 1", Code = "workshop", DisplayName = "Workshop", IsActive = true };
+        var handler = new CapturingHttpMessageHandler(req => req.RequestUri!.AbsolutePath.EndsWith("/plans/usage")
+            ? JsonResponse(new List<ProductPlanUsageDto> { new() { PlanName = "Pro", LicenseCount = 2, RemappableCount = 2 } })
+            : req.RequestUri.AbsolutePath.EndsWith("/plans/remap")
+                ? JsonResponse(new RemapProductPlanResultDto { FromPlanName = "Pro", ToCode = "workshop", UpdatedCount = 2 })
+                : req.Method == HttpMethod.Delete ? new HttpResponseMessage(HttpStatusCode.NoContent) : JsonResponse(plan));
+        var client = CreateClient(handler);
+
+        var created = await client.CreateProductPlanAsync("prod 1", new CreateProductPlanRequest { Code = "workshop", DisplayName = "Workshop" });
+        Assert.True(created.IsSuccess);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.EndsWith("api/serviceproducts/prod%201/plans", handler.LastRequest.RequestUri!.AbsolutePath);
+
+        var updated = await client.UpdateProductPlanAsync("prod 1", "pl1", new UpdateProductPlanRequest { DisplayName = "W", IsActive = false });
+        Assert.True(updated.IsSuccess);
+        Assert.Equal(HttpMethod.Put, handler.LastRequest!.Method);
+        Assert.EndsWith("api/serviceproducts/prod%201/plans/pl1", handler.LastRequest.RequestUri!.AbsolutePath);
+        Assert.Contains("\"isActive\":false", handler.LastRequestBody);
+
+        var usage = await client.GetProductPlanUsageAsync("prod 1");
+        Assert.Equal("Pro", usage.Data!.Single().PlanName);
+        Assert.EndsWith("api/serviceproducts/prod%201/plans/usage", handler.LastRequest!.RequestUri!.AbsolutePath);
+
+        var remap = await client.RemapProductPlanAsync("prod 1", new RemapProductPlanRequest { FromPlanName = "Pro", ToCode = "workshop", DryRun = true });
+        Assert.Equal(2, remap.Data!.UpdatedCount);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.Contains("\"dryRun\":true", handler.LastRequestBody);
+
+        var (ok, _) = await client.DeleteProductPlanAsync("prod 1", "pl1");
+        Assert.True(ok);
+        Assert.Equal(HttpMethod.Delete, handler.LastRequest!.Method);
+    }
+
+    [Fact]
+    public async Task DeleteProductPlanAsync_Conflict_SurfacesTheServerMessage()
+    {
+        var client = CreateClient(new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new { message = "Licenses are on the 'workshop' plan." }, HttpStatusCode.BadRequest)));
+
+        var (ok, error) = await client.DeleteProductPlanAsync("p", "pl");
+
+        Assert.False(ok);
+        Assert.Contains("workshop", error);
+    }
+
+    [Fact]
+    public void ServiceProductDto_DeserializesWithPlansAndDefault_AndWithoutThem()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var withPlans = JsonSerializer.Deserialize<ServiceProductDto>(
+            """{"id":"p","name":"N","code":"C","defaultMaxDevices":1,"plans":[{"id":"1","serviceProductId":"p","code":"starter","displayName":"Starter","sortOrder":1,"isActive":true}]}""", web)!;
+        Assert.Equal(1, withPlans.DefaultMaxDevices);
+        Assert.Equal("starter", Assert.Single(withPlans.Plans).Code);
+
+        var old = JsonSerializer.Deserialize<ServiceProductDto>("""{"id":"p","name":"N","code":"C"}""", web)!;
+        Assert.Null(old.DefaultMaxDevices);
+        Assert.Empty(old.Plans);
+    }
+
+    [Fact]
+    public void LicenseDto_DeserializesPlanDisplayName_AndAnOlderAnswerWithoutIt()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var withName = JsonSerializer.Deserialize<LicenseDto>(
+            """{"id":"l","customerId":"c","serviceProductId":"p","planName":"workshop","planDisplayName":"Workshop"}""", web)!;
+        Assert.Equal(("workshop", "Workshop"), (withName.PlanName, withName.PlanDisplayName));
+
+        // An older API answer has no display name: the screens fall back to the stored name.
+        var old = JsonSerializer.Deserialize<LicenseDto>(
+            """{"id":"l","customerId":"c","serviceProductId":"p","planName":"Pro"}""", web)!;
+        Assert.Null(old.PlanDisplayName);
+        Assert.Equal("Pro", old.PlanDisplayName ?? old.PlanName);
+    }
+
+    [Fact]
+    public async Task ReleaseAllLicenseDevicesAsync_PostsToReleaseAll_AndReadsTheCount()
+    {
+        var handler = new CapturingHttpMessageHandler(_ => JsonResponse(new ReleaseAllDevicesResultDto { ReleasedCount = 3 }));
+        var client = CreateClient(handler);
+
+        var result = await client.ReleaseAllLicenseDevicesAsync("lic 1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3, result.Data!.ReleasedCount);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.EndsWith("api/licenses/lic%201/devices/release-all", handler.LastRequest.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task ReleaseAllLicenseDevicesAsync_NotFound_SurfacesTheMessage()
+    {
+        var client = CreateClient(new CapturingHttpMessageHandler(_ =>
+            JsonResponse(new { message = "License not found." }, HttpStatusCode.NotFound)));
+
+        var result = await client.ReleaseAllLicenseDevicesAsync("x");
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("License not found", result.ErrorMessage);
     }
 
     private static PlatformApiClient CreateClient(HttpMessageHandler handler)

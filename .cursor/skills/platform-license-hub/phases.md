@@ -164,3 +164,7 @@ Shared/
 - Production: managed Postgres, Redis, secrets vault, HTTPS, CORS for Client origin
 - Rate limiting on `/api/licenses/validate`
 - Health checks: `/health` (DB + Redis)
+
+## Product plans (built)
+
+A per-product plan catalog (`ProductPlan`), a dropdown when issuing or editing a key, a check that the plan is an active plan of the product (enforced per product once it has a plan), a one-off remap of old plan names, and a per-product default device limit. Migration `AddProductPlans`. See [product-plans.md](product-plans.md).

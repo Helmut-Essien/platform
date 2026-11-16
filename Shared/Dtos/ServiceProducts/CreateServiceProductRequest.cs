@@ -16,4 +16,8 @@ public class CreateServiceProductRequest
     public string? Description { get; set; }
 
     public bool IsAvailableForSale { get; set; } = true;
+
+    /// <summary>Devices a new license of this product gets when none is typed. Null = server default; 0 = unlimited.</summary>
+    [Range(0, 1000, ErrorMessage = "Default max devices must be between 0 (unlimited) and 1000")]
+    public int? DefaultMaxDevices { get; set; }
 }

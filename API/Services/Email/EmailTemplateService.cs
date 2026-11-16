@@ -108,7 +108,8 @@ public class EmailTemplateService
         ServiceProduct product,
         License license,
         string key,
-        bool rotated)
+        bool rotated,
+        string? planDisplayName = null)
     {
         var productName = Enc(product.Name);
         var subject = rotated
@@ -134,7 +135,7 @@ public class EmailTemplateService
             <div class="panel" style="margin:0 0 20px;padding:16px;border:1px solid #d9e2d3;border-radius:6px;background:#f5f8f2;font-family:'Courier New',Courier,monospace;font-size:18px;line-height:1.5;word-break:break-all;"><strong>{Enc(key)}</strong></div>
             {Table(
                 Row("Product", product.Name),
-                Row("Plan", license.PlanName),
+                Row("Plan", planDisplayName ?? license.PlanName),
                 Row("Valid until", validUntil))}
             <p style="margin:20px 0 8px;font-weight:700;">How to activate</p>
             {Steps(
@@ -204,7 +205,8 @@ public class EmailTemplateService
 
     /// <summary>Trial ending soon, with the first invoice and its pay link (sent as the invoice email, PDF attached).</summary>
     public (string Subject, string Html) TrialEndingInvoice(
-        Customer customer, ServiceProduct product, License license, Invoice invoice, string? payUrl)
+        Customer customer, ServiceProduct product, License license, Invoice invoice, string? payUrl,
+        string? planDisplayName = null)
     {
         var productName = Enc(product.Name);
         var endDate = license.ExpiresAt;
@@ -220,7 +222,7 @@ public class EmailTemplateService
             {SummaryPanel(amount, $"Due {Enc(end)}", payUrl)}
             {Table(
                 Row("Invoice", invoice.InvoiceNumber),
-                Row("Plan", invoice.PlanName ?? license.PlanName),
+                Row("Plan", invoice.PlanName ?? planDisplayName ?? license.PlanName),
                 Row("Amount", amount, encodeValue: false, emphasize: true),
                 Row("Due date", end))}
             {P("Your paid period starts when the trial ends, so paying early does not cost you any trial days. If the trial ends unpaid, access stops; paying later switches it back on with the same license key.", top: 20)}

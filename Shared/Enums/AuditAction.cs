@@ -49,5 +49,9 @@ public enum AuditAction
     LicenseDeviceActivated,
     LicenseDeviceReleased,
     LicenseDeviceLimitChanged,
-    LicenseEmailMismatch
+    LicenseEmailMismatch,
+    ProductPlanCreated,
+    ProductPlanUpdated,
+    ProductPlanDeleted,
+    LicensePlansRemapped
 }

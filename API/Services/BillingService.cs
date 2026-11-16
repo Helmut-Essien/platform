@@ -89,6 +89,13 @@ public class BillingService(
                 throw new ConflictException(ActivationInvoiceExists);
         }
 
+        // Invoices are customer-facing snapshots: a plan code (what licenses store) is written as the plan's display
+        // name; anything else typed (or an unmapped legacy name) is kept as given.
+        var invoicePlanName = request.PlanName;
+        var invoiceProductId = license?.ServiceProductId ?? request.ServiceProductId;
+        if (!string.IsNullOrWhiteSpace(invoicePlanName) && invoiceProductId is not null)
+            invoicePlanName = await ProductPlanDisplay.NameAsync(db, invoiceProductId, invoicePlanName.Trim(), ct);
+
         var invoice = new Invoice
         {
             IsActivationInvoice = request.ActivatesLicense,
@@ -106,7 +113,7 @@ public class BillingService(
             Subtotal = request.Subtotal,
             TaxAmount = request.TaxAmount,
             TotalAmount = total,
-            PlanName = request.PlanName,
+            PlanName = invoicePlanName,
             Description = request.Description,
             InternalNotes = request.InternalNotes,
             CreatedAt = now,
@@ -161,8 +168,9 @@ public class BillingService(
             Currency = currency,
             Subtotal = subtotal,
             TaxAmount = taxAmount,
-            PlanName = license.PlanName,
-            Description = description ?? $"License {license.PlanName}"
+            PlanName = license.PlanName, // CreateInvoiceAsync writes the display name onto the invoice
+            Description = description
+                ?? $"License {await ProductPlanDisplay.NameAsync(db, license.ServiceProductId, license.PlanName, cancellationToken)}"
         }, performedBy, ipAddress, cancellationToken);
     }
 
@@ -953,6 +961,7 @@ public class BillingService(
                 : periodStart;
 
             var trial = license.IsTrial;
+            var planLabel = await ProductPlanDisplay.NameAsync(db, license.ServiceProductId, license.PlanName, ct);
             var invoice = new Invoice
             {
                 IsTrialConversion = trial,
@@ -967,8 +976,8 @@ public class BillingService(
                 Subtotal = subtotal,
                 TaxAmount = tax,
                 TotalAmount = subtotal + tax,
-                PlanName = license.PlanName,
-                Description = RenewalDescription(license.PlanName, trial, periodStart, periodEnd),
+                PlanName = planLabel,
+                Description = RenewalDescription(planLabel, trial, periodStart, periodEnd),
                 RenewalForExpiresAt = periodStart,
                 RenewalPeriodMonths = months,
                 CreatedAt = now,
@@ -993,7 +1002,7 @@ public class BillingService(
                 // The trial-ending reminder *is* this invoice email (PDF + pay link), sent once per trial end.
                 var payUrl = payLinks?.EnsureUrl(invoice, now);
                 var product = await db.ServiceProducts.AsNoTracking().FirstAsync(p => p.Id == license.ServiceProductId, ct);
-                var template = templates.TrialEndingInvoice(license.Customer, product, license, invoice, payUrl);
+                var template = templates.TrialEndingInvoice(license.Customer, product, license, invoice, payUrl, planLabel);
                 outbox.Enqueue(
                     EmailDeliveryKind.Invoice,
                     CustomerContactResolver.Billing(license.Customer),

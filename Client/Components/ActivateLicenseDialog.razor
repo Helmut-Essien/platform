@@ -241,7 +241,7 @@
             Subtotal = _model.Subtotal,
             TaxAmount = _model.TaxAmount,
             PlanName = License.PlanName,
-            Description = string.IsNullOrWhiteSpace(_model.Description) ? $"License {License.PlanName}" : _model.Description
+            Description = string.IsNullOrWhiteSpace(_model.Description) ? $"License {License.PlanDisplayName ?? License.PlanName}" : _model.Description
         });
         if (!result.IsSuccess || result.Data is null)
         {

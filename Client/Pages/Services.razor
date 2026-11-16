@@ -98,6 +98,7 @@
                         <MudTh>Name</MudTh>
                         <MudTh>Code</MudTh>
                         <MudTh>Description</MudTh>
+                        <MudTh>Plans</MudTh>
                         <MudTh>Available</MudTh>
                         <MudTh Class="cell-center">Int. Key</MudTh>
                         <MudTh Class="cell-right">Actions</MudTh>
@@ -117,6 +118,24 @@
                             <code class="service-code-badge">@product.Code</code>
                         </MudTd>
                         <MudTd>@(string.IsNullOrWhiteSpace(product.Description) ? "—" : product.Description)</MudTd>
+                        <MudTd>
+                            @if (product.Plans.Count == 0)
+                            {
+                                <span class="key-chip key-chip-none" title="No plan list: any plan name is accepted">Free text</span>
+                            }
+                            else if (!product.Plans.Any(p => p.IsActive))
+                            {
+                                <span class="key-chip key-chip-none" @onclick="() => PlansAsync(product)" @onclick:stopPropagation="true"
+                                      title="Every plan is inactive: no new license can be issued until one is activated">No active plans</span>
+                            }
+                            else
+                            {
+                                <span class="key-chip key-chip-active" @onclick="() => PlansAsync(product)" @onclick:stopPropagation="true"
+                                      title="@string.Join(", ", product.Plans.Where(p => p.IsActive).Select(p => p.Code))">
+                                    @product.Plans.Count(p => p.IsActive) plan@(product.Plans.Count(p => p.IsActive) == 1 ? "" : "s")
+                                </span>
+                            }
+                        </MudTd>
                         <MudTd>
                             <MudSwitch Value="product.IsAvailableForSale"
                                        ValueChanged="@(async (bool v) => await ToggleAvailabilityAsync(product, v))"
@@ -141,6 +160,10 @@
                                                Size="Size.Small"
                                                aria-label="Edit service"
                                                OnClick="@(() => EditAsync(product))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.ListAlt"
+                                               Size="Size.Small"
+                                               aria-label="Manage plans"
+                                               OnClick="@(() => PlansAsync(product))" />
                                 <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                Size="Size.Small"
                                                Color="Color.Error"
@@ -247,6 +270,7 @@
                 Name = product.Name,
                 Description = product.Description,
                 IsAvailableForSale = available
+                // DefaultMaxDevices left null = unchanged, so a stale grid row can't overwrite a newer default.
             };
 
             var result = await Api.UpdateServiceProductAsync(product.Id, request);
@@ -292,6 +316,16 @@
             return;
 
         Snackbar.Add("Service updated.", Severity.Success);
+        await ReloadAsync();
+    }
+
+    private async Task PlansAsync(ServiceProductDto product)
+    {
+        var dialog = await DialogService.ShowAsync<ProductPlansDialog>("Plans", new DialogParameters
+        {
+            [nameof(ProductPlansDialog.Product)] = product
+        }, PlatformDialogOptions.Form);
+        await dialog.Result;
         await ReloadAsync();
     }
 

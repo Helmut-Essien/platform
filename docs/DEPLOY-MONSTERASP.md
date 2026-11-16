@@ -377,7 +377,12 @@ Compact JWS, header `{"alg":"ES256","typ":"license+jwt","kid":…}`. Claims: `is
 
 Each license has `MaxDevices` (set in Issue/Edit; 0 = unlimited). The first validation from a new `deviceId`
 activates a slot (audited). Admins can see devices and release one in **Licenses → ⋮ → Devices**; the slot is
-freed at once. Lowering the limit never removes active devices; it only blocks new ones.
+freed at once (no cache to wait for: validation reads the device table directly). **Release all** frees every active
+device of the license in one step (audited per device; safe to repeat). Typical use: a NeedleBase shop moved or rebuilt
+its server and now gets `device_limit` with MaxDevices = 1: open the license's Devices, release the old one, and the
+new server registers on its next check. A released device that comes back first takes the slot again; one that is still
+running offline keeps working until its stored token's grace time ends, then re-registers (or gets `device_limit`).
+Lowering the limit never removes active devices; it only blocks new ones.
 
 ### NeedleBase registration (one shop per key)
 
@@ -389,6 +394,24 @@ takes the only slot, and a second registration with the same key gets `device_li
 unreachable (`429`/`503`/network) refuse registration and ask them to retry. The email is only enforced at
 registration; later periodic checks can omit it.
 
+### Product plans (per-product plan list)
+
+Each service can define its plans (**Services → Manage plans**; table `ProductPlans`, migration `AddProductPlans`).
+`License.PlanName` stores the plan **code** (lowercase), so `planName` in the validate answer and the token's `plan`
+claim are unchanged. Per service: with **no plans**, any plan name is still accepted (trimmed), exactly as before; from
+the **first plan** on, issuing or editing a license needs an active plan of that service. A key that is already on an
+unmapped old name (e.g. `Pro`) or on a deactivated plan keeps working and can still be edited as long as it keeps that
+plan. Services also get a **Default max devices** (NeedleBase: 1) used when a new license has none typed. API callers that `PUT` a service without `defaultMaxDevices` leave it unchanged; send `"clearDefaultMaxDevices": true` to go back to the server default.
+
+Rollout after deploying (nothing changes until you add plans): open the service's plan dialog, note the old names
+listed under "Plan names on existing licenses" (or `GET /api/serviceproducts/{id}/plans/usage`), add the plans
+(NeedleBase: `starter`, `workshop`, `production`), then map each old name onto a plan (preview, confirm; or
+`POST /api/serviceproducts/{id}/plans/remap` with `{ "fromPlanName": "Pro", "toCode": "workshop", "dryRun": true }`).
+The mapping is exact (never guessed), skips revoked licenses, is audited per license, and locks the affected licenses while it runs (validation reads the plan straight from the database, so there is no cache to clear).
+Invoices keep their old plan name. Shops pick up the new code on their next successful check.
+
+People see the plan's **display name** (Licenses grid, key email, new invoices/PDFs/receipts); the stored value, the validate answer and the token still carry the code. New invoices snapshot the display name, so renaming a plan later never changes an issued invoice. Unmapped legacy names and products without plans show as stored.
+
 ### Proxies
 
 Client-IP rate limiting uses the connection address. If the API sits behind a reverse proxy, set
@@ -397,7 +420,9 @@ once if traffic looks proxied while this is off. Leave it off on IIS in-process 
 
 ### Database migration
 
-This release adds the `LicenseDevices` table and a nullable `Licenses.MaxDevices` column
+The plan catalog release adds the `ProductPlans` table and a nullable `ServiceProducts.DefaultMaxDevices` column
+(migration `AddProductPlans`); it only adds, so it is safe to run before the new code is live. The earlier release added
+the `LicenseDevices` table and a nullable `Licenses.MaxDevices` column
 (migration `AddLicenseDevices`, included in `docs/migrations-idempotent.sql`). Run it before deploying.
 ## 12. Public landing page and SEO
 

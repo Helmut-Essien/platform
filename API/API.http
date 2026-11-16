@@ -1,6 +1,195 @@
 @API_HostAddress = http://localhost:5176
 
-GET {{API_HostAddress}}/weatherforecast/
-Accept: application/json
+# Same requests as docs/platform-api.postman_collection.json. Run Login first, then fill the variables below
+# with ids from the list/create responses (they are plain variables, not captured automatically).
+@token =
+@serviceProductId =
+@planId =
+@licenseId =
+@deviceId =
+@integrationKey =
+@licenseKey =
+@ownerEmail =
+
+### Login (copy the token from the answer into @token above)
+POST {{API_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "demo@helmutcode.local",
+  "password": "Demo123!"
+}
+
+### Service products: list / get
+GET {{API_HostAddress}}/api/serviceproducts
+Authorization: Bearer {{token}}
 
 ###
+GET {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}
+Authorization: Bearer {{token}}
+
+### Service product: create. defaultMaxDevices = devices a new license gets when none is typed (0 = unlimited, omit = server default)
+POST {{API_HostAddress}}/api/serviceproducts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "NeedleBase",
+  "code": "NEEDLEBASE",
+  "description": "Tailoring shop management",
+  "isAvailableForSale": true,
+  "defaultMaxDevices": 1
+}
+
+### Service product: update, defaultMaxDevices omitted = UNCHANGED (an old client cannot wipe it)
+PUT {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "NeedleBase",
+  "description": "Tailoring shop management",
+  "isAvailableForSale": true
+}
+
+### Service product: update, set defaultMaxDevices (0 = unlimited, 1..1000)
+PUT {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "NeedleBase",
+  "description": "Tailoring shop management",
+  "isAvailableForSale": true,
+  "defaultMaxDevices": 1
+}
+
+### Service product: update, clear defaultMaxDevices (back to the server default)
+PUT {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "NeedleBase",
+  "description": "Tailoring shop management",
+  "isAvailableForSale": true,
+  "clearDefaultMaxDevices": true
+}
+
+### Service product: delete (refused while it has licenses, invoices or active integration keys)
+DELETE {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}
+Authorization: Bearer {{token}}
+
+### Plans: list
+GET {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans
+Authorization: Bearer {{token}}
+
+### Plans: create (code is lowercase, fixed after creation; displayName is what people see)
+POST {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "code": "workshop",
+  "displayName": "Workshop",
+  "sortOrder": 20,
+  "isActive": true
+}
+
+### Plans: update name / order / active (the code cannot change)
+PUT {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "displayName": "Workshop",
+  "sortOrder": 20,
+  "isActive": true
+}
+
+### Plans: delete (refused while a license is on it; deactivate instead)
+DELETE {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}
+Authorization: Bearer {{token}}
+
+### Plans: plan names in use on licenses (max 500, busiest first)
+GET {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/usage
+Authorization: Bearer {{token}}
+
+### Plans: remap an old plan name onto a plan code, dry run (counts only)
+POST {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/remap
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fromPlanName": "Pro",
+  "toCode": "workshop",
+  "dryRun": true
+}
+
+### Plans: remap for real (exact match, skips revoked licenses, audited per license)
+POST {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/remap
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fromPlanName": "Pro",
+  "toCode": "workshop",
+  "dryRun": false
+}
+
+### Licenses: update (planName must be an active plan code once the product has plans)
+PUT {{API_HostAddress}}/api/licenses/{{licenseId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "planName": "workshop",
+  "expiresAt": "2027-12-31T00:00:00Z",
+  "maxDevices": 1
+}
+
+### Devices: list (active first, then released; max 200). Use an id as @deviceId
+GET {{API_HostAddress}}/api/licenses/{{licenseId}}/devices
+Authorization: Bearer {{token}}
+
+### Devices: release one (frees the slot at once; idempotent)
+POST {{API_HostAddress}}/api/licenses/{{licenseId}}/devices/{{deviceId}}/release
+Authorization: Bearer {{token}}
+
+### Devices: release all (returns { "releasedCount": n })
+POST {{API_HostAddress}}/api/licenses/{{licenseId}}/devices/release-all
+Authorization: Bearer {{token}}
+
+### Validate (public): plain check
+POST {{API_HostAddress}}/api/licenses/validate
+Content-Type: application/json
+X-Integration-Key: {{integrationKey}}
+
+{
+  "licenseKey": "{{licenseKey}}",
+  "serviceCode": "HOSTEL"
+}
+
+### Validate (public): with a device (takes a slot; a full license answers device_limit)
+POST {{API_HostAddress}}/api/licenses/validate
+Content-Type: application/json
+X-Integration-Key: {{integrationKey}}
+
+{
+  "licenseKey": "{{licenseKey}}",
+  "serviceCode": "HOSTEL",
+  "deviceId": "shop-123",
+  "deviceName": "Front desk PC"
+}
+
+### Validate (public): with the owner's email (mismatch answers email_mismatch: no token, no slot used)
+POST {{API_HostAddress}}/api/licenses/validate
+Content-Type: application/json
+X-Integration-Key: {{integrationKey}}
+
+{
+  "licenseKey": "{{licenseKey}}",
+  "serviceCode": "NEEDLEBASE",
+  "deviceId": "shop-123",
+  "email": "{{ownerEmail}}"
+}

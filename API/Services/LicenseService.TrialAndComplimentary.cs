@@ -82,13 +82,16 @@ public partial class LicenseService
                     .IgnoreQueryFilters()
                     .Where(i => invoiceIds.Contains(i.Id) && OpenInvoiceStatuses.Contains(i.Status))
                     .ToListAsync(ct);
+                var planLabel = invoices.Any(i => i.PlanName is null)
+                    ? await ProductPlanDisplay.NameAsync(db, license.ServiceProductId, license.PlanName, ct)
+                    : license.PlanName;
                 foreach (var invoice in invoices)
                 {
                     invoice.RenewalForExpiresAt = newEnd;
                     invoice.DueDate = newEnd;
                     // The description (PDF, emails) names the billed period: move it with the trial end.
                     var months = invoice.RenewalPeriodMonths ?? license.BillingPeriodMonths;
-                    invoice.Description = BillingService.RenewalDescription(invoice.PlanName ?? license.PlanName,
+                    invoice.Description = BillingService.RenewalDescription(invoice.PlanName ?? planLabel,
                         invoice.IsTrialConversion,
                         newEnd, BillingService.RenewalPeriodEnd(newEnd, months, license.BillingAnchorDay));
                     // Keep an already-sent pay link working until the new due date (plus a week).

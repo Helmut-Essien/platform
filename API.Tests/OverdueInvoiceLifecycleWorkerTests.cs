@@ -301,6 +301,9 @@ public class OverdueInvoiceLifecycleWorkerTests
         public Task<LicenseDeviceDto> ReleaseDeviceAsync(string licenseId, string deviceId, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<int> ReleaseAllDevicesAsync(string licenseId, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
     }

@@ -65,5 +65,8 @@ public interface ILicenseService
 
     Task<LicenseDeviceDto> ReleaseDeviceAsync(string licenseId, string deviceId, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
 
+    /// <summary>Frees every active device of the license; returns how many were released (0 when none).</summary>
+    Task<int> ReleaseAllDevicesAsync(string licenseId, string performedBy, string? ipAddress = null, CancellationToken cancellationToken = default);
+
     Task<int> ExpireDueLicensesAsync(CancellationToken cancellationToken = default);
 }

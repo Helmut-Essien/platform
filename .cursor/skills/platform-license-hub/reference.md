@@ -205,6 +205,10 @@ See `.cursor/skills/platform-admin-ui/implementation-patterns.md` for full as-bu
 | SCHOOL | School Management |
 | ASSET | Asset Management |
 
+Device slots: admins release one device or all of a license's devices (`POST api/licenses/{id}/devices/{deviceId}/release`, `.../devices/release-all`); see screens.md (`LicenseDevicesDialog`). Released devices re-register on their next validate when a slot is free.
+
+A per-product `ProductPlan` catalog (stable lowercase codes, admin dropdown) is **built**; `License.PlanName` stores the code and a product with no plans keeps free text. Endpoints: `GET/POST api/serviceproducts/{id}/plans`, `PUT/DELETE .../plans/{planId}`, `GET .../plans/usage`, `POST .../plans/remap`. `ServiceProduct.DefaultMaxDevices` sets the device limit for new licenses. Limits stay in each product, not in Platform. See [product-plans.md](product-plans.md). NeedleBase's codes are `starter`, `workshop` and `production`.
+
 ## Dev secrets (Development only)
 
 Integration keys: `API/Data/SeedData.DevIntegrationKeys` — logged at startup, never in git for production.

@@ -10,9 +10,12 @@
     { "key": "customerId", "value": "" },
     { "key": "serviceProductId", "value": "" },
     { "key": "licenseId", "value": "" },
+    { "key": "planId", "value": "" },
+    { "key": "deviceId", "value": "" },
     { "key": "invoiceId", "value": "" },
     { "key": "integrationKey", "value": "" },
-    { "key": "licenseKey", "value": "" }
+    { "key": "licenseKey", "value": "" },
+    { "key": "ownerEmail", "value": "" }
   ],
   "auth": {
     "type": "bearer",
@@ -78,7 +81,129 @@
       "name": "Service Products",
       "item": [
         { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/api/serviceproducts" } },
-        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}" } }
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}" } },
+        {
+          "name": "Create",
+          "request": {
+            "description": "defaultMaxDevices: devices a new license of this product gets when none is typed (0 = unlimited). Omit/null = server default (Licensing:DefaultMaxDevices).",
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NeedleBase\",\n  \"code\": \"NEEDLEBASE\",\n  \"description\": \"Tailoring shop management\",\n  \"isAvailableForSale\": true,\n  \"defaultMaxDevices\": 1\n}"
+            },
+            "url": "{{baseUrl}}/api/serviceproducts"
+          }
+        },
+        {
+          "name": "Update (keeps defaultMaxDevices)",
+          "request": {
+            "description": "defaultMaxDevices omitted / null = UNCHANGED, so a client that does not know the field cannot wipe it.",
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NeedleBase\",\n  \"description\": \"Tailoring shop management\",\n  \"isAvailableForSale\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}"
+          }
+        },
+        {
+          "name": "Update (set defaultMaxDevices)",
+          "request": {
+            "description": "0 = unlimited, 1..1000 = that many devices.",
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NeedleBase\",\n  \"description\": \"Tailoring shop management\",\n  \"isAvailableForSale\": true,\n  \"defaultMaxDevices\": 1\n}"
+            },
+            "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}"
+          }
+        },
+        {
+          "name": "Update (clear defaultMaxDevices)",
+          "request": {
+            "description": "Removes the product default: new licenses use the server default again. A defaultMaxDevices value in the same request wins over the flag.",
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NeedleBase\",\n  \"description\": \"Tailoring shop management\",\n  \"isAvailableForSale\": true,\n  \"clearDefaultMaxDevices\": true\n}"
+            },
+            "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}"
+          }
+        },
+        {
+          "name": "Delete",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}", "description": "Refused while the product has licenses, invoices or active integration keys. Its plans are deleted with it." }
+        },
+        {
+          "name": "Plans",
+          "item": [
+            { "name": "List plans", "request": { "method": "GET", "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans" } },
+            {
+              "name": "Create plan",
+              "request": {
+                "description": "code: lowercase a-z/0-9 with single - or _ between parts, max 50, fixed after creation. displayName is what people see (grid, emails, invoices); licenses store the code.",
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"workshop\",\n  \"displayName\": \"Workshop\",\n  \"sortOrder\": 20,\n  \"isActive\": true\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans"
+              }
+            },
+            {
+              "name": "Update plan (name, order, active)",
+              "request": {
+                "description": "The code cannot change. Deactivating only blocks choosing the plan for new issues/edits; keys already on it keep working.",
+                "method": "PUT",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"displayName\": \"Workshop\",\n  \"sortOrder\": 20,\n  \"isActive\": true\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}"
+              }
+            },
+            {
+              "name": "Delete plan",
+              "request": { "method": "DELETE", "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}", "description": "Refused (400) while any license is on the plan: deactivate it or map the licenses first." }
+            },
+            {
+              "name": "Plan names in use (usage)",
+              "request": { "method": "GET", "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/usage", "description": "Distinct plan names on this product's licenses with counts (max 500, busiest first); isActivePlanCode tells which already match a plan." }
+            },
+            {
+              "name": "Remap old plan name (dry run)",
+              "request": {
+                "description": "Preview: counts only, nothing changes. Exact, case-sensitive match on fromPlanName; revoked licenses are skipped.",
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fromPlanName\": \"Pro\",\n  \"toCode\": \"workshop\",\n  \"dryRun\": true\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/remap"
+              }
+            },
+            {
+              "name": "Remap old plan name",
+              "request": {
+                "description": "Moves every non-revoked license on fromPlanName onto the active plan code, in one transaction, audited per license.",
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fromPlanName\": \"Pro\",\n  \"toCode\": \"workshop\",\n  \"dryRun\": false\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/remap"
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -108,6 +233,31 @@
             },
             "url": "{{baseUrl}}/api/licenses/{{licenseId}}/activate"
           }
+        },
+        {
+          "name": "Update (plan, expiry, devices)",
+          "request": {
+            "description": "planName must be an active plan code of the product once the product has plans (a key may keep its current, even unmapped or deactivated, plan). Free text otherwise.",
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"planName\": \"workshop\",\n  \"expiresAt\": \"2027-12-31T00:00:00Z\",\n  \"maxDevices\": 1\n}"
+            },
+            "url": "{{baseUrl}}/api/licenses/{{licenseId}}"
+          }
+        },
+        {
+          "name": "Devices: list",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/licenses/{{licenseId}}/devices", "description": "Active devices first, then released (max 200). Use an id as deviceId." }
+        },
+        {
+          "name": "Devices: release one",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/licenses/{{licenseId}}/devices/{{deviceId}}/release", "description": "Frees the slot at once. Idempotent; audited once. The device re-registers on its next check if a slot is free." }
+        },
+        {
+          "name": "Devices: release all",
+          "request": { "method": "POST", "url": "{{baseUrl}}/api/licenses/{{licenseId}}/devices/release-all", "description": "Frees every active device of the license (e.g. a shop moved server). Returns { releasedCount }." }
         },
         { "name": "Suspend", "request": { "method": "POST", "url": "{{baseUrl}}/api/licenses/{{licenseId}}/suspend" } },
         { "name": "Revoke", "request": { "method": "POST", "url": "{{baseUrl}}/api/licenses/{{licenseId}}/revoke" } }
@@ -154,6 +304,40 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"licenseKey\": \"{{licenseKey}}\",\n  \"serviceCode\": \"HOSTEL\"\n}"
+            },
+            "url": "{{baseUrl}}/api/licenses/validate"
+          }
+        },
+        {
+          "name": "Validate License (device)",
+          "request": {
+            "description": "deviceId takes one device slot (maxDevices); a full license answers reason device_limit until an admin releases a device. The answer's planName (and the token's plan claim) is the plan CODE.",
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Integration-Key", "value": "{{integrationKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"licenseKey\": \"{{licenseKey}}\",\n  \"serviceCode\": \"HOSTEL\",\n  \"deviceId\": \"shop-123\",\n  \"deviceName\": \"Front desk PC\"\n}"
+            },
+            "url": "{{baseUrl}}/api/licenses/validate"
+          }
+        },
+        {
+          "name": "Validate License (with owner email)",
+          "request": {
+            "description": "Optional email: must equal the billing or contact email the key was issued to (trimmed, case-insensitive, Unicode/IDN-normalised, max 254). A mismatch answers isValid:false, reason email_mismatch with no token and no device slot used; the stored email is never returned. Without email the check is unchanged.",
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Integration-Key", "value": "{{integrationKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"licenseKey\": \"{{licenseKey}}\",\n  \"serviceCode\": \"NEEDLEBASE\",\n  \"deviceId\": \"shop-123\",\n  \"email\": \"{{ownerEmail}}\"\n}"
             },
             "url": "{{baseUrl}}/api/licenses/validate"
           }
