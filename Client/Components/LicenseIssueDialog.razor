@@ -21,6 +21,7 @@
                 }
             </MudSelect>
             <MudSelect T="string" @bind-Value="_model.ServiceProductId"
+                       @bind-Value:after="OnProductChanged"
                        For="@(() => _model.ServiceProductId)"
                        Label="Service"
                        Required="true"
@@ -32,15 +33,41 @@
                     <MudSelectItem Value="@p.Id">@p.Code — @p.Name</MudSelectItem>
                 }
             </MudSelect>
-            <MudTextField @bind-Value="_model.PlanName"
-                          For="@(() => _model.PlanName)"
-                          Label="Plan name"
-                          Required="true"
-                          RequiredError="Plan name is required"
-                          Variant="Variant.Outlined"
-                          MaxLength="100"
-                          Counter="100"
-                          Class="mb-2" />
+            @if (PlanCatalogActive)
+            {
+                @if (ActivePlans.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                        @SelectedProduct!.Code has no active plans. Add or activate one on the Services page first.
+                    </MudAlert>
+                }
+                <MudSelect T="string" @bind-Value="_model.PlanName"
+                           For="@(() => _model.PlanName)"
+                           Label="Plan"
+                           Required="true"
+                           RequiredError="Plan is required"
+                           Disabled="@(ActivePlans.Count == 0)"
+                           Variant="Variant.Outlined"
+                           Class="mb-2">
+                    @foreach (var plan in ActivePlans)
+                    {
+                        <MudSelectItem Value="@plan.Code">@plan.DisplayName (@plan.Code)</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudTextField @bind-Value="_model.PlanName"
+                              For="@(() => _model.PlanName)"
+                              Label="Plan name"
+                              Required="true"
+                              RequiredError="Plan name is required"
+                              Variant="Variant.Outlined"
+                              MaxLength="100"
+                              Counter="100"
+                              HelperText="This service has no plan list yet, so any name is accepted. Add plans on the Services page."
+                              Class="mb-2" />
+            }
             <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">License type</MudText>
             <MudRadioGroup T="IssueKind" Value="_kind" ValueChanged="OnKindChanged" Class="mb-2">
                 <MudRadio T="IssueKind" Value="IssueKind.Paid" Color="Color.Primary" Dense="true">Paid</MudRadio>
@@ -76,7 +103,7 @@
             {
                 <MudNumericField T="int?" @bind-Value="_model.MaxDevices"
                                  Label="Max devices"
-                                 HelperText="Leave empty for the default; 0 = unlimited"
+                                 HelperText="@MaxDevicesHelper"
                                  Min="0" Max="1000"
                                  Variant="Variant.Outlined"
                                  Class="mb-2" />
@@ -193,13 +220,35 @@
     private bool _formValid;
     private CreateLicenseRequest _model = new()
     {
-        CustomerId = "", ServiceProductId = "", PlanName = "Pro", Billing = LicenseBillingFields.Copy(null),
+        CustomerId = "", ServiceProductId = "", PlanName = "", Billing = LicenseBillingFields.Copy(null),
         CreateInvoice = false, SendInvoice = true, InvoiceCurrency = BillingDefaults.Currency,
         InvoiceDueDate = DateTime.UtcNow.Date.AddDays(14)
     };
 
     // Until the admin ticks/unticks it, "Create invoice now" follows whether a price is set.
     private bool _createInvoiceTouched;
+
+    private ServiceProductDto? SelectedProduct => Products.FirstOrDefault(p => p.Id == _model.ServiceProductId);
+
+    /// <summary>True once the chosen service defines at least one plan: then only its active plans can be picked.</summary>
+    private bool PlanCatalogActive => SelectedProduct is { Plans.Count: > 0 };
+
+    private List<ProductPlanDto> ActivePlans =>
+        SelectedProduct?.Plans.Where(p => p.IsActive).OrderBy(p => p.SortOrder).ThenBy(p => p.Code).ToList() ?? [];
+
+    private string MaxDevicesHelper => SelectedProduct?.DefaultMaxDevices switch
+    {
+        null => "Leave empty for the default; 0 = unlimited",
+        0 => "Leave empty for this service's default (unlimited); 0 = unlimited",
+        1 => "Leave empty for this service's default (1 device); 0 = unlimited",
+        var n => $"Leave empty for this service's default ({n} devices); 0 = unlimited"
+    };
+
+    private void OnProductChanged()
+    {
+        // A plan belongs to one service: never carry the previous service's plan over.
+        _model.PlanName = "";
+    }
 
     private bool HasPrice => _model.Billing?.Amount is > 0;
 

@@ -17,6 +17,8 @@ description: >-
 
 **Backend rules:** see `platform-license-hub` skill (entities, JWT, validation API, phases).
 
+**Product plans (built):** the Issue License and Edit License plan field is a per-product dropdown of the service's active plans (free text only for a service with no plans), with no `"Pro"` default; plans are managed from Services → Manage plans (`ProductPlansDialog`). Limits stay in each product, not in Platform. See [product-plans.md](../platform-license-hub/product-plans.md).
+
 ## Design identity
 
 - **Minimalist dark** admin console inspired by [helmut-essien.github.io/portfolio](https://helmut-essien.github.io/portfolio/)

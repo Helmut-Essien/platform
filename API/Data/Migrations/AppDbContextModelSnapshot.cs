@@ -931,6 +931,49 @@ namespace Platform.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Platform.Api.Entities.ProductPlan", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("ServiceProductId")
+                        .IsRequired()
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceProductId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("ProductPlans", (string)null);
+                });
+
             modelBuilder.Entity("Platform.Api.Entities.Receipt", b =>
                 {
                     b.Property<string>("Id")
@@ -1004,6 +1047,9 @@ namespace Platform.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("DefaultMaxDevices")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Description")
                         .HasMaxLength(2000)
@@ -1300,6 +1346,17 @@ namespace Platform.Api.Data.Migrations
                     b.Navigation("ReversesTransaction");
                 });
 
+            modelBuilder.Entity("Platform.Api.Entities.ProductPlan", b =>
+                {
+                    b.HasOne("Platform.Api.Entities.ServiceProduct", "ServiceProduct")
+                        .WithMany("Plans")
+                        .HasForeignKey("ServiceProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ServiceProduct");
+                });
+
             modelBuilder.Entity("Platform.Api.Entities.Receipt", b =>
                 {
                     b.HasOne("Platform.Api.Entities.Invoice", "Invoice")
@@ -1350,6 +1407,8 @@ namespace Platform.Api.Data.Migrations
                     b.Navigation("Invoices");
 
                     b.Navigation("Licenses");
+
+                    b.Navigation("Plans");
                 });
 #pragma warning restore 612, 618
         }

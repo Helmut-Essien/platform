@@ -36,6 +36,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<LicenseDevice> LicenseDevices => Set<LicenseDevice>();
 
+    public DbSet<ProductPlan> ProductPlans => Set<ProductPlan>();
+
     public override int SaveChanges()
     {
         IncrementLicenseVersions();

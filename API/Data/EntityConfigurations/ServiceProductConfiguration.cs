@@ -29,5 +29,10 @@ public class ServiceProductConfiguration : IEntityTypeConfiguration<ServiceProdu
 
         builder.HasIndex(s => s.Code)
             .IsUnique();
+
+        builder.HasMany(s => s.Plans)
+            .WithOne(p => p.ServiceProduct)
+            .HasForeignKey(p => p.ServiceProductId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

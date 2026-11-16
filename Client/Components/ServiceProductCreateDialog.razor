@@ -39,6 +39,13 @@
                           MaxLength="2000"
                           Counter="2000"
                           Class="mb-2" />
+            <MudNumericField T="int?" @bind-Value="_model.DefaultMaxDevices"
+                             For="@(() => _model.DefaultMaxDevices)"
+                             Label="Default max devices"
+                             HelperText="Given to new licenses when no limit is typed. Empty = server default; 0 = unlimited. Use 1 for one-shop-per-key products."
+                             Min="0" Max="1000"
+                             Variant="Variant.Outlined"
+                             Class="mb-2" />
             <MudSwitch @bind-Value="_model.IsAvailableForSale"
                        Label="Available for sale"
                        Color="Color.Primary" />

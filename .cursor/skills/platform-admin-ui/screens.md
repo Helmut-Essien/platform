@@ -495,6 +495,10 @@ Fixed bottom glass panel when rows selected: **Rotate & Email Keys** (destructiv
 
 `LicenseIssueDialog` — Customer, Service, Plan, Expires, optional Create Invoice / Send Invoice. `POST /api/licenses` → Pending.
 
+**Built:** Plan is a dropdown of the chosen service's active plans (no `"Pro"` default; a service with no plans keeps a free-text field). Edit License shows the same dropdown and keeps a key's current, non-selectable plan as an option. See [product-plans.md](../platform-license-hub/product-plans.md).
+
+`ProductPlansDialog` (Services → Manage plans): plan table with active switch, add/edit form, and the list of plan names found on existing licenses with a preview-and-confirm "Map to" action. Add/Edit Service has a "Default max devices" field.
+
 ### Activate License flow (hybrid)
 
 Only available on Pending / Suspended / Expired licenses. Independent toggles default to: Email Key on, Create Invoice on, Send Invoice on.

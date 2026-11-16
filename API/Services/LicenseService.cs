@@ -58,8 +58,12 @@ public partial class LicenseService(
         if (customer.IsSuspended)
             throw new InvalidOperationException("Cannot issue license for a suspended customer.");
 
-        _ = await db.ServiceProducts.FindAsync([request.ServiceProductId], ct)
+        var product = await db.ServiceProducts.FindAsync([request.ServiceProductId], ct)
             ?? throw new NotFoundException("Service product not found.");
+
+        // Trimmed; and when the product has a plan catalog, its lowercase active plan code (else an error).
+        var planName = await ProductPlanRules.ResolveLicensePlanAsync(
+            db, product.Id, product.Code, request.PlanName, currentPlanName: null, ct);
 
         var openLicenseExists = await db.Licenses
             .IgnoreQueryFilters()
@@ -80,8 +84,8 @@ public partial class LicenseService(
             ServiceProductId = request.ServiceProductId,
             Status = LicenseStatus.Pending,
             ExpiresAt = DateTimeNormalizer.ToUtc(request.ExpiresAt),
-            PlanName = request.PlanName,
-            MaxDevices = ResolveMaxDevices(request.MaxDevices ?? _licensing.DefaultMaxDevices),
+            PlanName = planName,
+            MaxDevices = ResolveMaxDevices(request.MaxDevices ?? product.DefaultMaxDevices ?? _licensing.DefaultMaxDevices),
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -123,7 +127,7 @@ public partial class LicenseService(
         await auditLog.WriteAsync(AuditAction.LicenseIssued, performedBy, request.CustomerId, license.Id,
             null, AuditJson.Serialize(new
             {
-                planName = request.PlanName,
+                planName = license.PlanName,
                 kind = request.Trial ? "trial" : request.Complimentary ? "complimentary" : "paid"
             }), ipAddress, ct);
 
@@ -538,7 +542,9 @@ public partial class LicenseService(
         if (license.Status is LicenseStatus.Revoked)
             throw new InvalidOperationException("Cannot update a revoked license.");
 
-        license.PlanName = request.PlanName.Trim();
+        // Edits may keep the license's current plan even when it is not (or no longer) an active catalog plan.
+        license.PlanName = await ProductPlanRules.ResolveLicensePlanAsync(
+            db, license.ServiceProductId, license.ServiceProduct.Code, request.PlanName, license.PlanName, cancellationToken);
         var newExpiry = DateTimeNormalizer.ToUtc(request.ExpiresAt);
         if (license.IsTrial && newExpiry != license.ExpiresAt)
         {

@@ -95,6 +95,13 @@ await DialogService.ShowAsync<ConfirmDialog>(…, parameters, PlatformDialogOpti
 
 ---
 
+## Per-product plan pickers
+
+- `ServiceProductDto.Plans` (active and inactive, in dropdown order) travels with the service list, so dialogs need no extra call. `LicenseIssueDialog` uses `Products`; `LicenseEditDialog` takes `Product`. `Licenses.razor` re-reads the services (`RefreshProductsAsync`) before opening either, so the list is never stale.
+- A service with **no** plans shows the free-text field (no default value). With plans, a required `MudSelect` of active plans; changing the service clears the plan.
+- Edit keeps a key's current non-selectable plan as an extra item "(not in the plan list, current)"; a name that only differs by case from an active code is shown as that code.
+- `ProductPlansDialog` talks to the API itself and updates `Product.Plans` in place; the Services page reloads when it closes.
+
 ## Filter selects (`MudSelect`)
 
 Use an explicit **`"all"`** sentinel for “no filter” — **not** empty string `""`.

@@ -8,13 +8,37 @@
             <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">@_error</MudAlert>
         }
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
-            <MudTextField @bind-Value="_model.PlanName"
-                          For="@(() => _model.PlanName)"
-                          Label="Plan"
-                          Required="true"
-                          RequiredError="Plan is required"
-                          Variant="Variant.Outlined"
-                          Class="mb-2" />
+            @if (PlanCatalogActive)
+            {
+                <MudSelect T="string" @bind-Value="_model.PlanName"
+                           For="@(() => _model.PlanName)"
+                           Label="Plan"
+                           Required="true"
+                           RequiredError="Plan is required"
+                           Variant="Variant.Outlined"
+                           HelperText="@PlanHelper"
+                           Class="mb-2">
+                    @if (CurrentPlanOutsideCatalog)
+                    {
+                        <MudSelectItem Value="@License.PlanName">@License.PlanName (@CurrentPlanNote)</MudSelectItem>
+                    }
+                    @foreach (var plan in ActivePlans)
+                    {
+                        <MudSelectItem Value="@plan.Code">@plan.DisplayName (@plan.Code)</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudTextField @bind-Value="_model.PlanName"
+                              For="@(() => _model.PlanName)"
+                              Label="Plan"
+                              Required="true"
+                              RequiredError="Plan is required"
+                              Variant="Variant.Outlined"
+                              MaxLength="100"
+                              Class="mb-2" />
+            }
             <MudDatePicker @bind-Date="_model.ExpiresAt"
                            For="@(() => _model.ExpiresAt)"
                            Label="Expires"
@@ -46,6 +70,28 @@
 
     [Parameter] public required LicenseDto License { get; set; }
 
+    /// <summary>The license's service, for its plan list. Null (or no plans) = free-text plan name.</summary>
+    [Parameter] public ServiceProductDto? Product { get; set; }
+
+    private bool PlanCatalogActive => Product is { Plans.Count: > 0 };
+
+    private List<ProductPlanDto> ActivePlans =>
+        Product?.Plans.Where(p => p.IsActive).OrderBy(p => p.SortOrder).ThenBy(p => p.Code).ToList() ?? [];
+
+    /// <summary>The key's current plan is not an active plan (an old name not mapped yet, or a deactivated plan).
+    /// It stays selectable so the license can still be edited; picking a listed plan moves it.</summary>
+    private bool CurrentPlanOutsideCatalog =>
+        !ActivePlans.Any(p => string.Equals(p.Code, License.PlanName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private string CurrentPlanNote =>
+        Product!.Plans.Any(p => string.Equals(p.Code, License.PlanName.Trim(), StringComparison.OrdinalIgnoreCase))
+            ? "inactive plan, current"
+            : "not in the plan list, current";
+
+    private string? PlanHelper => CurrentPlanOutsideCatalog
+        ? "This key is on a plan that can't be chosen for new keys. It can stay, or move to a listed plan."
+        : null;
+
     /// <summary>Saves inside the dialog; returns an error message to show, or null on success (dialog then closes).</summary>
     [Parameter] public Func<UpdateLicenseRequest, Task<string?>>? Submit { get; set; }
 
@@ -64,6 +110,9 @@
             ExpiresAt = License.ExpiresAt,
             MaxDevices = License.MaxDevices ?? 0
         };
+        // "Starter" on a key whose plan list has "starter": show (and save) the code.
+        if (ActivePlans.FirstOrDefault(p => string.Equals(p.Code, License.PlanName.Trim(), StringComparison.OrdinalIgnoreCase)) is { } match)
+            _model.PlanName = match.Code;
         _billing = LicenseBillingFields.Copy(License.Billing);
         _model.Billing = _billing;
     }

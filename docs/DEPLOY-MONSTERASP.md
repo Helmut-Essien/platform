@@ -389,6 +389,22 @@ takes the only slot, and a second registration with the same key gets `device_li
 unreachable (`429`/`503`/network) refuse registration and ask them to retry. The email is only enforced at
 registration; later periodic checks can omit it.
 
+### Product plans (per-product plan list)
+
+Each service can define its plans (**Services → Manage plans**; table `ProductPlans`, migration `AddProductPlans`).
+`License.PlanName` stores the plan **code** (lowercase), so `planName` in the validate answer and the token's `plan`
+claim are unchanged. Per service: with **no plans**, any plan name is still accepted (trimmed), exactly as before; from
+the **first plan** on, issuing or editing a license needs an active plan of that service. A key that is already on an
+unmapped old name (e.g. `Pro`) or on a deactivated plan keeps working and can still be edited as long as it keeps that
+plan. Services also get a **Default max devices** (NeedleBase: 1) used when a new license has none typed.
+
+Rollout after deploying (nothing changes until you add plans): open the service's plan dialog, note the old names
+listed under "Plan names on existing licenses" (or `GET /api/serviceproducts/{id}/plans/usage`), add the plans
+(NeedleBase: `starter`, `workshop`, `production`), then map each old name onto a plan (preview, confirm; or
+`POST /api/serviceproducts/{id}/plans/remap` with `{ "fromPlanName": "Pro", "toCode": "workshop", "dryRun": true }`).
+The mapping is exact (never guessed), skips revoked licenses, is audited per license, and drops cached validations.
+Invoices keep their old plan name. Shops pick up the new code on their next successful check.
+
 ### Proxies
 
 Client-IP rate limiting uses the connection address. If the API sits behind a reverse proxy, set
@@ -397,7 +413,9 @@ once if traffic looks proxied while this is off. Leave it off on IIS in-process 
 
 ### Database migration
 
-This release adds the `LicenseDevices` table and a nullable `Licenses.MaxDevices` column
+The plan catalog release adds the `ProductPlans` table and a nullable `ServiceProducts.DefaultMaxDevices` column
+(migration `AddProductPlans`); it only adds, so it is safe to run before the new code is live. The earlier release added
+the `LicenseDevices` table and a nullable `Licenses.MaxDevices` column
 (migration `AddLicenseDevices`, included in `docs/migrations-idempotent.sql`). Run it before deploying.
 ## 12. Public landing page and SEO
 

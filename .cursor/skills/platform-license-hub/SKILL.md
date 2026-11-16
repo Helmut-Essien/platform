@@ -5,6 +5,7 @@ description: >-
   PostgreSQL, EF Core, Identity/JWT, BCrypt keys, Redis validation cache, email.
   Use for this repo, any implementation phase, customers, licenses, integration keys,
   audit trail, migrations, or local dev. Delivers one phase at a time per user confirmation.
+  Per-product plan names (ProductPlan catalog, plan-code check, remap) are built; see product-plans.md.
 ---
 
 # Platform License Hub
@@ -73,6 +74,8 @@ Production-ready **centralized admin hub** for the developer/owner to:
 - **PaymentTransaction**: Id, InvoiceId, Kind (Payment|Reversal), Amount, PaymentMethod, PaymentReference?, Notes?, ReceiptId?, ReversesTransactionId?, IdempotencyKey, PerformedBy, CreatedAt
 
 ULID IDs: `NUlid.Ulid.NewUlid().ToString()`. Enums → PostgreSQL **strings**. Manual payments are ledger-backed: balances = payments − reversals; receipts remain the customer-facing document.
+
+A per-product `ProductPlan` catalog is **built** — see [product-plans.md](product-plans.md). `License.PlanName` stores the plan code; a product with no plans still accepts free text until its first plan is added.
 
 ## Security model (two audiences)
 
@@ -231,4 +234,5 @@ Connection: `localhost:5432`, db `platform_db`, user `platform`, password `platf
 | [reference.md](reference.md) | Diagrams, enums, packages, API/UI structure |
 | [platform-admin-ui](../platform-admin-ui/SKILL.md) | Dark MudBlazor UI, design tokens, implementation-patterns, screens |
 | [implementation-patterns](../platform-admin-ui/implementation-patterns.md) | As-built Client: splash, dialogs, page layout, filters |
+| [product-plans.md](product-plans.md) | Per-product plan names (built), mapping runbook |
 | [docs/SaaS-Admin-Hub-UI-Spec.md](../../../docs/SaaS-Admin-Hub-UI-Spec.md) | Downloadable UI/UX specification |

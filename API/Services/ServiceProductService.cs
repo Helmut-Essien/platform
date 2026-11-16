@@ -29,7 +29,15 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
             .Select(k => k.ServiceProductId)
             .ToHashSetAsync(cancellationToken);
 
-        return products.Select(p => MapProduct(p, licenseCounts.GetValueOrDefault(p.Id), activeKeys.Contains(p.Id))).ToList();
+        var plansByProduct = (await db.ProductPlans
+                .AsNoTracking()
+                .OrderBy(p => p.SortOrder).ThenBy(p => p.Code)
+                .ToListAsync(cancellationToken))
+            .ToLookup(p => p.ServiceProductId);
+
+        return products
+            .Select(p => MapProduct(p, licenseCounts.GetValueOrDefault(p.Id), activeKeys.Contains(p.Id), plansByProduct[p.Id]))
+            .ToList();
     }
 
     public async Task<ServiceProductDto?> GetAsync(string id, CancellationToken cancellationToken = default)
@@ -40,7 +48,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
 
         var licenseCount = await db.Licenses.IgnoreQueryFilters().CountAsync(l => l.ServiceProductId == id, cancellationToken);
         var hasKey = await db.IntegrationKeys.AnyAsync(k => k.ServiceProductId == id && k.IsActive, cancellationToken);
-        return MapProduct(product, licenseCount, hasKey);
+        return MapProduct(product, licenseCount, hasKey, await LoadPlansAsync(id, cancellationToken));
     }
 
     public async Task<ServiceProductDto> CreateAsync(
@@ -59,7 +67,8 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
             Name = request.Name.Trim(),
             Code = code,
             Description = request.Description?.Trim(),
-            IsAvailableForSale = request.IsAvailableForSale
+            IsAvailableForSale = request.IsAvailableForSale,
+            DefaultMaxDevices = NormalizeDefaultMaxDevices(request.DefaultMaxDevices)
         };
 
         db.ServiceProducts.Add(product);
@@ -76,7 +85,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         await auditLog.WriteAsync(AuditAction.ServiceProductCreated, performedBy, null, null, null,
             AuditJson.Serialize(new { serviceProductId = product.Id, code }), ipAddress, cancellationToken);
 
-        return MapProduct(product, 0, false);
+        return MapProduct(product, 0, false, []);
     }
 
     public async Task<ServiceProductDto> UpdateAsync(
@@ -92,6 +101,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         product.Name = request.Name.Trim();
         product.Description = request.Description?.Trim();
         product.IsAvailableForSale = request.IsAvailableForSale;
+        product.DefaultMaxDevices = NormalizeDefaultMaxDevices(request.DefaultMaxDevices);
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -100,7 +110,7 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
 
         var licenseCount = await db.Licenses.IgnoreQueryFilters().CountAsync(l => l.ServiceProductId == id, cancellationToken);
         var hasKey = await db.IntegrationKeys.AnyAsync(k => k.ServiceProductId == id && k.IsActive, cancellationToken);
-        return MapProduct(product, licenseCount, hasKey);
+        return MapProduct(product, licenseCount, hasKey, await LoadPlansAsync(id, cancellationToken));
     }
 
     public async Task DeleteAsync(
@@ -149,7 +159,18 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
             AuditJson.Serialize(new { serviceProductId = id, code = product.Code }), ipAddress, cancellationToken);
     }
 
-    private static ServiceProductDto MapProduct(ServiceProduct product, int licenseCount, bool hasActiveKey) => new()
+    private async Task<List<ProductPlan>> LoadPlansAsync(string serviceProductId, CancellationToken cancellationToken) =>
+        await db.ProductPlans
+            .AsNoTracking()
+            .Where(p => p.ServiceProductId == serviceProductId)
+            .OrderBy(p => p.SortOrder).ThenBy(p => p.Code)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>Null = server default; anything else is clamped to 0 (unlimited) .. 1000.</summary>
+    private static int? NormalizeDefaultMaxDevices(int? value) => value is null ? null : Math.Clamp(value.Value, 0, 1000);
+
+    private static ServiceProductDto MapProduct(
+        ServiceProduct product, int licenseCount, bool hasActiveKey, IEnumerable<ProductPlan> plans) => new()
     {
         Id = product.Id,
         Name = product.Name,
@@ -157,6 +178,8 @@ public class ServiceProductService(AppDbContext db, IAuditLogService auditLog) :
         Description = product.Description,
         IsAvailableForSale = product.IsAvailableForSale,
         HasActiveIntegrationKey = hasActiveKey,
-        LicenseCount = licenseCount
+        LicenseCount = licenseCount,
+        DefaultMaxDevices = product.DefaultMaxDevices,
+        Plans = plans.Select(ProductPlanService.Map).ToList()
     };
 }

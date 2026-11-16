@@ -49,6 +49,10 @@ public static class AuditDisplay
         AuditAction.LicenseTrialReminderQueued => "Trial ending reminder sent",
         AuditAction.LicenseMadeComplimentary => "License made complimentary (free)",
         AuditAction.LicenseComplimentaryEnded => "Complimentary license switched to paid",
+        AuditAction.ProductPlanCreated => "Product plan created",
+        AuditAction.ProductPlanUpdated => "Product plan updated",
+        AuditAction.ProductPlanDeleted => "Product plan deleted",
+        AuditAction.LicensePlansRemapped => "License plans remapped",
         _ => SplitPascal(action.ToString())
     };
 

@@ -446,8 +446,17 @@
 
     private void ClearSelection() => _selected.Clear();
 
+    /// <summary>Plans are managed on another page; re-read them so the dialogs never offer a stale list.</summary>
+    private async Task RefreshProductsAsync()
+    {
+        var fresh = await Api.GetServiceProductsAsync();
+        if (fresh.Count > 0)
+            _products = fresh.ToList();
+    }
+
     private async Task OpenIssueDialogAsync()
     {
+        await RefreshProductsAsync();
         // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
         ApiResult<LicenseDto>? result = null;
         Task<ApiResult<LicenseDto>>? pending = null;
@@ -561,6 +570,7 @@
 
     private async Task EditAsync(LicenseDto license)
     {
+        await RefreshProductsAsync();
         // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
         ApiResult<LicenseDto>? apiResult = null;
         Task<ApiResult<LicenseDto>>? pending = null;
@@ -573,6 +583,7 @@
         var dialog = await DialogService.ShowAsync<LicenseEditDialog>("Edit License", new DialogParameters
         {
             [nameof(LicenseEditDialog.License)] = license,
+            [nameof(LicenseEditDialog.Product)] = _products.FirstOrDefault(p => p.Id == license.ServiceProductId),
             [nameof(LicenseEditDialog.Submit)] = submit
         });
         await dialog.Result;

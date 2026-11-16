@@ -1363,5 +1363,45 @@ BEGIN
     VALUES ('20261102115641_AddLicenseDevices', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261116123702_AddProductPlans') THEN
+    ALTER TABLE "ServiceProducts" ADD "DefaultMaxDevices" integer;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261116123702_AddProductPlans') THEN
+    CREATE TABLE "ProductPlans" (
+        "Id" character varying(26) NOT NULL,
+        "ServiceProductId" character varying(26) NOT NULL,
+        "Code" character varying(50) NOT NULL,
+        "DisplayName" character varying(100) NOT NULL,
+        "SortOrder" integer NOT NULL,
+        "IsActive" boolean NOT NULL DEFAULT TRUE,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "UpdatedAt" timestamp with time zone NOT NULL,
+        CONSTRAINT "PK_ProductPlans" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_ProductPlans_ServiceProducts_ServiceProductId" FOREIGN KEY ("ServiceProductId") REFERENCES "ServiceProducts" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261116123702_AddProductPlans') THEN
+    CREATE UNIQUE INDEX "IX_ProductPlans_ServiceProductId_Code" ON "ProductPlans" ("ServiceProductId", "Code");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261116123702_AddProductPlans') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261116123702_AddProductPlans', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 
