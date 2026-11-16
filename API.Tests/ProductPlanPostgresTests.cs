@@ -87,6 +87,24 @@ public class ProductPlanPostgresTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task DeletePlan_OnPostgres_BlockedWhileInUse_CaseInsensitively()
+    {
+        if (_pg is null)
+            return;
+        await using var db = _pg.NewContext();
+        var (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
+        var used = await AddPlanAsync(db, p, "workshop");
+        var spare = await AddPlanAsync(db, p, "spare");
+        await SeedLicenseAsync(db, p, "Workshop");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Plans(db).DeleteAsync(p, used.Id, "admin"));
+        await Plans(db).DeleteAsync(p, spare.Id, "admin");
+
+        await using var check = _pg.NewContext();
+        Assert.Equal(["workshop"], await check.ProductPlans.Where(x => x.ServiceProductId == p).Select(x => x.Code).ToListAsync());
+    }
+
+    [Fact]
     public async Task LicenseCreateAndEdit_AgainstTheCatalog_OnPostgres()
     {
         if (_pg is null)
