@@ -123,6 +123,11 @@
                             {
                                 <span class="key-chip key-chip-none" title="No plan list: any plan name is accepted">Free text</span>
                             }
+                            else if (!product.Plans.Any(p => p.IsActive))
+                            {
+                                <span class="key-chip key-chip-none" @onclick="() => PlansAsync(product)" @onclick:stopPropagation="true"
+                                      title="Every plan is inactive: no new license can be issued until one is activated">No active plans</span>
+                            }
                             else
                             {
                                 <span class="key-chip key-chip-active" @onclick="() => PlansAsync(product)" @onclick:stopPropagation="true"

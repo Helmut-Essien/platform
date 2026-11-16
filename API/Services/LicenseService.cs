@@ -590,14 +590,6 @@ public partial class LicenseService(
         if (becameExpired)
             license.Status = LicenseStatus.Expired;
 
-        if (!string.IsNullOrEmpty(license.LicenseKeyLookupHash))
-        {
-            await denyList.InvalidateValidationCacheAsync(
-                license.ServiceProductId,
-                license.LicenseKeyLookupHash,
-                ct);
-        }
-
         await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseUpdated, performedBy, license.CustomerId, license.Id, null,
@@ -611,7 +603,10 @@ public partial class LicenseService(
             ?? throw new InvalidOperationException("Failed to load license.");
         if (transaction is not null)
             await transaction.CommitAsync(ct);
-        // After the commit: a rolled-back edit must not leave the license denied.
+        // Redis calls only after the commit: they must not hold the plan/license row locks, and a rolled-back
+        // edit must not leave the license denied.
+        if (!string.IsNullOrEmpty(license.LicenseKeyLookupHash))
+            await denyList.InvalidateValidationCacheAsync(license.ServiceProductId, license.LicenseKeyLookupHash, ct);
         if (becameExpired)
             await denyList.DenyLicenseAsync(license.Id, ct);
         return result;

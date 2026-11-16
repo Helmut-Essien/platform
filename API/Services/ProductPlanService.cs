@@ -41,9 +41,13 @@ public class ProductPlanService(
         var displayName = request.DisplayName.Trim();
         if (displayName.Length == 0)
             throw new InvalidOperationException("Display name is required.");
+        if (!ProductPlanRules.IsValidDisplayName(displayName))
+            throw new InvalidOperationException("Display name must be one line of text (no line breaks or control characters), up to 100 characters.");
 
         if (await db.ProductPlans.AnyAsync(p => p.ServiceProductId == serviceProductId && p.Code == code, cancellationToken))
             throw new InvalidOperationException($"{product.Code} already has a plan with code '{code}'.");
+        if (await db.ProductPlans.CountAsync(p => p.ServiceProductId == serviceProductId, cancellationToken) >= ProductPlanRules.MaxPlansPerProduct)
+            throw new InvalidOperationException($"A service can have at most {ProductPlanRules.MaxPlansPerProduct} plans.");
 
         var plan = new ProductPlan
         {
@@ -93,6 +97,8 @@ public class ProductPlanService(
         var displayName = request.DisplayName.Trim();
         if (displayName.Length == 0)
             throw new InvalidOperationException("Display name is required.");
+        if (!ProductPlanRules.IsValidDisplayName(displayName))
+            throw new InvalidOperationException("Display name must be one line of text (no line breaks or control characters), up to 100 characters.");
 
         var wasActive = plan.IsActive;
         plan.DisplayName = displayName;

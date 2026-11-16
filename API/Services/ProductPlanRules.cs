@@ -39,11 +39,10 @@ internal static partial class ProductPlanRules
     }
 
     /// <summary>
-    /// Row-locks the product's plans so deleting or deactivating a plan cannot interleave with a license being
-    /// created onto it: licenses take a shared lock, plan deletion an exclusive one. Only inside a transaction on a
-    /// relational database (a no-op otherwise), so edits (no transaction) keep their old, lock-free behaviour; an
-    /// edit racing a plan delete can at worst leave a key on a code that is no longer listed, which stays editable
-    /// and shows up for mapping.
+    /// Row-locks the product's plans so deleting or renaming/deactivating a plan cannot interleave with a license
+    /// being created or edited onto it: license create and update take a shared lock (inside their transaction),
+    /// plan deletion an exclusive one. Lock order everywhere: plan rows first, then license rows. A no-op outside a
+    /// transaction or on a non-relational database.
     /// </summary>
     internal static async Task LockPlansAsync(AppDbContext db, string serviceProductId, bool exclusive, CancellationToken cancellationToken)
     {
@@ -56,6 +55,20 @@ internal static partial class ProductPlanRules
             await db.Database.ExecuteSqlInterpolatedAsync(
                 $"""SELECT 1 FROM "ProductPlans" WHERE "ServiceProductId" = {serviceProductId} FOR SHARE""", cancellationToken);
     }
+
+    /// <summary>Max plans per service: keeps the service list payload and the dropdowns small.</summary>
+    internal const int MaxPlansPerProduct = 100;
+
+    /// <summary>Display names end up in emails, PDFs and invoice descriptions: a single printable line only.</summary>
+    internal static bool IsValidDisplayName(string trimmed) =>
+        trimmed.Length is > 0 and <= 100 && !trimmed.Any(IsDisallowedInDisplayName);
+
+    /// <summary>Control characters, Unicode line/paragraph separators and bidi overrides (which can make a name read backwards).</summary>
+    private static bool IsDisallowedInDisplayName(char c) =>
+        char.IsControl(c)
+        || c is '\u2028' or '\u2029'
+        || c is >= '\u202A' and <= '\u202E'
+        || c is >= '\u2066' and <= '\u2069';
 
     internal static bool IsValidCode(string normalized) =>
         normalized.Length is > 0 and <= MaxCodeLength && CodePattern().IsMatch(normalized);

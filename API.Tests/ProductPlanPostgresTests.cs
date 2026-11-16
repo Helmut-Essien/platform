@@ -412,4 +412,57 @@ public class ProductPlanPostgresTests : IAsyncLifetime
         Assert.Same(all, await Task.WhenAny(all, Task.Delay(TimeSpan.FromSeconds(30)))); // a deadlock would time out here
         await all;
     }
+
+    [Fact]
+    public async Task LicenseList_OnPostgres_ShowsDisplayNames_AndSearchesThem()
+    {
+        if (_pg is null)
+            return;
+        await using var db = _pg.NewContext();
+        var (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
+        var plain = await NewProductAsync(db, "PLAIN");
+        await AddPlanAsync(db, p, "wk1", "Workshop Plus");
+        var mapped = await SeedLicenseAsync(db, p, "wk1");
+        var legacy = await SeedLicenseAsync(db, p, "Pro");
+        var planless = await SeedLicenseAsync(db, plain, "wk1");
+        var h = LicenseActivationTests.Create(db);
+
+        var all = await h.Licenses.ListAsync(pageSize: 50);
+        Assert.Equal("Workshop Plus", all.Items.Single(l => l.Id == mapped.Id).PlanDisplayName);
+        Assert.Equal("Pro", all.Items.Single(l => l.Id == legacy.Id).PlanDisplayName);
+        Assert.Equal("wk1", all.Items.Single(l => l.Id == planless.Id).PlanDisplayName);
+
+        var byDisplay = await h.Licenses.ListAsync(search: "PLUS");           // display name, any case
+        Assert.Equal(mapped.Id, Assert.Single(byDisplay.Items).Id);
+        var byCode = await h.Licenses.ListAsync(search: "wk1");                // the code still matches (both products)
+        Assert.Equal(2, byCode.Items.Count);
+        var single = await h.Licenses.GetAsync(mapped.Id);
+        Assert.Equal("Workshop Plus", single!.PlanDisplayName);
+    }
+
+    [Fact]
+    public async Task NewInvoices_OnPostgres_SnapshotTheDisplayName_AndRenameLeavesOldOnesAlone()
+    {
+        if (_pg is null)
+            return;
+        await using var db = _pg.NewContext();
+        var h = LicenseActivationTests.Create(db);
+        var (c, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
+        var plan = await AddPlanAsync(db, p, "workshop", "Workshop");
+        var license = await h.Licenses.CreateAsync(new CreateLicenseRequest
+        {
+            CustomerId = c, ServiceProductId = p, PlanName = "workshop", CreateInvoice = true, InvoiceSubtotal = 100
+        }, "admin");
+        await Plans(db).UpdateAsync(p, plan.Id, new UpdateProductPlanRequest { DisplayName = "Workshop Pro", SortOrder = 0, IsActive = true }, "admin");
+
+        var manual = await h.Billing.CreateInvoiceAsync(new Platform.Shared.Dtos.Billing.CreateInvoiceRequest
+        {
+            CustomerId = c, ServiceProductId = p, Subtotal = 5, PlanName = "workshop", Status = InvoiceStatus.Draft
+        }, "admin");
+
+        await using var check = _pg.NewContext();
+        var invoices = await check.Invoices.IgnoreQueryFilters().Where(i => i.LicenseId == license.Id).ToListAsync();
+        Assert.Equal("Workshop", Assert.Single(invoices).PlanName);
+        Assert.Equal("Workshop Pro", manual.PlanName);
+    }
 }

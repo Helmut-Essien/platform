@@ -185,6 +185,52 @@ public class ProductPlanTests
         Assert.Equal("Pro Annual", dto.PlanName);
     }
 
+    [Theory]
+    [InlineData("Work\nshop")]
+    [InlineData("Work\tshop")]
+    [InlineData("Work\u0000shop")]
+    [InlineData("Work\u0085shop")]
+    [InlineData("Work\u2028shop")]
+    [InlineData("Work\u202Eshop")]
+    public async Task PlanDisplayName_MustBeOnePrintableLine_OnCreateAndUpdate(string name)
+    {
+        await using var db = CreateDb();
+        var (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
+        var ok = await AddPlanAsync(db, p, "workshop", "Workshop");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => AddPlanAsync(db, p, "other", name));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Plans(db).UpdateAsync(p, ok.Id, new UpdateProductPlanRequest { DisplayName = name, SortOrder = 0, IsActive = true }, "admin"));
+        Assert.Equal("Workshop", (await Plans(db).ListAsync(p)).Single().DisplayName);
+    }
+
+    [Fact]
+    public async Task APlanDisplayName_WithInnerSpacesAndUnicode_IsFine_AndTrimmed()
+    {
+        await using var db = CreateDb();
+        var (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
+
+        var plan = await AddPlanAsync(db, p, "atelier", "  Atelier Pro – Café  ");
+
+        Assert.Equal("Atelier Pro – Café", plan.DisplayName);
+    }
+
+    [Fact]
+    public async Task AServiceCanHaveAtMost100Plans()
+    {
+        await using var db = CreateDb();
+        var (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(db);
+        for (var i = 0; i < 100; i++)
+            db.ProductPlans.Add(new ProductPlan { ServiceProductId = p, Code = $"plan-{i}", DisplayName = $"Plan {i}" });
+        await db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => AddPlanAsync(db, p, "one-too-many"));
+        Assert.Contains("at most 100", ex.Message);
+        // Another service is unaffected.
+        var other = await NewProductAsync(db, "OTHER");
+        await AddPlanAsync(db, other, "starter");
+    }
+
     [Fact]
     public async Task Create_ProductWithPlans_TrimsAndLowercasesToTheCode_AndAuditsTheCode()
     {

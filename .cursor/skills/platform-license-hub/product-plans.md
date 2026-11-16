@@ -45,19 +45,19 @@ Implemented in `API/Services/ProductPlanRules.cs`, called from `LicenseService.C
 | Route | What |
 |-------|------|
 | `GET {id}/plans` | The product's plans (`ServiceProductDto.Plans` also carries them in the list/get responses) |
-| `POST {id}/plans` | Add a plan `{code, displayName, sortOrder, isActive}` (code trimmed + lowercased; duplicate per product rejected, also under a race) |
+| `POST {id}/plans` | Add a plan `{code, displayName, sortOrder, isActive}` (code trimmed + lowercased A-Z only; duplicate per product rejected, also under a race; display name one printable line, max 100; at most 100 plans per service) |
 | `PUT {id}/plans/{planId}` | Edit display name, order, active flag (deactivate = `isActive:false`) |
 | `DELETE {id}/plans/{planId}` | Only while no license of the product (revoked included) carries the code; otherwise deactivate |
 | `GET {id}/plans/usage` | Distinct `PlanName` values on the product's licenses with counts: `licenseCount`, `remappableCount` (non-revoked), `isActivePlanCode` |
 | `POST {id}/plans/remap` | `{fromPlanName, toCode, dryRun}`: move every **non-revoked** license whose plan name is exactly `fromPlanName` onto an active plan code of the same product |
 
-Remap: exact, case-sensitive match on the old name (never guesses); revoked licenses are left alone and counted; suspended customers' licenses are included; one `SaveChanges` carries all license changes plus their audit rows (per-license `LicenseUpdated` with `source:"plan_remap"` and `previousPlanName`, plus one `LicensePlansRemapped` summary), The matching licenses are row-locked first (`SELECT … FOR UPDATE` in id order) so an edit in flight finishes first, or, if it starts later, gets the retryable 409 for its stale version; the remap itself never fails on a concurrent edit and never half-applies. Validation reads `PlanName` from PostgreSQL on every check, so there is no validation cache to invalidate. `usage` returns at most 500 names (busiest first). `dryRun:true` only reports counts. It can be repeated safely.
+Remap: exact, case-sensitive match on the old name (never guesses); revoked licenses are left alone and counted; suspended customers' licenses are included; one `SaveChanges` carries all license changes plus their audit rows (per-license `LicenseUpdated` with `source:"plan_remap"` and `previousPlanName`, plus one `LicensePlansRemapped` summary). The matching licenses are row-locked first (`SELECT … FOR UPDATE` in id order) so an edit in flight finishes first, or, if it starts later, gets the retryable 409 for its stale version; the remap itself never fails on a concurrent edit and never half-applies. Validation reads `PlanName` from PostgreSQL on every check, so there is no validation cache to invalidate. `usage` returns at most 500 names (busiest first). `dryRun:true` only reports counts. It can be repeated safely.
 
 Plan changes are audited as `ProductPlanCreated`, `ProductPlanUpdated`, `ProductPlanDeleted`.
 
 ### Admin UI
 
-- **Services page:** new "Plans" column (count, or "Free text") and a Manage plans action opening `ProductPlansDialog`: plan table (code, name, order, active switch, edit, delete), an add/edit form, and a "Plan names on existing licenses" section listing each old name with its license count and a "Map to" picker (preview with a dry run, confirm, then map).
+- **Services page:** new "Plans" column (active count, "No active plans" when all are deactivated, or "Free text") and a Manage plans action opening `ProductPlansDialog`: plan table (code, name, order, active switch, edit, delete), an add/edit form, and a "Plan names on existing licenses" section listing each old name with its license count and a "Map to" picker (preview with a dry run, confirm, then map).
 - **Add/Edit Service:** a "Default max devices" field.
 - **Issue License:** after the service is chosen, Plan is a dropdown of that service's active plans (shows `DisplayName (code)`, stores the code). Changing the service clears the plan. A service without plans shows the old text field, with no `"Pro"` default and a hint to add plans. The max-devices helper shows the service default.
 - **Edit License:** the same dropdown; a key on a plan that isn't selectable stays selectable as "(not in the plan list, current)" so it can be edited without being forced to move.
@@ -113,6 +113,8 @@ For a trial key, pick the plan the shop will convert to (`workshop` or `producti
 - Deleting a plan and issuing **or editing** a license onto it are serialized by a row lock on the product's plans (license create and update run in a transaction and take the shared lock first; plan delete takes the exclusive lock and then checks for licenses on the plan). Lock order is always plan rows, then license rows; remap only locks license rows, so create/edit/delete/remap cannot deadlock. A key therefore can't end up on a deleted plan.
 - API callers that PUT a service without `defaultMaxDevices` leave it unchanged (use `clearDefaultMaxDevices` to clear).
 - Plan codes are lowercased A-Z only (no culture folding of look-alike letters).
+- Display names must be one printable line (no control characters, line/paragraph separators or bidi overrides), max 100; a service holds at most 100 plans. Both are enforced server-side on create (and the name rule on edit).
+- A license edit sends its Redis calls (validation-cache invalidate, deny on expiry) only after the commit, so slow Redis never holds the plan or license locks.
 - Tokens issued before a remap keep the old `plan` until the product re-validates.
 
 ## Related
