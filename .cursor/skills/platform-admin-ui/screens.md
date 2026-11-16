@@ -481,7 +481,7 @@ Search (More Filters): debounced — customer, service code, plan.
 | ☐ | Select column |
 | Customer | Name + mono `ID: {shortId}-{NAME}` |
 | Service | Product name (fallback code) |
-| Plan | Plan name |
+| Plan | Plan display name (`planDisplayName`; falls back to the stored `planName`); searchable, sorts by stored code |
 | Status | Pill — Active primary fill; Expired error; Pending/Suspended outline; Revoked muted |
 | Expires | Mono date; error when Expired |
 | Key Sent | YES/NO chips with icons |

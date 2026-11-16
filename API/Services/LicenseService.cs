@@ -149,9 +149,10 @@ public partial class LicenseService(
             var subtotal = fromPrice ? license.BillingAmount!.Value : request.InvoiceSubtotal;
             var tax = fromPrice ? license.BillingTaxAmount : request.InvoiceTaxAmount;
             var currency = fromPrice ? license.BillingCurrency : request.InvoiceCurrency;
+            var planLabel = await ProductPlanDisplay.NameAsync(db, license.ServiceProductId, license.PlanName, ct);
             var description = license.BillingAmount is > 0
-                ? $"License {license.PlanName}: first {PeriodLabel(license.BillingPeriodMonths)}"
-                : $"License {license.PlanName}";
+                ? $"License {planLabel}: first {PeriodLabel(license.BillingPeriodMonths)}"
+                : $"License {planLabel}";
             // A priced first invoice activates the Pending license once it is fully paid.
             await billing.CreateInvoiceForLicenseAsync(
                 license,
@@ -238,6 +239,9 @@ public partial class LicenseService(
             query = query.Where(l =>
                 l.Customer.Name.ToLower().Contains(term)
                 || l.PlanName.ToLower().Contains(term)
+                // The plan's display name is what the grid shows, so it is searchable too.
+                || db.ProductPlans.Any(p => p.ServiceProductId == l.ServiceProductId && p.Code == l.PlanName
+                    && p.DisplayName.ToLower().Contains(term))
                 || (l.ServiceProduct != null && l.ServiceProduct.Code.ToLower().Contains(term)));
         }
 
@@ -269,9 +273,13 @@ public partial class LicenseService(
             .GroupBy(i => i.LicenseId)
             .ToDictionary(g => g.Key, Summarize);
 
+        // One query for every plan of the products on this page, not one per row.
+        var planNames = await ProductPlanDisplay.LoadAsync(db, licenses.Select(l => l.ServiceProductId), cancellationToken);
+
         return new PagedResult<LicenseDto>
         {
-            Items = licenses.Select(l => MapLicense(l, invoiceLookup.GetValueOrDefault(l.Id), TrialMaxMonths)).ToList(),
+            Items = licenses.Select(l => MapLicense(l, invoiceLookup.GetValueOrDefault(l.Id), TrialMaxMonths,
+                ProductPlanDisplay.Resolve(planNames, l.ServiceProductId, l.PlanName))).ToList(),
             TotalCount = totalCount,
             Page = normalizedPage,
             PageSize = normalizedPageSize
@@ -525,18 +533,25 @@ public partial class LicenseService(
         return result;
         }, cancellationToken);
 
-    public async Task<LicenseDto> UpdateAsync(
+    /// <summary>
+    /// Runs in one transaction so the plan check holds the product's shared plan lock until the edit commits: a
+    /// concurrent plan delete (exclusive lock) then waits and refuses because the plan is in use. Lock order is
+    /// always plan rows first, then license rows (remap locks only license rows and never waits on plans), so the
+    /// three cannot deadlock.
+    /// </summary>
+    public Task<LicenseDto> UpdateAsync(
         string id,
         UpdateLicenseRequest request,
         string performedBy,
         string? ipAddress = null,
-        CancellationToken cancellationToken = default)
-    {
+        CancellationToken cancellationToken = default) =>
+        RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
+        {
         var license = await db.Licenses
             .IgnoreQueryFilters()
             .Include(l => l.Customer)
             .Include(l => l.ServiceProduct)
-            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken)
+            .FirstOrDefaultAsync(l => l.Id == id, ct)
             ?? throw new NotFoundException("License not found.");
 
         if (license.Status is LicenseStatus.Revoked)
@@ -544,7 +559,7 @@ public partial class LicenseService(
 
         // Edits may keep the license's current plan even when it is not (or no longer) an active catalog plan.
         license.PlanName = await ProductPlanRules.ResolveLicensePlanAsync(
-            db, license.ServiceProductId, license.ServiceProduct.Code, request.PlanName, license.PlanName, cancellationToken);
+            db, license.ServiceProductId, license.ServiceProduct.Code, request.PlanName, license.PlanName, ct);
         var newExpiry = DateTimeNormalizer.ToUtc(request.ExpiresAt);
         if (license.IsTrial && newExpiry != license.ExpiresAt)
         {
@@ -554,7 +569,7 @@ public partial class LicenseService(
                     $"A trial must end by {cap:dd MMM yyyy} (Billing:TrialMaxTotalMonths). Renew it to give a paid term instead.");
             // The trial invoice is tied to the trial end; Extend trial moves it under the renewal lock.
             if (await db.Invoices.IgnoreQueryFilters().AnyAsync(i => i.LicenseId == id && i.IsTrialConversion
-                    && OpenInvoiceStatuses.Contains(i.Status), cancellationToken))
+                    && OpenInvoiceStatuses.Contains(i.Status), ct))
                 throw new InvalidOperationException(
                     "This trial already has its first invoice. Use \"Extend trial\" to change the end date so the invoice moves with it.");
         }
@@ -580,24 +595,27 @@ public partial class LicenseService(
             await denyList.InvalidateValidationCacheAsync(
                 license.ServiceProductId,
                 license.LicenseKeyLookupHash,
-                cancellationToken);
+                ct);
         }
 
-        await db.SaveChangesAsync(cancellationToken);
-
-        if (becameExpired)
-            await denyList.DenyLicenseAsync(license.Id, cancellationToken);
+        await db.SaveChangesAsync(ct);
 
         await auditLog.WriteAsync(AuditAction.LicenseUpdated, performedBy, license.CustomerId, license.Id, null,
             AuditJson.Serialize(new { planName = license.PlanName, expiresAt = license.ExpiresAt, status = license.Status.ToString() }),
-            ipAddress, cancellationToken);
+            ipAddress, ct);
         if (oldMaxDevices != license.MaxDevices)
             await auditLog.WriteAsync(AuditAction.LicenseDeviceLimitChanged, performedBy, license.CustomerId, license.Id, null,
-                AuditJson.Serialize(new { from = oldMaxDevices, to = license.MaxDevices }), ipAddress, cancellationToken);
+                AuditJson.Serialize(new { from = oldMaxDevices, to = license.MaxDevices }), ipAddress, ct);
 
-        return await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, cancellationToken)
+        var result = await MapLicenseAsync(license.Id, includeSuspendedCustomers: true, ct)
             ?? throw new InvalidOperationException("Failed to load license.");
-    }
+        if (transaction is not null)
+            await transaction.CommitAsync(ct);
+        // After the commit: a rolled-back edit must not leave the license denied.
+        if (becameExpired)
+            await denyList.DenyLicenseAsync(license.Id, ct);
+        return result;
+        }, cancellationToken);
 
     public async Task<LicenseDto> SuspendAsync(
         string id,
@@ -898,7 +916,8 @@ public partial class LicenseService(
             .Select(i => new InvoiceRow(i.LicenseId!, i.Id, i.CreatedAt, i.IsActivationInvoice, i.Status, i.InvoiceNumber))
             .ToListAsync(cancellationToken);
 
-        return MapLicense(license, Summarize(rows), TrialMaxMonths);
+        var display = await ProductPlanDisplay.NameAsync(db, license.ServiceProductId, license.PlanName, cancellationToken);
+        return MapLicense(license, Summarize(rows), TrialMaxMonths, display);
     }
 
     private sealed record InvoiceRow(string LicenseId, string Id, DateTime CreatedAt, bool IsActivation, InvoiceStatus Status, string Number);
@@ -923,7 +942,7 @@ public partial class LicenseService(
         return new InvoiceSummary(latestId, activation);
     }
 
-    private static LicenseDto MapLicense(License license, InvoiceSummary? invoices = null, int trialMaxMonths = 3) => new()
+    private static LicenseDto MapLicense(License license, InvoiceSummary? invoices = null, int trialMaxMonths = 3, string? planDisplayName = null) => new()
     {
         IsTrial = license.IsTrial,
         TrialStartedAt = license.TrialStartedAt,
@@ -938,6 +957,7 @@ public partial class LicenseService(
         Status = license.Status,
         ExpiresAt = license.ExpiresAt,
         PlanName = license.PlanName,
+        PlanDisplayName = planDisplayName ?? license.PlanName,
         LicenseKeySentAt = license.LicenseKeySentAt,
         CreatedAt = license.CreatedAt,
         UpdatedAt = license.UpdatedAt,

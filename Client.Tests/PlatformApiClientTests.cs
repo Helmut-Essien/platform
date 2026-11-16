@@ -419,6 +419,21 @@ public class PlatformApiClientTests
     }
 
     [Fact]
+    public void LicenseDto_DeserializesPlanDisplayName_AndAnOlderAnswerWithoutIt()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var withName = JsonSerializer.Deserialize<LicenseDto>(
+            """{"id":"l","customerId":"c","serviceProductId":"p","planName":"workshop","planDisplayName":"Workshop"}""", web)!;
+        Assert.Equal(("workshop", "Workshop"), (withName.PlanName, withName.PlanDisplayName));
+
+        // An older API answer has no display name: the screens fall back to the stored name.
+        var old = JsonSerializer.Deserialize<LicenseDto>(
+            """{"id":"l","customerId":"c","serviceProductId":"p","planName":"Pro"}""", web)!;
+        Assert.Null(old.PlanDisplayName);
+        Assert.Equal("Pro", old.PlanDisplayName ?? old.PlanName);
+    }
+
+    [Fact]
     public async Task ReleaseAllLicenseDevicesAsync_PostsToReleaseAll_AndReadsTheCount()
     {
         var handler = new CapturingHttpMessageHandler(_ => JsonResponse(new ReleaseAllDevicesResultDto { ReleasedCount = 3 }));

@@ -94,12 +94,23 @@ For a trial key, pick the plan the shop will convert to (`workshop` or `producti
 5. Set NeedleBase's Default max devices to 1.
 6. Invoices stay as they are. Attached NeedleBase shops pick up the new code on their next successful re-check (validation reads the database, so the change is live at once; tokens already issued keep the old plan until they refresh).
 
+## Display names (what people read)
+
+`License.PlanName` stays the **code** (stored value, validate answer `planName`, token `plan` claim: the contract). Wherever a human reads the plan, Platform shows the plan's **display name** (`ProductPlanDisplay`):
+
+- `LicenseDto.planDisplayName` (always filled; equals `planName` for unmapped legacy names, deleted plans and products without plans). The Licenses grid, Rotate/Activate dialogs and the edit dialog's "current plan" entry use it; the grid search also matches the display name. List pages use **one** query for all plans of the products on the page; single licenses one indexed lookup.
+- Match is exact on the lowercase code. Inactive plans still show their display name.
+- **Invoices snapshot the display name** at creation (`Invoice.PlanName`, "License Workshop" descriptions, renewal descriptions, trial conversion). That makes invoice emails, PDFs and receipts read well with no template logic, and a later rename of the plan never rewrites an issued invoice. A plan *code* typed into the manual invoice form is translated the same way; other text is kept as typed. Invoices created before this change are not rewritten.
+- The license key email shows the display name in its Plan row.
+- The Validate page in the admin UI is a raw view of the API answer, so it keeps showing the code.
+- The Licenses grid sorts by the stored code.
+
 ## Risks and notes
 
 - Adding a product's first plan switches enforcement on for that product immediately; keys not yet mapped keep working and stay editable, but can't be moved to another unmapped name.
 - A product whose plans are all deactivated can't issue new licenses.
 - Remap touches licenses in one transaction under row locks; an edit that loses the race gets a 409 "refresh and try again" and nothing is half-applied.
-- Deleting a plan and issuing a license onto it are serialized by a row lock on the product's plans. A license *edit* (no transaction) racing a plan delete could at worst leave a key on a code that is no longer listed; it keeps working, stays editable and appears under "Plan names on existing licenses" for mapping.
+- Deleting a plan and issuing **or editing** a license onto it are serialized by a row lock on the product's plans (license create and update run in a transaction and take the shared lock first; plan delete takes the exclusive lock and then checks for licenses on the plan). Lock order is always plan rows, then license rows; remap only locks license rows, so create/edit/delete/remap cannot deadlock. A key therefore can't end up on a deleted plan.
 - API callers that PUT a service without `defaultMaxDevices` leave it unchanged (use `clearDefaultMaxDevices` to clear).
 - Plan codes are lowercased A-Z only (no culture folding of look-alike letters).
 - Tokens issued before a remap keep the old `plan` until the product re-validates.

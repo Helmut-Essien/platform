@@ -410,6 +410,8 @@ listed under "Plan names on existing licenses" (or `GET /api/serviceproducts/{id
 The mapping is exact (never guessed), skips revoked licenses, is audited per license, and locks the affected licenses while it runs (validation reads the plan straight from the database, so there is no cache to clear).
 Invoices keep their old plan name. Shops pick up the new code on their next successful check.
 
+People see the plan's **display name** (Licenses grid, key email, new invoices/PDFs/receipts); the stored value, the validate answer and the token still carry the code. New invoices snapshot the display name, so renaming a plan later never changes an issued invoice. Unmapped legacy names and products without plans show as stored.
+
 ### Proxies
 
 Client-IP rate limiting uses the connection address. If the API sits behind a reverse proxy, set

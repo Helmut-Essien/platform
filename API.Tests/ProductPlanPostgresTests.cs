@@ -298,4 +298,118 @@ public class ProductPlanPostgresTests : IAsyncLifetime
         await using var check = _pg.NewContext();
         Assert.Equal(0, await check.Licenses.IgnoreQueryFilters().CountAsync(l => l.ServiceProductId == p));
     }
+
+    [Fact]
+    public async Task LicenseEdit_TakesTheSharedPlanLock_SoItWaitsForAPlanBeingDeleted_ThenIsRefused()
+    {
+        if (_pg is null)
+            return;
+        string p, licenseId;
+        await using (var seed = _pg.NewContext())
+        {
+            (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(seed);
+            await AddPlanAsync(seed, p, "starter");
+            await AddPlanAsync(seed, p, "workshop");
+            licenseId = (await SeedLicenseAsync(seed, p, "starter")).Id;
+        }
+
+        // A plan delete holds the exclusive lock and removes "workshop".
+        await using var deleter = _pg.NewContext();
+        await using var tx = await deleter.Database.BeginTransactionAsync();
+        await deleter.Database.ExecuteSqlInterpolatedAsync($"""SELECT 1 FROM "ProductPlans" WHERE "ServiceProductId" = {p} FOR UPDATE""");
+
+        var edit = Task.Run(async () =>
+        {
+            await using var db = _pg.NewContext();
+            return await LicenseActivationTests.Create(db).Licenses.UpdateAsync(licenseId, new UpdateLicenseRequest { PlanName = "workshop" }, "admin");
+        });
+        await Task.Delay(750);
+        Assert.False(edit.IsCompleted); // waiting behind the delete, not racing it
+
+        await deleter.Database.ExecuteSqlInterpolatedAsync($"""DELETE FROM "ProductPlans" WHERE "ServiceProductId" = {p} AND "Code" = 'workshop'""");
+        await tx.CommitAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => edit); // the plan is gone: refused, nothing saved
+        await using var check = _pg.NewContext();
+        Assert.Equal("starter", (await check.Licenses.IgnoreQueryFilters().SingleAsync(l => l.Id == licenseId)).PlanName);
+    }
+
+    [Fact]
+    public async Task LicenseEdit_And_PlanDelete_RacingManyTimes_NeverLeaveAKeyOnADeletedPlan()
+    {
+        if (_pg is null)
+            return;
+        for (var round = 0; round < 12; round++)
+        {
+            string p, licenseId, planId;
+            await using (var seed = _pg.NewContext())
+            {
+                (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(seed);
+                await AddPlanAsync(seed, p, "starter");
+                planId = (await AddPlanAsync(seed, p, "workshop")).Id;
+                licenseId = (await SeedLicenseAsync(seed, p, "starter")).Id;
+            }
+
+            var edit = Task.Run(async () =>
+            {
+                await using var db = _pg.NewContext();
+                try { await LicenseActivationTests.Create(db).Licenses.UpdateAsync(licenseId, new UpdateLicenseRequest { PlanName = "workshop" }, "admin"); }
+                catch (InvalidOperationException) { /* plan already gone */ }
+            });
+            var delete = Task.Run(async () =>
+            {
+                await using var db = _pg.NewContext();
+                try { await Plans(db).DeleteAsync(p, planId, "admin"); }
+                catch (InvalidOperationException) { /* the edit won: plan in use */ }
+            });
+            await Task.WhenAll(edit, delete);
+
+            await using var check = _pg.NewContext();
+            var onWorkshop = (await check.Licenses.IgnoreQueryFilters().SingleAsync(l => l.Id == licenseId)).PlanName == "workshop";
+            var planExists = await check.ProductPlans.AnyAsync(x => x.Id == planId);
+            Assert.True(planExists || !onWorkshop, "a license ended up on a plan that no longer exists");
+        }
+    }
+
+    [Fact]
+    public async Task EditPlanDeleteAndRemap_AllAtOnce_FinishWithoutDeadlock()
+    {
+        if (_pg is null)
+            return;
+        string p, planId;
+        string[] ids;
+        await using (var seed = _pg.NewContext())
+        {
+            (_, p) = await TrialAndComplimentaryTests.SeedCustomerAndProductAsync(seed);
+            await AddPlanAsync(seed, p, "workshop");
+            planId = (await AddPlanAsync(seed, p, "spare")).Id;
+            var seeded = new List<string>();
+            for (var i = 0; i < 6; i++)
+                seeded.Add((await SeedLicenseAsync(seed, p, "Pro")).Id);
+            ids = [.. seeded];
+        }
+
+        var work = new List<Task>();
+        foreach (var id in ids.Take(3))
+            work.Add(Task.Run(async () =>
+            {
+                await using var db = _pg.NewContext();
+                try { await LicenseActivationTests.Create(db).Licenses.UpdateAsync(id, new UpdateLicenseRequest { PlanName = "Pro" }, "admin"); }
+                catch (Exception ex) when (ex is DbUpdateConcurrencyException or InvalidOperationException) { }
+            }));
+        work.Add(Task.Run(async () =>
+        {
+            await using var db = _pg.NewContext();
+            await Plans(db).RemapAsync(p, new RemapProductPlanRequest { FromPlanName = "Pro", ToCode = "workshop" }, "admin");
+        }));
+        work.Add(Task.Run(async () =>
+        {
+            await using var db = _pg.NewContext();
+            await Plans(db).DeleteAsync(p, planId, "admin");
+        }));
+
+        var all = Task.WhenAll(work);
+        Assert.Same(all, await Task.WhenAny(all, Task.Delay(TimeSpan.FromSeconds(30)))); // a deadlock would time out here
+        await all;
+    }
 }

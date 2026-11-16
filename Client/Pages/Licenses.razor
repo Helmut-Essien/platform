@@ -101,7 +101,11 @@
                         @GetServiceLabel(context.Item)
                     </CellTemplate>
                 </TemplateColumn>
-                <PropertyColumn Property="x => x.PlanName" Title="Plan" />
+                <TemplateColumn Title="Plan" Sortable="true">
+                    <CellTemplate>
+                        @(context.Item.PlanDisplayName ?? context.Item.PlanName)
+                    </CellTemplate>
+                </TemplateColumn>
                 <TemplateColumn Title="Status" Sortable="true">
                     <CellTemplate>
                         <StatusBadge LicenseStatus="context.Item.Status" />
@@ -697,7 +701,7 @@
         var dialog = await DialogService.ShowAsync<RotateLicenseKeyDialog>("Rotate & Email License Key", new DialogParameters
         {
             [nameof(RotateLicenseKeyDialog.LicenseId)] = license.Id,
-            [nameof(RotateLicenseKeyDialog.CustomerLabel)] = $"{license.CustomerName} — {license.PlanName}"
+            [nameof(RotateLicenseKeyDialog.CustomerLabel)] = $"{license.CustomerName} — {license.PlanDisplayName ?? license.PlanName}"
         }, PlatformDialogOptions.Confirm);
         var result = await dialog.Result;
         if (result?.Canceled is not false || result.Data is not LicenseDto updated)

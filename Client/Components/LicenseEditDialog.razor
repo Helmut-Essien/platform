@@ -20,7 +20,7 @@
                            Class="mb-2">
                     @if (CurrentPlanOutsideCatalog)
                     {
-                        <MudSelectItem Value="@License.PlanName">@License.PlanName (@CurrentPlanNote)</MudSelectItem>
+                        <MudSelectItem Value="@License.PlanName">@(License.PlanDisplayName ?? License.PlanName) (@CurrentPlanNote)</MudSelectItem>
                     }
                     @foreach (var plan in ActivePlans)
                     {

@@ -18,7 +18,11 @@ public class LicenseDto
 
     public DateTime? ExpiresAt { get; set; }
 
+    /// <summary>The stored plan code (the value products receive). Use <see cref="PlanDisplayName"/> for people.</summary>
     public required string PlanName { get; set; }
+
+    /// <summary>The plan's display name for people; equals <see cref="PlanName"/> for unmapped legacy names and products without plans.</summary>
+    public string? PlanDisplayName { get; set; }
 
     public DateTime? LicenseKeySentAt { get; set; }
 
