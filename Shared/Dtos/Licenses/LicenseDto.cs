@@ -54,4 +54,7 @@ public class LicenseDto
 
     /// <summary>Devices allowed at once; null = unlimited.</summary>
     public int? MaxDevices { get; set; }
+
+    /// <summary>A scheduled price change waiting for its renewal invoice, if any.</summary>
+    public Platform.Shared.Dtos.ServiceProducts.LicensePriceChangeDto? PendingPriceChange { get; set; }
 }

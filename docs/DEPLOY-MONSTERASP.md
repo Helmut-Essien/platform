@@ -53,6 +53,7 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Billing__TrialMonths` | no | Length of a free trial in months (default `1`, 1–12). See §10. |
 | `Billing__TrialReminderDaysBefore` | no | Days before a trial ends that the reminder (with the first invoice, if priced) goes out (default `7`, 1–60). |
 | `Billing__TrialMaxTotalMonths` | no | Longest a trial can run, counting extensions, from its start (default `3`, at least `TrialMonths`, max 24). |
+| `Billing__PriceChangeNoticeDays` | no | Days before a scheduled plan price change takes effect that customers are emailed (default `30`, 0–365; `0` = no notice emails). Passed through by the deploy workflow. See §10. |
 
 ## 2. Create the site and database
 
@@ -117,7 +118,8 @@ Repository secrets (Settings → Secrets and variables → Actions):
 - Optional (skipped when empty): `AdminSeed__Email`, `AdminSeed__Password`, `Email__Provider`, `Email__FromAddress`,
   `Email__FromName`, `Email__ResendApiKey`, `Email__Host`, `Email__Port`, `Email__EnableSsl`, `Email__Username`,
   `Email__Password`, `Redis__ConnectionString`, `Database__MigrateOnStartup`, `Https__Redirect`, `CORS_ORIGINS`,
-  `ForwardedHeaders__Enabled`, `Paystack__SecretKey`, `Paystack__PublicKey`, `Paystack__CollectionCap`, and the `Licensing__*` settings from §1 (set `Licensing__TokenSigningKey` as one line with `\n` escapes).
+  `ForwardedHeaders__Enabled`, `Paystack__SecretKey`, `Paystack__PublicKey`, `Paystack__CollectionCap`, the `Licensing__*` settings from §1 (set `Licensing__TokenSigningKey` as one line with `\n` escapes), and
+  `Billing__PriceChangeNoticeDays`. Other `Billing__*` settings are not passed through; set them in the panel.
 
 Because the workflow writes these into `web.config`, settings in the panel for the same names are overridden by
 each deploy. Secret values are never printed; msdeploy output is masked.
@@ -287,6 +289,34 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 **Migration** `AddTrialsAndComplimentaryLicenses`: adds `Licenses.IsTrial`, `TrialStartedAt`, `TrialReminderForEndsAt`, `IsComplimentary`,
 `Invoices.IsTrialConversion` (all default false/null, existing licenses unchanged) and three partial indexes. Included in
 `docs/migrations-idempotent.sql`.
+
+### Plan prices and scheduled price changes
+
+- **Default price per plan** (Products → *Manage plans* → add/edit): optional amount, tax, currency and billing period (same rules as
+  license billing). Picking the plan in *Issue license* (or switching plan in *Edit license*) prefills the license price; you can
+  change it. Not used for complimentary licenses. Each license keeps its own price: editing the plan price never changes existing
+  licenses or invoices. The API create/update endpoints never apply it on their own.
+- **Change the price for existing customers** (*Manage plans* → $ icon on the plan):
+  1. Enter the new amount, tax, currency, optional new period, and the date it takes effect (today up to 5 years ahead).
+  2. *Preview* lists every license on the plan with old → new price. Complimentary, revoked, unpriced and already-at-this-price
+     licenses are not selectable; untick any license you want to leave out. A license whose next invoice is already issued
+     is flagged: that invoice keeps the old price and the new price starts with the following one.
+  3. Optionally tick *Also make this the plan's default price*, then *Schedule*.
+- Each selected license gets a **pending price change**. The first renewal invoice whose period starts on or after the effective date
+  is created at the new price, and the license's own price is updated at that moment. Invoices already issued never change.
+- **Notice email**: `Billing__PriceChangeNoticeDays` (default 30) before the effective date, once per change (hourly
+  `PriceChangeNoticeWorker`; sent immediately on scheduling if already inside the window). Suspended customers are skipped until reinstated.
+  Scheduling the exact same price and date again does nothing (no second email). On a plan with more than 2,000 licenses, schedule
+  the first page, then preview again: licenses already scheduled are listed last.
+- **Pending change on a license**: shown in the Licenses grid (*New price … from …*) and in *Edit license*, with *Cancel scheduled change*.
+  Editing the license's price or period, renewing at a new price, changing its plan (or remapping it), making it complimentary or
+  revoking it cancels the pending change. If the customer had already been notified they get a "price change cancelled" email
+  (not on revoke). Scheduling again for the same license replaces its pending change; if the old one was already announced,
+  the new notice goes out immediately.
+- Audit: *Plan price change scheduled*, *License price change scheduled / applied / cancelled / notice queued*.
+
+**Migration** `AddPlanPricesAndPriceChanges`: adds nullable `ProductPlans.Default*` columns and the `LicensePriceChanges` table
+(one pending change per license enforced by a partial unique index). Existing data unchanged. Included in `docs/migrations-idempotent.sql`.
 
 ## 11. License validation: signed tokens, devices and client integration
 

@@ -14,4 +14,7 @@ public class ProductPlanDto
     public int SortOrder { get; set; }
 
     public bool IsActive { get; set; }
+
+    /// <summary>Default price filled into a license when this plan is picked; null = none.</summary>
+    public PlanPriceDto? DefaultPrice { get; set; }
 }

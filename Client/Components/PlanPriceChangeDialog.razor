@@ -1,0 +1,355 @@
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+@* Schedules a new price for the licenses on one plan: enter the price and date, preview every license, untick
+   any to leave out, confirm. Each license keeps its old price until its first renewal on or after the date. *@
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Change price · @Plan.DisplayName (@Plan.Code)</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Each license keeps its current price until its first renewal invoice for a period starting on or after the
+            effective date; that invoice uses the new price and the license keeps it from then on. Invoices already
+            issued never change. Customers get a notice email @NoticeLabel before the date.
+        </MudText>
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@_error</MudAlert>
+        }
+        <MudGrid Spacing="2">
+            <MudItem xs="6" sm="3">
+                <MudNumericField T="decimal?" @bind-Value="_amount" @bind-Value:after="Invalidate" Label="New price per period" Min="0" Format="N2"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@_busy" />
+            </MudItem>
+            <MudItem xs="6" sm="2">
+                <MudNumericField T="decimal" @bind-Value="_tax" @bind-Value:after="Invalidate" Label="Tax" Min="0" Format="N2"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@_busy" />
+            </MudItem>
+            <MudItem xs="6" sm="2">
+                <MudTextField T="string" Value="_currency" ValueChanged="@((string? v) => { _currency = v?.Trim().ToUpperInvariant(); Invalidate(); })"
+                              Label="Currency" MaxLength="3" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@_busy" />
+            </MudItem>
+            <MudItem xs="6" sm="2">
+                <MudSelect T="int" @bind-Value="_period" @bind-Value:after="Invalidate" Label="Period" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@_busy">
+                    <MudSelectItem Value="0">Keep each license's</MudSelectItem>
+                    <MudSelectItem Value="1">Monthly</MudSelectItem>
+                    <MudSelectItem Value="3">Quarterly</MudSelectItem>
+                    <MudSelectItem Value="6">6 months</MudSelectItem>
+                    <MudSelectItem Value="12">Yearly</MudSelectItem>
+                    <MudSelectItem Value="24">2 years</MudSelectItem>
+                    <MudSelectItem Value="36">3 years</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="3">
+                <MudDatePicker @bind-Date="_effective" @bind-Date:after="Invalidate" Label="Effective from" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" MinDate="@DateTime.Today" Disabled="@_busy" />
+            </MudItem>
+        </MudGrid>
+        @if (BillingDefaults.LacksPayLink(_currency))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@BillingDefaults.NonPayLinkWarning</MudAlert>
+        }
+        <MudCheckBox @bind-Value="_updateDefault" Label="Also make this the plan's default price for new licenses" Color="Color.Primary" Disabled="@_busy" />
+        <div class="d-flex mt-1">
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PreviewAsync" Disabled="@(_busy || !InputReady)">
+                Preview licenses
+            </MudButton>
+        </div>
+
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" Class="my-3" />
+        }
+        else if (_preview is not null)
+        {
+            <MudDivider Class="my-3" />
+            @if (_preview.NoticeSentOnConfirm)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    The effective date is less than @_preview.NoticeDays days away, so the notice emails go out as soon as you confirm.
+                </MudAlert>
+            }
+            else if (_preview.NoticeDays == 0)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                    Notice emails are turned off on the server (Billing:PriceChangeNoticeDays = 0). Tell customers yourself.
+                </MudAlert>
+            }
+            @if (_preview.Truncated)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                    Only the first @_preview.Rows.Count licenses are listed. Schedule these, then open Change price again with the same price and date: licenses already scheduled are listed last, so the rest come up.
+                </MudAlert>
+            }
+            @if (_preview.Rows.Count == 0)
+            {
+                <MudText Typo="Typo.body2">No licenses are on this plan@(_preview.RevokedCount > 0 ? $" (apart from {_preview.RevokedCount} revoked)" : "").</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.caption" Class="d-block mb-1">
+                    @SelectedCount of @EligibleCount eligible license(s) selected.
+                    @(_preview.RevokedCount > 0 ? $"{_preview.RevokedCount} revoked license(s) are never changed." : "")
+                </MudText>
+                <MudTable Items="_preview.Rows" Dense="true" Hover="true" Elevation="0" FixedHeader="true" Height="360px">
+                    <HeaderContent>
+                        <MudTh>
+                            <MudCheckBox T="bool" Value="@(SelectedCount == EligibleCount && EligibleCount > 0)" ValueChanged="SelectAll"
+                                         Disabled="@(_busy || EligibleCount == 0)" aria-label="Select all eligible" />
+                        </MudTh>
+                        <MudTh>Customer</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh>Current price</MudTh>
+                        <MudTh>New price</MudTh>
+                        <MudTh>Note</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>
+                            <MudCheckBox T="bool" Value="@_selected.Contains(context.LicenseId)" Disabled="@(_busy || !context.Eligible)"
+                                         ValueChanged="@((bool v) => Toggle(context.LicenseId, v))" aria-label="@($"Include {context.CustomerName}")" />
+                        </MudTd>
+                        <MudTd>@context.CustomerName</MudTd>
+                        <MudTd>@context.Status@(context.IsTrial ? " (trial)" : "")@(context.CustomerSuspended ? " · customer suspended" : "")</MudTd>
+                        <MudTd>@PriceText.Format(context.CurrentAmount, context.CurrentTaxAmount, context.CurrentCurrency, context.CurrentPeriodMonths)</MudTd>
+                        <MudTd>
+                            @if (context.Eligible)
+                            {
+                                @PriceText.Format(_preview.NewAmount, _preview.NewTaxAmount, _preview.NewCurrency, context.NewPeriodMonths)
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </MudTd>
+                        <MudTd>
+                            @if (!context.Eligible)
+                            {
+                                <MudText Typo="Typo.caption">@context.IneligibleReason</MudText>
+                            }
+                            else
+                            {
+                                @if (context.ExistingPendingEffectiveFrom is { } existing)
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block">Replaces the change scheduled for @existing.ToString("d MMM yyyy")</MudText>
+                                }
+                                @if (context.NextInvoiceAlreadyIssued)
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block">Next invoice already issued at the old price; the new price starts the period after</MudText>
+                                }
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel" Disabled="_busy">Close</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ConfirmAsync"
+                   Disabled="@(_busy || _preview is null || (SelectedCount == 0 && !_updateDefault))">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+            }
+            @(SelectedCount == 0 ? "Update default price only" : $"Schedule for {SelectedCount} license(s)")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public required MudDialogInstance MudDialog { get; set; }
+
+    [Parameter] public required ServiceProductDto Product { get; set; }
+
+    [Parameter] public required ProductPlanDto Plan { get; set; }
+
+    private decimal? _amount;
+    private decimal _tax;
+    private string? _currency = BillingDefaults.Currency;
+    private int _period; // 0 = keep each license's own period
+    private DateTime? _effective = DateTime.Today.AddDays(30);
+    private bool _updateDefault = true;
+
+    private PlanPriceChangePreviewDto? _preview;
+    private readonly HashSet<string> _selected = new(StringComparer.Ordinal);
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+
+    private string NoticeLabel => _preview is null ? "ahead" : _preview.NoticeDays == 0 ? "(notices are off)" : $"{_preview.NoticeDays} days";
+
+    private bool InputReady => _amount is > 0 && _effective is not null;
+
+    private int EligibleCount => _preview?.Rows.Count(r => r.Eligible) ?? 0;
+
+    private int SelectedCount => _selected.Count;
+
+    protected override void OnInitialized()
+    {
+        if (Plan.DefaultPrice is { } p)
+        {
+            _amount = p.Amount;
+            _tax = p.TaxAmount;
+            _currency = p.Currency ?? BillingDefaults.Currency;
+        }
+    }
+
+    private PlanPriceChangeRequest BuildRequest() => new()
+    {
+        Amount = _amount ?? 0,
+        TaxAmount = _tax,
+        Currency = _currency,
+        PeriodMonths = _period == 0 ? null : _period,
+        EffectiveFrom = DateTime.SpecifyKind(_effective!.Value.Date, DateTimeKind.Unspecified)
+    };
+
+    /// <summary>Any input change makes the preview stale: it must be run again before confirming.</summary>
+    private void Invalidate()
+    {
+        _preview = null;
+        _selected.Clear();
+    }
+
+    private async Task PreviewAsync()
+    {
+        if (!InputReady || _busy)
+            return;
+        _busy = true;
+        _loading = true;
+        _error = null;
+        try
+        {
+            var result = await Api.PreviewPlanPriceChangeAsync(Product.Id, Plan.Id, BuildRequest());
+            if (!result.IsSuccess)
+            {
+                _error = result.ErrorMessage ?? "Couldn't load the preview.";
+                _preview = null;
+                return;
+            }
+            _preview = result.Data!;
+            _selected.Clear();
+            foreach (var row in _preview.Rows.Where(r => r.Eligible))
+                _selected.Add(row.LicenseId);
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _loading = false;
+            _busy = false;
+        }
+    }
+
+    private void Toggle(string licenseId, bool include)
+    {
+        if (include)
+            _selected.Add(licenseId);
+        else
+            _selected.Remove(licenseId);
+    }
+
+    private void SelectAll(bool include)
+    {
+        _selected.Clear();
+        if (include && _preview is not null)
+            foreach (var row in _preview.Rows.Where(r => r.Eligible))
+                _selected.Add(row.LicenseId);
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (_busy || _preview is null || !InputReady)
+            return;
+        var count = SelectedCount;
+        var newPrice = PriceText.Format(_preview.NewAmount, _preview.NewTaxAmount, _preview.NewCurrency, _preview.NewPeriodMonths ?? 12);
+        var message = count == 0
+            ? $"Set the default price of \"{Plan.DisplayName}\" to {newPrice}? No existing license changes."
+            : $"Schedule {newPrice} from {_preview.EffectiveFrom:d MMM yyyy} for {count} license(s)?"
+              + (_preview.NoticeSentOnConfirm ? " Notice emails go out now." : _preview.NoticeDays > 0 ? $" Notice emails go out {_preview.NoticeDays} days before." : "")
+              + (_updateDefault ? " The plan's default price changes too." : "");
+        var confirm = await DialogService.ShowAsync<ConfirmDialog>("Change price", new DialogParameters
+        {
+            ["Title"] = "Change price",
+            ["Message"] = message,
+            ["ConfirmText"] = count == 0 ? "Update" : "Schedule"
+        }, PlatformDialogOptions.Confirm);
+        var answer = await confirm.Result;
+        if (answer?.Canceled is not false)
+            return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            var request = new SchedulePlanPriceChangeRequest
+            {
+                Amount = _preview.NewAmount,
+                TaxAmount = _preview.NewTaxAmount,
+                Currency = _preview.NewCurrency,
+                PeriodMonths = _preview.NewPeriodMonths,
+                EffectiveFrom = DateTime.SpecifyKind(_preview.EffectiveFrom.Date, DateTimeKind.Unspecified),
+                LicenseIds = _selected.ToList(),
+                UpdatePlanDefaultPrice = _updateDefault
+            };
+            var result = await Api.SchedulePlanPriceChangeAsync(Product.Id, Plan.Id, request);
+            if (!result.IsSuccess)
+            {
+                _error = result.ErrorMessage ?? "Couldn't schedule the price change.";
+                return;
+            }
+            var r = result.Data!;
+            var parts = new List<string>();
+            if (r.ScheduledCount > 0)
+                parts.Add($"{r.ScheduledCount} license(s) scheduled");
+            if (r.ReplacedCount > 0)
+                parts.Add($"{r.ReplacedCount} earlier change(s) replaced");
+            if (r.SkippedCount > 0)
+                parts.Add($"{r.SkippedCount} skipped (already scheduled, or changed since the preview)");
+            if (r.NoticesQueuedCount > 0)
+                parts.Add($"{r.NoticesQueuedCount} notice(s) sent");
+            if (r.PlanDefaultPriceUpdated)
+                parts.Add("default price updated");
+            Snackbar.Add(parts.Count == 0 ? "Nothing changed." : string.Join(", ", parts) + ".", Severity.Success);
+
+            ProductPlanDto? updated = null;
+            if (r.PlanDefaultPriceUpdated)
+            {
+                updated = new ProductPlanDto
+                {
+                    Id = Plan.Id,
+                    ServiceProductId = Plan.ServiceProductId,
+                    Code = Plan.Code,
+                    DisplayName = Plan.DisplayName,
+                    SortOrder = Plan.SortOrder,
+                    IsActive = Plan.IsActive,
+                    DefaultPrice = new PlanPriceDto
+                    {
+                        Amount = request.Amount,
+                        TaxAmount = request.TaxAmount,
+                        Currency = request.Currency,
+                        PeriodMonths = request.PeriodMonths ?? Plan.DefaultPrice?.PeriodMonths ?? 12
+                    }
+                };
+            }
+            MudDialog.Close(DialogResult.Ok(updated));
+        }
+        catch (Exception)
+        {
+            _error = "Couldn't reach the server. Check your connection and try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        if (!_busy)
+            MudDialog.Cancel();
+    }
+}

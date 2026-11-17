@@ -459,6 +459,46 @@ public class PlatformApiClientTests
         Assert.Contains("License not found", result.ErrorMessage);
     }
 
+    [Fact]
+    public async Task PriceChangeCalls_UseTheirRoutes_AndEscapeIds()
+    {
+        var handler = new CapturingHttpMessageHandler(req => req.RequestUri!.AbsolutePath switch
+        {
+            var p when p.EndsWith("/preview") => JsonResponse(new PlanPriceChangePreviewDto { PlanCode = "workshop", PlanDisplayName = "Workshop", NewCurrency = "GHS" }),
+            var p when p.EndsWith("/price-change") => JsonResponse(new SchedulePlanPriceChangeResultDto { ScheduledCount = 2 }),
+            var p when p.EndsWith("/cancel") => JsonResponse(new LicensePriceChangeDto { Id = "c1", LicenseId = "l 1", PlanCode = "workshop", NewCurrency = "GHS" }),
+            _ => JsonResponse(new List<LicensePriceChangeDto>())
+        });
+        var client = CreateClient(handler);
+        var change = new PlanPriceChangeRequest { Amount = 700m, Currency = "GHS", EffectiveFrom = new DateTime(2027, 3, 1) };
+
+        Assert.True((await client.PreviewPlanPriceChangeAsync("p 1", "plan/1", change)).IsSuccess);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.EndsWith("api/serviceproducts/p%201/plans/plan%2F1/price-change/preview", handler.LastRequest.RequestUri!.AbsoluteUri);
+
+        var scheduled = await client.SchedulePlanPriceChangeAsync("p 1", "plan/1", new SchedulePlanPriceChangeRequest { Amount = 700m, LicenseIds = ["l1"] });
+        Assert.Equal(2, scheduled.Data!.ScheduledCount);
+        Assert.EndsWith("api/serviceproducts/p%201/plans/plan%2F1/price-change", handler.LastRequest.RequestUri!.AbsoluteUri);
+
+        Assert.True((await client.GetLicensePriceChangesAsync("l 1")).IsSuccess);
+        Assert.Equal(HttpMethod.Get, handler.LastRequest.Method);
+        Assert.EndsWith("api/licenses/l%201/price-changes", handler.LastRequest.RequestUri!.AbsoluteUri);
+
+        Assert.Equal("c1", (await client.CancelLicensePriceChangeAsync("l 1", "c/1")).Data!.Id);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest.Method);
+        Assert.EndsWith("api/licenses/l%201/price-changes/c%2F1/cancel", handler.LastRequest.RequestUri!.AbsoluteUri);
+    }
+
+    [Fact]
+    public void PriceText_FormatsPricesForTheAdminScreens()
+    {
+        Assert.Equal("No price", Platform.Client.Helpers.PriceText.Format(null, 0, "GHS", 12));
+        Assert.Equal("—", Platform.Client.Helpers.PriceText.Format(null));
+        Assert.Equal("GHS 600.00 + 90.00 tax / year", Platform.Client.Helpers.PriceText.Format(
+            new PlanPriceDto { Amount = 600m, TaxAmount = 90m, Currency = "GHS", PeriodMonths = 12 }));
+        Assert.Equal("USD 50.00 / 6 months", Platform.Client.Helpers.PriceText.Format(50m, 0, "USD", 6));
+    }
+
     private static PlatformApiClient CreateClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler)

@@ -113,4 +113,25 @@ public class ServiceProductsController(IServiceProductService serviceProducts, I
         CancellationToken cancellationToken) =>
         Ok(await productPlans.RemapAsync(
             id, request, AdminRequestContext.GetPerformedBy(HttpContext), AdminRequestContext.GetIpAddress(HttpContext), cancellationToken));
+
+    /// <summary>Licenses on the plan with their current and new price (nothing is changed).</summary>
+    [HttpPost("{id}/plans/{planId}/price-change/preview")]
+    public async Task<ActionResult<PlanPriceChangePreviewDto>> PreviewPriceChange(
+        string id,
+        string planId,
+        [FromBody] PlanPriceChangeRequest request,
+        [FromServices] Platform.Api.Services.PriceChanges.IPlanPriceChangeService priceChanges,
+        CancellationToken cancellationToken) =>
+        Ok(await priceChanges.PreviewAsync(id, planId, request, cancellationToken));
+
+    /// <summary>Schedules the new price on the chosen licenses from their first renewal on or after the effective date.</summary>
+    [HttpPost("{id}/plans/{planId}/price-change")]
+    public async Task<ActionResult<SchedulePlanPriceChangeResultDto>> SchedulePriceChange(
+        string id,
+        string planId,
+        [FromBody] SchedulePlanPriceChangeRequest request,
+        [FromServices] Platform.Api.Services.PriceChanges.IPlanPriceChangeService priceChanges,
+        CancellationToken cancellationToken) =>
+        Ok(await priceChanges.ScheduleAsync(
+            id, planId, request, AdminRequestContext.GetPerformedBy(HttpContext), AdminRequestContext.GetIpAddress(HttpContext), cancellationToken));
 }

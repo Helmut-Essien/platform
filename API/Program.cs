@@ -88,6 +88,8 @@ builder.Services.Configure<BillingSettings>(builder.Configuration.GetSection(Bil
 builder.Services.AddSingleton<Platform.Api.Services.Renewals.PayLinkService>();
 builder.Services.AddScoped<Platform.Api.Services.Renewals.PublicPayService>();
 builder.Services.AddHostedService<Platform.Api.Services.Renewals.RenewalInvoiceWorker>();
+builder.Services.AddScoped<Platform.Api.Services.PriceChanges.IPlanPriceChangeService, Platform.Api.Services.PriceChanges.PlanPriceChangeService>();
+builder.Services.AddHostedService<Platform.Api.Services.PriceChanges.PriceChangeNoticeWorker>();
 builder.Services.AddPlatformPayments(builder.Configuration);
 
 builder.Services.AddCors(options =>

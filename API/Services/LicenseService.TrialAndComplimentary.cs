@@ -168,6 +168,9 @@ public partial class LicenseService
             license.ExpiresAt = expiry;
             SetAnchor(license);
             license.UpdatedAt = now;
+            // Free licenses are never invoiced: a scheduled price change can't apply (the customer is told if notified).
+            await PriceChanges.LicensePriceChangeOps.CancelPendingAsync(db, auditLog, outbox, templates, [license],
+                PriceChanges.LicensePriceChangeOps.ReasonComplimentary, performedBy, ipAddress, notifyCustomer: true, ct);
 
             // Free access starts now. A manual suspension is the admin's call and stays; one caused by an overdue
             // invoice no longer applies.
@@ -232,6 +235,9 @@ public partial class LicenseService
 
             license.IsComplimentary = false;
             ApplyBilling(license, request.Billing, _defaultCurrency);
+            // Normally none is left (making it free cancelled it); the price set here wins either way.
+            await PriceChanges.LicensePriceChangeOps.CancelPendingAsync(db, auditLog, outbox, templates, [license],
+                PriceChanges.LicensePriceChangeOps.ReasonManualPrice, performedBy, ipAddress, notifyCustomer: false, ct);
             var previous = license.ExpiresAt;
             license.ExpiresAt = newExpiry;
             SetAnchor(license);

@@ -59,4 +59,10 @@ public class BillingSettings
 
     /// <summary>"Extend trial" can't push the trial end past this many months after the trial started (1–24).</summary>
     public int TrialMaxTotalMonths { get; set; } = 3;
+
+    /// <summary>
+    /// A scheduled price change emails the customer this many days before its effective date (0–365; 0 = no notice
+    /// emails). When the effective date is already closer than this, the notice is sent as soon as it's scheduled.
+    /// </summary>
+    public int PriceChangeNoticeDays { get; set; } = 30;
 }

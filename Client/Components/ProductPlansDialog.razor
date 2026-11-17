@@ -21,6 +21,7 @@
                 <HeaderContent>
                     <MudTh>Code</MudTh>
                     <MudTh>Display name</MudTh>
+                    <MudTh>Default price</MudTh>
                     <MudTh Class="cell-right">Order</MudTh>
                     <MudTh>Active</MudTh>
                     <MudTh Class="cell-right">Actions</MudTh>
@@ -28,6 +29,7 @@
                 <RowTemplate>
                     <MudTd><code>@context.Code</code></MudTd>
                     <MudTd>@context.DisplayName</MudTd>
+                    <MudTd>@PriceText.Format(context.DefaultPrice)</MudTd>
                     <MudTd Class="cell-right">@context.SortOrder</MudTd>
                     <MudTd>
                         <MudSwitch T="bool" Value="context.IsActive" Color="Color.Primary" Disabled="@_busy"
@@ -37,6 +39,10 @@
                     <MudTd Class="cell-right">
                         <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Disabled="@_busy"
                                        aria-label="Edit plan" OnClick="@(() => StartEdit(context))" />
+                        <MudTooltip Text="Change the price of licenses on this plan">
+                            <MudIconButton Icon="@Icons.Material.Filled.PriceChange" Size="Size.Small" Disabled="@_busy"
+                                           aria-label="Change price" OnClick="@(() => ChangePriceAsync(context))" />
+                        </MudTooltip>
                         <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" Disabled="@_busy"
                                        aria-label="Delete plan" OnClick="@(() => DeleteAsync(context))" />
                     </MudTd>
@@ -62,9 +68,37 @@
                 <MudTextField @bind-Value="_displayName" Label="Display name" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="100" />
             </MudItem>
             <MudItem xs="6" sm="3">
-                <MudNumericField T="int" @bind-Value="_sortOrder" Label="Order" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Max="100000" />
+                <MudNumericField T="int" @bind-Value="_sortOrder" Label="Order" Variant="Variant.Outlined" Margin="Margin.Dense" Min="0" Max="100000"
+                                 HelperText="Dropdown position" />
+            </MudItem>
+            <MudItem xs="6" sm="4">
+                <MudNumericField T="decimal?" @bind-Value="_priceAmount" Label="Default price (optional)" Min="0" Format="N2"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudNumericField T="decimal" @bind-Value="_priceTax" Label="Tax" Min="0" Format="N2"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_priceAmount is not > 0)" />
+            </MudItem>
+            <MudItem xs="6" sm="2">
+                <MudTextField T="string" Value="_priceCurrency" ValueChanged="@((string? v) => _priceCurrency = v?.Trim().ToUpperInvariant())"
+                              Label="Currency" MaxLength="3" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_priceAmount is not > 0)" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudSelect T="int" @bind-Value="_pricePeriod" Label="Period" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Disabled="@(_priceAmount is not > 0)">
+                    <MudSelectItem Value="1">Monthly</MudSelectItem>
+                    <MudSelectItem Value="3">Quarterly</MudSelectItem>
+                    <MudSelectItem Value="6">6 months</MudSelectItem>
+                    <MudSelectItem Value="12">Yearly</MudSelectItem>
+                    <MudSelectItem Value="24">2 years</MudSelectItem>
+                    <MudSelectItem Value="36">3 years</MudSelectItem>
+                </MudSelect>
             </MudItem>
         </MudGrid>
+        <MudText Typo="Typo.caption" Class="d-block mt-1">
+            The default price fills in a license's price when this plan is picked (you can still change it there).
+            Changing it later never changes existing licenses; use <strong>Change price</strong> on the plan for that.
+        </MudText>
         <div class="d-flex align-center gap-2 mt-1">
             @if (_editing is null)
             {
@@ -169,6 +203,22 @@
     private string _displayName = "";
     private int _sortOrder;
     private bool _isActive = true;
+    private decimal? _priceAmount;
+    private decimal _priceTax;
+    private string? _priceCurrency = BillingDefaults.Currency;
+    private int _pricePeriod = 12;
+
+    private PlanPriceDto? FormPrice => _priceAmount is > 0
+        ? new PlanPriceDto { Amount = _priceAmount.Value, TaxAmount = _priceTax, Currency = _priceCurrency, PeriodMonths = _pricePeriod }
+        : null;
+
+    private void LoadPrice(PlanPriceDto? price)
+    {
+        _priceAmount = price?.Amount;
+        _priceTax = price?.TaxAmount ?? 0m;
+        _priceCurrency = price?.Currency ?? BillingDefaults.Currency;
+        _pricePeriod = price?.PeriodMonths is >= 1 and <= 36 ? price.PeriodMonths : 12;
+    }
 
     private List<ProductPlanDto> ActivePlans => _plans.Where(p => p.IsActive).ToList();
 
@@ -210,6 +260,7 @@
         _displayName = plan.DisplayName;
         _sortOrder = plan.SortOrder;
         _isActive = plan.IsActive;
+        LoadPrice(plan.DefaultPrice);
         _error = null;
     }
 
@@ -220,6 +271,7 @@
         _displayName = "";
         _sortOrder = NextSortOrder();
         _isActive = true;
+        LoadPrice(null);
         _error = null;
     }
 
@@ -238,7 +290,8 @@
                     Code = _code.Trim(), // the server lowercases (A-Z only) and validates
                     DisplayName = _displayName.Trim(),
                     SortOrder = _sortOrder,
-                    IsActive = _isActive
+                    IsActive = _isActive,
+                    DefaultPrice = FormPrice
                 });
                 if (!result.IsSuccess)
                 {
@@ -254,7 +307,10 @@
                 {
                     DisplayName = _displayName.Trim(),
                     SortOrder = _sortOrder,
-                    IsActive = _editing.IsActive
+                    IsActive = _editing.IsActive,
+                    DefaultPrice = FormPrice,
+                    // Emptying the price removes the default; otherwise null would mean "unchanged".
+                    ClearDefaultPrice = FormPrice is null && _editing.DefaultPrice is not null
                 });
                 if (!result.IsSuccess)
                 {
@@ -395,6 +451,28 @@
         finally
         {
             _busy = false;
+        }
+    }
+
+    private async Task ChangePriceAsync(ProductPlanDto plan)
+    {
+        var dialog = await DialogService.ShowAsync<PlanPriceChangeDialog>($"Change price · {plan.DisplayName}", new DialogParameters
+        {
+            [nameof(PlanPriceChangeDialog.Product)] = Product,
+            [nameof(PlanPriceChangeDialog.Plan)] = plan
+        }, new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = true });
+        var result = await dialog.Result;
+        // The dialog may have updated the plan's default price.
+        if (result is { Canceled: false, Data: ProductPlanDto updated })
+        {
+            Replace(updated);
+            // Editing this plan right now: show the new default so saving the form doesn't put the old one back.
+            if (_editing?.Id == updated.Id)
+            {
+                _editing = updated;
+                LoadPrice(updated.DefaultPrice);
+            }
+            Publish();
         }
     }
 

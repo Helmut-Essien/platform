@@ -1403,5 +1403,95 @@ BEGIN
     VALUES ('20261116123702_AddProductPlans', '9.0.22');
     END IF;
 END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    ALTER TABLE "ProductPlans" ADD "DefaultAmount" numeric(18,2);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    ALTER TABLE "ProductPlans" ADD "DefaultCurrency" character varying(3);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    ALTER TABLE "ProductPlans" ADD "DefaultPeriodMonths" integer;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    ALTER TABLE "ProductPlans" ADD "DefaultTaxAmount" numeric(18,2) NOT NULL DEFAULT 0.0;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    CREATE TABLE "LicensePriceChanges" (
+        "Id" character varying(26) NOT NULL,
+        "LicenseId" character varying(26) NOT NULL,
+        "BatchId" character varying(26) NOT NULL,
+        "PlanCode" character varying(50) NOT NULL,
+        "Status" character varying(20) NOT NULL,
+        "EffectiveFrom" timestamp with time zone NOT NULL,
+        "OldAmount" numeric(18,2),
+        "OldTaxAmount" numeric(18,2) NOT NULL,
+        "OldCurrency" character varying(3),
+        "OldPeriodMonths" integer NOT NULL,
+        "NewAmount" numeric(18,2) NOT NULL,
+        "NewTaxAmount" numeric(18,2) NOT NULL,
+        "NewCurrency" character varying(3) NOT NULL,
+        "NewPeriodMonths" integer,
+        "NoticeQueuedAt" timestamp with time zone,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "CreatedBy" character varying(256),
+        "AppliedAt" timestamp with time zone,
+        "AppliedInvoiceId" character varying(26),
+        "CancelledAt" timestamp with time zone,
+        "CancelledBy" character varying(256),
+        "CancelReason" character varying(200),
+        "Version" bigint NOT NULL,
+        CONSTRAINT "PK_LicensePriceChanges" PRIMARY KEY ("Id"),
+        CONSTRAINT "FK_LicensePriceChanges_Licenses_LicenseId" FOREIGN KEY ("LicenseId") REFERENCES "Licenses" ("Id") ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    CREATE INDEX "IX_LicensePriceChanges_LicenseId_CreatedAt" ON "LicensePriceChanges" ("LicenseId", "CreatedAt");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    CREATE INDEX "IX_LicensePriceChanges_NoticeDue" ON "LicensePriceChanges" ("EffectiveFrom") WHERE "Status" = 'Pending' AND "NoticeQueuedAt" IS NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    CREATE UNIQUE INDEX "IX_LicensePriceChanges_OnePendingPerLicense" ON "LicensePriceChanges" ("LicenseId") WHERE "Status" = 'Pending';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20261117063636_AddPlanPricesAndPriceChanges') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20261117063636_AddPlanPricesAndPriceChanges', '9.0.22');
+    END IF;
+END $EF$;
 COMMIT;
 

@@ -24,6 +24,7 @@ This file is part of [platform-license-hub](SKILL.md).
 | `DisplayName` | What the admin sees, max 100, editable |
 | `SortOrder` | Dropdown order (ascending, then code) |
 | `IsActive` | Inactive plans can't be chosen for new issues or edits |
+| `DefaultAmount`, `DefaultTaxAmount`, `DefaultCurrency`, `DefaultPeriodMonths` | Optional default price (all null = none). Same rules as license billing (amount > 0, tax ≥ 0, 3-letter currency or the billing default when blank, period 1–36 months). UI prefill only |
 | `CreatedAt`, `UpdatedAt` | Timestamps |
 
 Unique index `IX_ProductPlans_ServiceProductId_Code`. `License.PlanName` **stores the code**; there is no `PlanId` column, so the validate body and token claim are untouched.
@@ -68,6 +69,26 @@ Plan changes are audited as `ProductPlanCreated`, `ProductPlanUpdated`, `Product
 **Upgrade or downgrade:** edit the **same key's** plan (and price or term if needed). Do not revoke and reissue: Platform allows only one open license per customer and product, and revoking would disconnect a shop that already attached that key.
 
 **The validate contract does not change:** `POST /api/licenses/validate` and `GET /api/licenses/keys` stay as they are (a test freezes the response/request shape and checks the mapped code in the body and the token).
+
+## Plan prices and scheduled price changes
+
+**Default price.** `ProductPlanDto.defaultPrice` `{amount, taxAmount, currency, periodMonths}` or null. Create takes `defaultPrice`; update takes `defaultPrice` (null = unchanged, so old clients can't wipe it) and `clearDefaultPrice:true` to remove it. Issue License prefills the billing fields when a plan is picked (not for complimentary; trials behave as before); Edit License prefills when the plan is changed. The admin can override. The API never applies it on its own. The license keeps its own copy, so changing the plan price never moves existing licenses.
+
+**Scheduled change** (`API/Services/PriceChanges/`):
+
+| Route | What |
+|-------|------|
+| `POST api/serviceproducts/{id}/plans/{planId}/price-change/preview` | `{amount, taxAmount, currency, periodMonths?, effectiveFrom}` → every license on the plan code (revoked counted, not listed), old vs new price, `eligible` + `ineligibleReason` (complimentary, no price, already at this price, already scheduled at this exact price and date), existing pending date, `nextInvoiceAlreadyIssued`, `noticeDays`, `noticeSentOnConfirm`. Max 2,000 rows (`truncated`); licenses already scheduled at this exact price and date are listed last, so previewing again after scheduling a full page shows the rest |
+| `POST api/serviceproducts/{id}/plans/{planId}/price-change` | Same plus `licenseIds` (the ticked ones, max 2,000) and `updatePlanDefaultPrice`. Returns scheduled / replaced / skipped / notices queued |
+| `GET api/licenses/{id}/price-changes` | History (latest 50) |
+| `POST api/licenses/{id}/price-changes/{changeId}/cancel` | Cancel a pending change (emails the customer only if the notice went out) |
+
+- Table `LicensePriceChanges`: old and new price snapshot, `EffectiveFrom` (date), `PlanCode`, `BatchId`, `Status` Pending/Applied/Cancelled, `NoticeQueuedAt`, `AppliedInvoiceId`, cancel info, `Version` token. At most one Pending per license (partial unique index); scheduling a different change **replaces** it (old one cancelled first, same transaction); scheduling the identical change again is skipped, so a double submit sends no second email. Same suspended-customer query filter as License; service code uses `IgnoreQueryFilters`.
+- **Apply:** `BillingService.CreateRenewalInvoiceAsync`, after the stale-invoice handling and under the license row lock, takes the pending change with `EffectiveFrom <= periodStart`, writes the new price (and period) onto the license, and bills the invoice at it. The license is re-read after its row lock, so an edit that committed while the invoice waited is billed as stored (or the run is skipped/409 if the expiry or eligibility moved). The change is marked Applied with `AppliedInvoiceId`. A change whose plan code no longer matches is cancelled instead (safety net). Issued invoices are never touched, so a license whose next invoice already exists gets the new price from the following period.
+- **Notice:** `Billing:PriceChangeNoticeDays` (default 30, 0–365, 0 = off). `PriceChangeNoticeWorker` runs hourly and queues the email once `EffectiveFrom - days` has arrived (concurrency token, so parallel runs send once). Scheduling inside the window queues it immediately (not for suspended customers, who are told once reinstated). The email says when the next invoice is already issued at the old price. A batch that loses a race to another run retries its other rows straight away. Display names are used, all values HTML-encoded.
+- **Manual edits (rule):** anything that changes the license price tuple (amount, tax, currency, period) or plan cancels the pending change: Edit License, Renew with a new price, plan remap, Make complimentary. Revoke cancels without an email. If the customer was notified, a "price change cancelled" email goes out (except revoke). Edits that leave the price alone (expiry, devices, auto-renew) keep it. Edit License shows the pending change and warns when saving would cancel it.
+- **Locks:** plan rows (shared; exclusive when the plan default is also updated) → license rows (`FOR UPDATE` in id order) → change rows. Billing: renewal advisory lock → invoice rows → license row → change rows. Preview and the list are batch queries (no N+1).
+- Audit: `PlanPriceChangeScheduled` (summary), `LicensePriceChangeScheduled`, `LicensePriceChangeApplied`, `LicensePriceChangeCancelled`, `LicensePriceChangeNoticeQueued`; the renewal audit carries `priceChangeId`.
 
 ## How it works with NeedleBase
 
@@ -116,6 +137,7 @@ For a trial key, pick the plan the shop will convert to (`workshop` or `producti
 - Display names must be one printable line (no control characters, line/paragraph separators or bidi overrides), max 100; a service holds at most 100 plans. Both are enforced server-side on create (and the name rule on edit).
 - A license edit sends its Redis calls (validation-cache invalidate, deny on expiry) only after the commit, so slow Redis never holds the plan or license locks.
 - Tokens issued before a remap keep the old `plan` until the product re-validates.
+- A price change scheduled with an effective date after a license's next invoice period start waits for the following renewal; preview shows the old vs new price, not when each license will switch.
 
 ## Related
 
