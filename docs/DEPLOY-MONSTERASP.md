@@ -311,6 +311,8 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
      licenses are not selectable; untick any license you want to leave out. A license whose next invoice is already issued
      is flagged: that invoice keeps the old price and the new price starts with the following one.
   3. Optionally tick *Also make this the plan's default price*, then *Schedule*.
+  With *Period: Keep each license's*, the amount is charged per each license's own period (GHS 750 would mean 750 a month
+  for a monthly license and 750 a year for a yearly one); the dialog warns when the selected licenses have different periods.
 - Each selected license gets a **pending price change**. The first renewal invoice whose period starts on or after the effective date
   is created at the new price, and the license's own price is updated at that moment. Invoices already issued never change.
 - **Notice email**: `Billing__PriceChangeNoticeDays` (default 30) before the effective date, once per change (hourly

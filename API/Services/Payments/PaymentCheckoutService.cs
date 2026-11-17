@@ -361,7 +361,7 @@ public sealed class PaymentCheckoutService(
     private async Task<bool> FlagAfterPaymentAsync(PaymentCheckout checkout, WebhookKind kind, PaystackWebhookEvent evt,
         bool fullRefund, string? reversalNote, CancellationToken cancellationToken)
     {
-        var amount = evt.AmountMinor is { } minor ? $" {MinorUnits.ToAmount(minor):0.00} {evt.Currency ?? checkout.Currency}" : string.Empty;
+        var amount = evt.AmountMinor is { } minor ? $" {Platform.Shared.Formatting.MoneyText.Format(MinorUnits.ToAmount(minor), evt.Currency ?? checkout.Currency)}" : string.Empty;
         string note;
         if (kind == WebhookKind.Refund)
         {
@@ -554,7 +554,7 @@ public sealed class PaymentCheckoutService(
                 "Paystack checkout {Reference}: paid {PaidMinor} {PaidCurrency} but expected {ExpectedMinor} {ExpectedCurrency}; flagged for review.",
                 checkout.Reference, verification.AmountMinor, verification.Currency, checkout.AmountMinor, checkout.Currency);
             return await MarkNeedsReviewAsync(checkout,
-                $"Paystack reported {MinorUnits.ToAmount(verification.AmountMinor):0.00} {verification.Currency}, expected {checkout.Amount:0.00} {checkout.Currency}.",
+                $"Paystack reported {(string.IsNullOrWhiteSpace(verification.Currency) ? $"{MinorUnits.ToAmount(verification.AmountMinor).ToString("N2", System.Globalization.CultureInfo.InvariantCulture)} (no currency)" : Platform.Shared.Formatting.MoneyText.Format(MinorUnits.ToAmount(verification.AmountMinor), verification.Currency))}, expected {Platform.Shared.Formatting.MoneyText.Format(checkout.Amount, checkout.Currency)}.",
                 cancellationToken);
         }
 

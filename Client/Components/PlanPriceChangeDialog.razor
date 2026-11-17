@@ -77,6 +77,16 @@
                     Notice emails are turned off on the server (Billing:PriceChangeNoticeDays = 0). Tell customers yourself.
                 </MudAlert>
             }
+            @if (MixedPeriods)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                    These licenses are billed over different periods (@string.Join(", ", EligiblePeriods.Select(PriceText.Period))).
+                    With "Keep each license's" period the same amount is charged per each license's own period, so
+                    @PriceText.Format(_preview.NewAmount, _preview.NewTaxAmount, _preview.NewCurrency, EligiblePeriods.Min()) and
+                    @PriceText.Format(_preview.NewAmount, _preview.NewTaxAmount, _preview.NewCurrency, EligiblePeriods.Max()) alike.
+                    Pick a Period, or untick the licenses on the other periods and schedule them separately.
+                </MudAlert>
+            }
             @if (_preview.Truncated)
             {
                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
@@ -186,6 +196,20 @@
 
     private int SelectedCount => _selected.Count;
 
+    /// <summary>Billing periods of the selected licenses (each keeps its own when no period is chosen).</summary>
+    private List<int> EligiblePeriods => _preview?.Rows
+        .Where(r => r.Eligible && _selected.Contains(r.LicenseId))
+        .Select(r => r.CurrentPeriodMonths).Distinct().OrderBy(m => m).ToList() ?? [];
+
+    private bool MixedPeriods => _preview?.NewPeriodMonths is null && EligiblePeriods.Count > 1;
+
+    /// <summary>"GHS 750.00 / year", or "GHS 750.00 per each license's own period" when the period is kept.</summary>
+    private string NewPriceLabel => _preview is null ? "" : _preview.NewPeriodMonths is { } months
+        ? PriceText.Format(_preview.NewAmount, _preview.NewTaxAmount, _preview.NewCurrency, months)
+        : $"{MoneyText.Format(_preview.NewAmount, _preview.NewCurrency)}"
+          + (_preview.NewTaxAmount > 0 ? $" + {MoneyText.Format(_preview.NewTaxAmount, _preview.NewCurrency)} tax" : "")
+          + " per each license's own billing period";
+
     protected override void OnInitialized()
     {
         if (Plan.DefaultPrice is { } p)
@@ -265,9 +289,9 @@
         if (_busy || _preview is null || !InputReady)
             return;
         var count = SelectedCount;
-        var newPrice = PriceText.Format(_preview.NewAmount, _preview.NewTaxAmount, _preview.NewCurrency, _preview.NewPeriodMonths ?? 12);
+        var newPrice = NewPriceLabel;
         var message = count == 0
-            ? $"Set the default price of \"{Plan.DisplayName}\" to {newPrice}? No existing license changes."
+            ? $"Set the default price of \"{Plan.DisplayName}\" to {PriceText.Format(_preview.NewAmount, _preview.NewTaxAmount, _preview.NewCurrency, _preview.NewPeriodMonths ?? Plan.DefaultPrice?.PeriodMonths ?? 12)}? No existing license changes."
             : $"Schedule {newPrice} from {_preview.EffectiveFrom:d MMM yyyy} for {count} license(s)?"
               + (_preview.NoticeSentOnConfirm ? " Notice emails go out now." : _preview.NoticeDays > 0 ? $" Notice emails go out {_preview.NoticeDays} days before." : "")
               + (_updateDefault ? " The plan's default price changes too." : "");
