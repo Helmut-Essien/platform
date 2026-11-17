@@ -28,6 +28,7 @@ public class PlanPriceChangeRequest
 public class SchedulePlanPriceChangeRequest : PlanPriceChangeRequest
 {
     /// <summary>Licenses to change. Each is re-checked on the server; ones no longer eligible are skipped.</summary>
+    [MaxLength(2000, ErrorMessage = "At most 2000 licenses can be changed at once")]
     public List<string> LicenseIds { get; set; } = [];
 
     /// <summary>Also make the new price the plan's default price (for new licenses).</summary>

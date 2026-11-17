@@ -214,6 +214,51 @@ public class PlanPriceChangeTests
             Schedule(Today.AddDays(40), ["x"]), "admin"));
     }
 
+    [Fact]
+    public async Task EffectiveDate_IsACalendarDay_FromTodayUpToFiveYears()
+    {
+        await using var db = CreateDb();
+        var f = await SeedPlanAsync(db);
+        var service = PriceChanges(db);
+        PlanPriceChangeRequest At(DateTime d) => Schedule(d, []);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.PreviewAsync(f.ProductId, f.Plan.Id, At(Today.AddDays(-1))));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.PreviewAsync(f.ProductId, f.Plan.Id, At(Today.AddYears(5).AddDays(1))));
+        Assert.Equal(Today, (await service.PreviewAsync(f.ProductId, f.Plan.Id, At(Today))).EffectiveFrom);
+        Assert.Equal(Today.AddYears(5), (await service.PreviewAsync(f.ProductId, f.Plan.Id, At(Today.AddYears(5)))).EffectiveFrom);
+        // A time of day (or an unspecified kind from a browser) is dropped: only the date counts, stored as UTC midnight.
+        var withTime = DateTime.SpecifyKind(Today.AddDays(3).AddHours(23).AddMinutes(59), DateTimeKind.Unspecified);
+        var preview = await service.PreviewAsync(f.ProductId, f.Plan.Id, At(withTime));
+        Assert.Equal(Today.AddDays(3), preview.EffectiveFrom);
+        Assert.Equal(DateTimeKind.Utc, preview.EffectiveFrom.Kind);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.PreviewAsync(f.ProductId, f.Plan.Id,
+            new PlanPriceChangeRequest { Amount = 700.005m, Currency = "GHS", EffectiveFrom = Today }));
+    }
+
+    [Fact]
+    public async Task Schedule_IgnoresIdsThatCantBeLicenses_AndCountsThemAsSkipped()
+    {
+        await using var db = CreateDb();
+        var f = await SeedPlanAsync(db);
+        var license = await SeedLicenseAsync(db, f.ProductId);
+
+        var result = await PriceChanges(db).ScheduleAsync(f.ProductId, f.Plan.Id,
+            Schedule(Today.AddDays(90), [license.Id, new string('x', 500), " ", license.Id]), "admin");
+
+        Assert.Equal(1, result.ScheduledCount);
+        Assert.Equal(1, result.SkippedCount);
+    }
+
+    [Fact]
+    public void ScheduleRequest_RejectsMoreThan2000Licenses_BeforeTheServiceRuns()
+    {
+        var request = Schedule(Today, Enumerable.Range(0, 2001).Select(i => $"id{i}"));
+        var errors = new List<System.ComponentModel.DataAnnotations.ValidationResult>();
+        Assert.False(System.ComponentModel.DataAnnotations.Validator.TryValidateObject(request,
+            new System.ComponentModel.DataAnnotations.ValidationContext(request), errors, validateAllProperties: true));
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(SchedulePlanPriceChangeRequest.LicenseIds)));
+    }
+
     // ----- schedule -----------------------------------------------------------------------------------
 
     [Fact]
@@ -487,6 +532,9 @@ public class PlanPriceChangeTests
         Assert.Equal(1, await MailCountAsync(db, EmailDeliveryKind.PriceChangeNotice, soon.Id));
         Assert.Equal(0, await MailCountAsync(db, EmailDeliveryKind.PriceChangeNotice, later.Id));
         Assert.Equal(1, await db.AuditLogs.CountAsync(a => a.Action == AuditAction.LicensePriceChangeNoticeQueued));
+        // Every notice has its audit row and vice versa (one save).
+        Assert.Equal(await db.EmailOutboxMessages.CountAsync(m => m.Kind == EmailDeliveryKind.PriceChangeNotice),
+            await db.AuditLogs.CountAsync(a => a.Action == AuditAction.LicensePriceChangeNoticeQueued));
     }
 
     // ----- cancel and interactions --------------------------------------------------------------------

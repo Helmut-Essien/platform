@@ -186,14 +186,16 @@ public class PlanPriceChangeService(
     {
         var now = DateTime.UtcNow;
         var price = Normalize(request, now);
-        var requested = (request.LicenseIds ?? [])
+        var submitted = (request.LicenseIds ?? [])
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Select(id => id.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        if (requested.Count == 0 && !request.UpdatePlanDefaultPrice)
+        // License ids are ULIDs: anything longer can't match, so it is skipped without reaching the database.
+        var requested = submitted.Where(id => id.Length <= 26).ToList();
+        if (submitted.Count == 0 && !request.UpdatePlanDefaultPrice)
             throw new InvalidOperationException("Choose at least one license (or only update the plan's default price).");
-        if (requested.Count > MaxScheduleLicenses)
+        if (submitted.Count > MaxScheduleLicenses)
             throw new InvalidOperationException($"At most {MaxScheduleLicenses} licenses can be changed at once.");
         await LoadPlanAsync(serviceProductId, planId, tracked: false, cancellationToken); // 404s before any locking
 
@@ -308,7 +310,7 @@ public class PlanPriceChangeService(
                     periodMonths = price.PeriodMonths,
                     scheduled = eligible.Count,
                     replaced,
-                    skipped = requested.Count - eligible.Count,
+                    skipped = submitted.Count - eligible.Count,
                     noticesQueued = notices,
                     planDefaultUpdated = defaultUpdated
                 }), ipAddress));
@@ -321,7 +323,7 @@ public class PlanPriceChangeService(
             {
                 ScheduledCount = eligible.Count,
                 ReplacedCount = replaced,
-                SkippedCount = requested.Count - eligible.Count,
+                SkippedCount = submitted.Count - eligible.Count,
                 NoticesQueuedCount = notices,
                 PlanDefaultPriceUpdated = defaultUpdated
             };
@@ -440,8 +442,9 @@ public class PlanPriceChangeService(
             }
             try
             {
-                // Save first: if another run (or a cancel) won the race, nothing is sent or audited for this batch.
-                await db.SaveChangesAsync(cancellationToken);
+                // One save for the notices, their change rows and audit rows: if another run (or a cancel) won the
+                // race, nothing is sent or audited for this batch, and a notice is never sent without its audit row.
+                await auditLog.WriteBatchAsync(audits, cancellationToken);
             }
             catch (DbUpdateConcurrencyException ex)
             {
@@ -455,7 +458,6 @@ public class PlanPriceChangeService(
                 db.ChangeTracker.Clear();
                 continue;
             }
-            await auditLog.WriteBatchAsync(audits, cancellationToken);
             queued += due.Count;
             db.ChangeTracker.Clear();
             if (due.Count < NoticeBatchSize)
