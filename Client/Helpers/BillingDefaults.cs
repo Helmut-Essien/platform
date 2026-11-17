@@ -4,7 +4,7 @@ namespace Platform.Client.Helpers;
 public static class BillingDefaults
 {
     /// <summary>Paystack (online pay links) only collects Ghana cedis.</summary>
-    public const string Currency = "GHS";
+    public const string Currency = Platform.Shared.Formatting.MoneyText.PrimaryCurrency;
 
     public const string NonPayLinkWarning =
         "Online pay links (Mobile Money / card) are only available for GHS invoices. The customer will have to pay this one offline.";

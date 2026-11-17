@@ -104,6 +104,13 @@
                 <TemplateColumn Title="Plan" Sortable="true">
                     <CellTemplate>
                         @(context.Item.PlanDisplayName ?? context.Item.PlanName)
+                        @if (context.Item.PendingPriceChange is { } change)
+                        {
+                            <div class="mud-text-secondary" style="font-size:0.75rem;"
+                                 title="Scheduled price change: the first renewal on or after this date bills the new price">
+                                New price @MoneyText.Format(change.NewAmount, change.NewCurrency) from @change.EffectiveFrom.ToString("d MMM yyyy")
+                            </div>
+                        }
                     </CellTemplate>
                 </TemplateColumn>
                 <TemplateColumn Title="Status" Sortable="true">
@@ -575,6 +582,9 @@
     private async Task EditAsync(LicenseDto license)
     {
         await RefreshProductsAsync();
+        // The grid row can be minutes old: edit the current price and scheduled price change.
+        license = await Api.GetLicenseAsync(license.Id) ?? license;
+        var hadPendingPrice = license.PendingPriceChange is not null;
         // Saved inside the dialog (busy state, closes only on success); result captured here for feedback.
         ApiResult<LicenseDto>? apiResult = null;
         Task<ApiResult<LicenseDto>>? pending = null;
@@ -599,7 +609,12 @@
                 Snackbar.Add(apiResult.ErrorMessage ?? "Update failed.", Severity.Error);
         }
         if (apiResult is not { IsSuccess: true })
+        {
+            // A scheduled price change may have been cancelled inside the dialog without saving the edit.
+            if (hadPendingPrice && license.PendingPriceChange is null)
+                await ReloadGrid();
             return;
+        }
 
         Snackbar.Add("License updated.", Severity.Success);
         await ReloadGrid();

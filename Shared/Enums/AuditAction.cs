@@ -53,5 +53,10 @@ public enum AuditAction
     ProductPlanCreated,
     ProductPlanUpdated,
     ProductPlanDeleted,
-    LicensePlansRemapped
+    LicensePlansRemapped,
+    PlanPriceChangeScheduled,
+    LicensePriceChangeScheduled,
+    LicensePriceChangeApplied,
+    LicensePriceChangeCancelled,
+    LicensePriceChangeNoticeQueued
 }

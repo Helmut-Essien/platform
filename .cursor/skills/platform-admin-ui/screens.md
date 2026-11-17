@@ -499,7 +499,7 @@ Fixed bottom glass panel when rows selected: **Rotate & Email Keys** (destructiv
 
 `LicenseDevicesDialog` (Licenses → ⋮ → Devices): slots used/max bar (warning alert when all slots are taken), device list (name, fingerprint, first/last seen, status), a Release button per active device and "Release all", each behind a destructive `ConfirmDialog`. API: `GET api/licenses/{id}/devices`, `POST .../devices/{deviceId}/release`, `POST .../devices/release-all` (admin-only, audited, idempotent, row-locked; no cache to invalidate because validation reads PostgreSQL). A released device re-registers on its next check if a slot is free, else gets `device_limit`.
 
-`ProductPlansDialog` (Services → Manage plans): plan table with active switch, add/edit form, and the list of plan names found on existing licenses with a preview-and-confirm "Map to" action. Add/Edit Service has a "Default max devices" field.
+`ProductPlansDialog` (Services → Manage plans): plan table with active switch, add/edit form, and the list of plan names found on existing licenses with a preview-and-confirm "Map to" action. Plans have an optional default price (column + form fields, "clear" removes it) and a Change price action opening `PlanPriceChangeDialog`: new price + effective date → Preview table (old → new per license, checkboxes, ineligible rows greyed with the reason, "next invoice already issued" flag) → confirm → schedule, optionally also updating the plan default. Issue/Edit License prefill the price from the plan; Edit License shows a pending price change with a Cancel button and a "saving cancels it" warning; the Licenses grid Plan cell shows "New price … from …". Add/Edit Service has a "Default max devices" field.
 
 ### Activate License flow (hybrid)
 
@@ -509,7 +509,7 @@ Only available on Pending / Suspended / Expired licenses. Independent toggles de
 |-------|-----------|-------|
 | Subtotal | `MudTextField` numeric | Required, decimal |
 | Tax Amount | `MudTextField` numeric | Required, decimal |
-| Currency | `MudTextField` | Default "USD", max 3 chars |
+| Currency | `MudTextField` | Default "GHS", max 3 chars |
 | Due Date | `MudDatePicker` | Optional |
 | Description | `MudTextField` | Optional |
 
@@ -673,7 +673,7 @@ Follows [Form patterns](#form-patterns).
 | Status | `MudSelect` | Default Sent |
 | Subtotal | `MudTextField` numeric | Required |
 | Tax Amount | `MudTextField` numeric | Required |
-| Currency | `MudTextField` | Default "USD" |
+| Currency | `MudTextField` | Default "GHS" |
 | Due Date | `MudDatePicker` | Optional |
 | Plan Name | `MudTextField` | Optional |
 | Description | `MudTextField` | Optional |

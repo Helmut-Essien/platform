@@ -5,6 +5,7 @@
 @token =
 @serviceProductId =
 @planId =
+@priceChangeId =
 @licenseId =
 @deviceId =
 @integrationKey =
@@ -93,10 +94,11 @@ Content-Type: application/json
   "code": "workshop",
   "displayName": "Workshop",
   "sortOrder": 20,
-  "isActive": true
+  "isActive": true,
+  "defaultPrice": { "amount": 600.00, "taxAmount": 0, "currency": "GHS", "periodMonths": 12 }
 }
 
-### Plans: update name / order / active (the code cannot change)
+### Plans: update name / order / active (the code cannot change; omitting defaultPrice keeps it)
 PUT {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -105,6 +107,58 @@ Content-Type: application/json
   "displayName": "Workshop",
   "sortOrder": 20,
   "isActive": true
+}
+
+### Plans: set the default price (UI prefill only; existing licenses keep their own price)
+PUT {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "displayName": "Workshop",
+  "sortOrder": 20,
+  "isActive": true,
+  "defaultPrice": { "amount": 650.00, "taxAmount": 0, "currency": "GHS", "periodMonths": 12 }
+}
+
+### Plans: clear the default price
+PUT {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "displayName": "Workshop",
+  "sortOrder": 20,
+  "isActive": true,
+  "clearDefaultPrice": true
+}
+
+### Plans: preview a price change for existing licenses (nothing changes)
+POST {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}/price-change/preview
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "amount": 700.00,
+  "taxAmount": 0,
+  "currency": "GHS",
+  "periodMonths": 12,
+  "effectiveFrom": "2027-03-01"
+}
+
+### Plans: schedule the price change for the chosen licenses (use the eligible licenseIds from the preview)
+POST {{API_HostAddress}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}/price-change
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "amount": 700.00,
+  "taxAmount": 0,
+  "currency": "GHS",
+  "periodMonths": 12,
+  "effectiveFrom": "2027-03-01",
+  "licenseIds": ["{{licenseId}}"],
+  "updatePlanDefaultPrice": true
 }
 
 ### Plans: delete (refused while a license is on it; deactivate instead)
@@ -136,6 +190,14 @@ Content-Type: application/json
   "toCode": "workshop",
   "dryRun": false
 }
+
+### Licenses: scheduled price changes (latest 50; use a pending id as priceChangeId)
+GET {{API_HostAddress}}/api/licenses/{{licenseId}}/price-changes
+Authorization: Bearer {{token}}
+
+### Licenses: cancel a pending price change (emails the customer only if the notice already went out)
+POST {{API_HostAddress}}/api/licenses/{{licenseId}}/price-changes/{{priceChangeId}}/cancel
+Authorization: Bearer {{token}}
 
 ### Licenses: update (planName must be an active plan code once the product has plans)
 PUT {{API_HostAddress}}/api/licenses/{{licenseId}}

@@ -14,4 +14,10 @@ public class UpdateProductPlanRequest
 
     /// <summary>False deactivates: blocks new issues and edits onto the plan; existing keys keep working.</summary>
     public bool IsActive { get; set; } = true;
+
+    /// <summary>New default price; null leaves it unchanged (so a client that omits it can't wipe it).</summary>
+    public PlanPriceDto? DefaultPrice { get; set; }
+
+    /// <summary>True (with <see cref="DefaultPrice"/> null) removes the plan's default price.</summary>
+    public bool ClearDefaultPrice { get; set; }
 }

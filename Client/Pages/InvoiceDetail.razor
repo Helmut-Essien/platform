@@ -537,6 +537,7 @@ else
         var dialog = await DialogService.ShowAsync<RecordReceiptDialog>("Record Payment", new DialogParameters
         {
             [nameof(RecordReceiptDialog.AmountDue)] = _invoice.AmountDue,
+            [nameof(RecordReceiptDialog.Currency)] = _invoice.Currency,
             [nameof(RecordReceiptDialog.Submit)] = submit
         });
         await dialog.Result;
@@ -573,6 +574,7 @@ else
         {
             [nameof(ReverseReceiptDialog.ReceiptNumber)] = receipt.ReceiptNumber,
             [nameof(ReverseReceiptDialog.Amount)] = receipt.AmountPaid,
+            [nameof(ReverseReceiptDialog.Currency)] = _invoice.Currency,
             [nameof(ReverseReceiptDialog.Submit)] = submit
         });
         await dialog.Result;
@@ -629,18 +631,7 @@ else
         await LoadAsync();
     }
 
-    private static string FormatMoney(decimal amount, string currency)
-    {
-        var code = string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim().ToUpperInvariant();
-        return code switch
-        {
-            "USD" => $"${amount:N2}",
-            "EUR" => $"€{amount:N2}",
-            "GBP" => $"£{amount:N2}",
-            "GHS" => $"GH₵{amount:N2}",
-            _ => $"{code} {amount:N2}"
-        };
-    }
+    private static string FormatMoney(decimal amount, string currency) => MoneyText.Format(amount, currency);
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..(max - 1)] + "…";

@@ -11,6 +11,7 @@
     { "key": "serviceProductId", "value": "" },
     { "key": "licenseId", "value": "" },
     { "key": "planId", "value": "" },
+    { "key": "priceChangeId", "value": "" },
     { "key": "deviceId", "value": "" },
     { "key": "invoiceId", "value": "" },
     { "key": "integrationKey", "value": "" },
@@ -145,12 +146,12 @@
             {
               "name": "Create plan",
               "request": {
-                "description": "code: lowercase a-z/0-9 with single - or _ between parts, max 50, fixed after creation. displayName is what people see (grid, emails, invoices); licenses store the code.",
+                "description": "code: lowercase a-z/0-9 with single - or _ between parts, max 50, fixed after creation. displayName is what people see (grid, emails, invoices); licenses store the code. defaultPrice is optional (UI prefill only).",
                 "method": "POST",
                 "header": [{ "key": "Content-Type", "value": "application/json" }],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"code\": \"workshop\",\n  \"displayName\": \"Workshop\",\n  \"sortOrder\": 20,\n  \"isActive\": true\n}"
+                  "raw": "{\n  \"code\": \"workshop\",\n  \"displayName\": \"Workshop\",\n  \"sortOrder\": 20,\n  \"isActive\": true,\n  \"defaultPrice\": { \"amount\": 600.00, \"taxAmount\": 0, \"currency\": \"GHS\", \"periodMonths\": 12 }\n}"
                 },
                 "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans"
               }
@@ -166,6 +167,78 @@
                   "raw": "{\n  \"displayName\": \"Workshop\",\n  \"sortOrder\": 20,\n  \"isActive\": true\n}"
                 },
                 "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}"
+              }
+            },
+            {
+              "name": "Update plan (set default price)",
+              "request": {
+                "description": "Sets the default price used to prefill new licenses. Existing licenses keep their own price; omit defaultPrice to leave it unchanged.",
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"displayName\": \"Workshop\",\n  \"sortOrder\": 20,\n  \"isActive\": true,\n  \"defaultPrice\": { \"amount\": 650.00, \"taxAmount\": 0, \"currency\": \"GHS\", \"periodMonths\": 12 }\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}"
+              }
+            },
+            {
+              "name": "Update plan (clear default price)",
+              "request": {
+                "description": "Removes the plan's default price.",
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"displayName\": \"Workshop\",\n  \"sortOrder\": 20,\n  \"isActive\": true,\n  \"clearDefaultPrice\": true\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}"
+              }
+            },
+            {
+              "name": "Price change: preview",
+              "request": {
+                "description": "Lists every license on the plan with old vs new price and whether it can be selected. Nothing changes.",
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 700.00,\n  \"taxAmount\": 0,\n  \"currency\": \"GHS\",\n  \"periodMonths\": 12,\n  \"effectiveFrom\": \"2027-03-01\"\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}/price-change/preview"
+              }
+            },
+            {
+              "name": "Price change: schedule",
+              "request": {
+                "description": "Schedules the change for the ticked licenses (max 2000). Applied by the first renewal invoice whose period starts on or after effectiveFrom; customers are emailed Billing:PriceChangeNoticeDays before.",
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 700.00,\n  \"taxAmount\": 0,\n  \"currency\": \"GHS\",\n  \"periodMonths\": 12,\n  \"effectiveFrom\": \"2027-03-01\",\n  \"licenseIds\": [\"{{licenseId}}\"],\n  \"updatePlanDefaultPrice\": true\n}"
+                },
+                "url": "{{baseUrl}}/api/serviceproducts/{{serviceProductId}}/plans/{{planId}}/price-change"
               }
             },
             {
@@ -245,6 +318,22 @@
               "raw": "{\n  \"planName\": \"workshop\",\n  \"expiresAt\": \"2027-12-31T00:00:00Z\",\n  \"maxDevices\": 1\n}"
             },
             "url": "{{baseUrl}}/api/licenses/{{licenseId}}"
+          }
+        },
+        {
+          "name": "Price changes: list",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/licenses/{{licenseId}}/price-changes",
+            "description": "Scheduled, applied and cancelled price changes (latest 50). Use a pending id as priceChangeId."
+          }
+        },
+        {
+          "name": "Price changes: cancel",
+          "request": {
+            "description": "Cancels a pending price change. The customer is emailed only if the notice already went out.",
+            "method": "POST",
+            "url": "{{baseUrl}}/api/licenses/{{licenseId}}/price-changes/{{priceChangeId}}/cancel"
           }
         },
         {

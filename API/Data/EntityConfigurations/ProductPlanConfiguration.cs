@@ -30,6 +30,10 @@ public class ProductPlanConfiguration : IEntityTypeConfiguration<ProductPlan>
 
         builder.Property(p => p.IsActive).HasDefaultValue(true);
 
+        builder.Property(p => p.DefaultAmount).HasPrecision(18, 2);
+        builder.Property(p => p.DefaultTaxAmount).HasPrecision(18, 2).HasDefaultValue(0m);
+        builder.Property(p => p.DefaultCurrency).HasMaxLength(3);
+
         builder.Property(p => p.CreatedAt).IsRequired();
         builder.Property(p => p.UpdatedAt).IsRequired();
 

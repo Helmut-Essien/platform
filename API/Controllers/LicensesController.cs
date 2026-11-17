@@ -229,6 +229,24 @@ public class LicensesController(
                 cancellationToken)
         });
 
+    /// <summary>The license's scheduled price changes, newest first (pending, applied, cancelled).</summary>
+    [HttpGet("{id}/price-changes")]
+    public async Task<ActionResult<IReadOnlyList<Platform.Shared.Dtos.ServiceProducts.LicensePriceChangeDto>>> PriceChanges(
+        string id,
+        [FromServices] Platform.Api.Services.PriceChanges.IPlanPriceChangeService priceChanges,
+        CancellationToken cancellationToken)
+        => Ok(await priceChanges.ListForLicenseAsync(id, cancellationToken));
+
+    /// <summary>Cancels a pending price change (the customer is told if the notice already went out).</summary>
+    [HttpPost("{id}/price-changes/{changeId}/cancel")]
+    public async Task<ActionResult<Platform.Shared.Dtos.ServiceProducts.LicensePriceChangeDto>> CancelPriceChange(
+        string id,
+        string changeId,
+        [FromServices] Platform.Api.Services.PriceChanges.IPlanPriceChangeService priceChanges,
+        CancellationToken cancellationToken)
+        => Ok(await priceChanges.CancelAsync(
+            id, changeId, AdminRequestContext.GetPerformedBy(HttpContext), AdminRequestContext.GetIpAddress(HttpContext), cancellationToken));
+
     [HttpPost("{id}/resend-key")]
     public async Task<ActionResult<LicenseDto>> ResendKey(string id, CancellationToken cancellationToken)
         => await RotateKey(id, cancellationToken);

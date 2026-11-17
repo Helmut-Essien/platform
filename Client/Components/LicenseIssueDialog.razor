@@ -42,10 +42,12 @@
                     </MudAlert>
                 }
                 <MudSelect T="string" @bind-Value="_model.PlanName"
+                           @bind-Value:after="OnPlanChanged"
                            For="@(() => _model.PlanName)"
                            Label="Plan"
                            Required="true"
                            RequiredError="Plan is required"
+                           HelperText="@PlanPriceHelper"
                            Disabled="@(ActivePlans.Count == 0)"
                            Variant="Variant.Outlined"
                            Class="mb-2">
@@ -190,13 +192,17 @@
         {
             var b = _model.Billing!;
             var period = b.PeriodMonths switch { 1 => "month", 12 => "year", _ => $"{b.PeriodMonths} months" };
-            return $"{b.Currency} {b.Amount + b.TaxAmount:N2} per {period}";
+            return $"{MoneyText.Format((b.Amount ?? 0) + b.TaxAmount, b.Currency)} per {period}";
         }
     }
 
     private void OnKindChanged(IssueKind kind)
     {
+        var wasComplimentary = _kind == IssueKind.Complimentary;
         _kind = kind;
+        // Coming back from complimentary (where the price was hidden): fill the plan's price if none is typed.
+        if (wasComplimentary && kind != IssueKind.Complimentary && _model.Billing?.Amount is not > 0)
+            ApplyPlanPrice();
         _model.Trial = kind == IssueKind.Trial;
         _model.Complimentary = kind == IssueKind.Complimentary;
         if (kind != IssueKind.Paid)
@@ -246,8 +252,57 @@
 
     private void OnProductChanged()
     {
-        // A plan belongs to one service: never carry the previous service's plan over.
+        // A plan belongs to one service: never carry the previous service's plan (or its untouched price) over.
         _model.PlanName = "";
+        ApplyPlanPrice();
+    }
+
+    private ProductPlanDto? SelectedPlan => ActivePlans.FirstOrDefault(p => p.Code == _model.PlanName);
+
+    private string? PlanPriceHelper => SelectedPlan?.DefaultPrice is { } price
+        ? $"Default price {PriceText.Format(price)}" + (_kind == IssueKind.Complimentary ? " (not used: complimentary is free)" : ", filled in below; you can change it")
+        : null;
+
+    /// <summary>
+    /// Picking a plan fills the price fields from its default price (the admin can still change them). Not for
+    /// complimentary licenses, which have no price; a trial gets it as the price after the trial, as if typed.
+    /// </summary>
+    private void OnPlanChanged()
+    {
+        if (_kind != IssueKind.Complimentary)
+            ApplyPlanPrice();
+    }
+
+    // The price last filled in from a plan; while the fields still hold it, picking another plan may replace or clear it.
+    private LicenseBillingDto? _prefill;
+
+    private bool StillPrefilled => _prefill is { } p && _model.Billing is { } b && p.Amount == b.Amount && p.TaxAmount == b.TaxAmount
+        && string.Equals(p.Currency, b.Currency, StringComparison.OrdinalIgnoreCase) && p.PeriodMonths == b.PeriodMonths;
+
+    private void ApplyPlanPrice()
+    {
+        var b = _model.Billing!;
+        if (SelectedPlan?.DefaultPrice is not { } price)
+        {
+            // A plan without a default price: don't leave the previous plan's price behind (unless it was edited).
+            if (StillPrefilled)
+            {
+                var empty = LicenseBillingFields.Copy(null);
+                b.Amount = empty.Amount;
+                b.TaxAmount = empty.TaxAmount;
+                b.Currency = empty.Currency;
+                b.PeriodMonths = empty.PeriodMonths;
+                OnBillingChanged();
+            }
+            _prefill = null;
+            return;
+        }
+        b.Amount = price.Amount;
+        b.TaxAmount = price.TaxAmount;
+        b.Currency = price.Currency ?? BillingDefaults.Currency;
+        b.PeriodMonths = price.PeriodMonths;
+        _prefill = LicenseBillingFields.Copy(b);
+        OnBillingChanged();
     }
 
     private bool HasPrice => _model.Billing?.Amount is > 0;
@@ -258,8 +313,8 @@
         {
             var b = _model.Billing!;
             var period = b.PeriodMonths switch { 1 => "1 month", 12 => "1 year", _ => $"{b.PeriodMonths} months" };
-            var tax = b.TaxAmount > 0 ? $" + {b.TaxAmount:N2} tax" : "";
-            return $"{b.Currency} {b.Amount:N2}{tax} for the first {period}";
+            var tax = b.TaxAmount > 0 ? $" + {MoneyText.Format(b.TaxAmount, b.Currency)} tax" : "";
+            return $"{MoneyText.Format(b.Amount ?? 0, b.Currency)}{tax} for the first {period}";
         }
     }
 

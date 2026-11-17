@@ -144,8 +144,8 @@
                             }
                         </h2>
                         <p class="sidebar-card-copy">
-                            <strong class="mono">GH₵@payments.CollectedTotal.ToString("N2")</strong>
-                            of <span class="mono">GH₵@payments.CollectionCap.ToString("N2")</span> starter limit
+                            <strong class="mono">@MoneyText.Format(payments.CollectedTotal, MoneyText.PrimaryCurrency)</strong>
+                            of <span class="mono">@MoneyText.Format(payments.CollectionCap, MoneyText.PrimaryCurrency)</span> starter limit
                         </p>
                         <MudProgressLinear Value="used" Color="@(used >= 80 ? Color.Warning : Color.Primary)" Rounded="true" Size="Size.Medium"
                                            aria-label="@($"{used:0}% of the Paystack starter limit used")" />

@@ -275,11 +275,14 @@ public partial class LicenseService(
 
         // One query for every plan of the products on this page, not one per row.
         var planNames = await ProductPlanDisplay.LoadAsync(db, licenses.Select(l => l.ServiceProductId), cancellationToken);
+        // And one for the scheduled price changes of the page.
+        var pendingPrices = await PriceChanges.LicensePriceChangeOps.LoadPendingAsync(db, ids, cancellationToken);
 
         return new PagedResult<LicenseDto>
         {
             Items = licenses.Select(l => MapLicense(l, invoiceLookup.GetValueOrDefault(l.Id), TrialMaxMonths,
-                ProductPlanDisplay.Resolve(planNames, l.ServiceProductId, l.PlanName))).ToList(),
+                ProductPlanDisplay.Resolve(planNames, l.ServiceProductId, l.PlanName),
+                pendingPrices.GetValueOrDefault(l.Id))).ToList(),
             TotalCount = totalCount,
             Page = normalizedPage,
             PageSize = normalizedPageSize
@@ -470,7 +473,11 @@ public partial class LicenseService(
         }
         else
         {
+            var previousPrice = PriceChanges.LicensePriceChangeOps.PriceOf(license);
             ApplyBilling(license, request.Billing, _defaultCurrency);
+            if (PriceChanges.LicensePriceChangeOps.PriceOf(license) != previousPrice)
+                await PriceChanges.LicensePriceChangeOps.CancelPendingAsync(db, auditLog, outbox, templates, [license],
+                    PriceChanges.LicensePriceChangeOps.ReasonManualPrice, performedBy, ipAddress, notifyCustomer: true, ct);
         }
         var trialConverted = license.IsTrial;
         license.IsTrial = false; // a manual renewal ends the trial: the admin has set a paid term
@@ -547,6 +554,13 @@ public partial class LicenseService(
         CancellationToken cancellationToken = default) =>
         RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
+        // Lock order: the product's plan rows (shared), then the license row, then its price-change rows; the
+        // license is loaded after both locks so the edit works on the current row.
+        var productId = await db.Licenses.IgnoreQueryFilters().AsNoTracking()
+            .Where(l => l.Id == id).Select(l => l.ServiceProductId).FirstOrDefaultAsync(ct)
+            ?? throw new NotFoundException("License not found.");
+        await ProductPlanRules.LockPlansAsync(db, productId, exclusive: false, ct);
+        await LockLicenseRowAsync(id, ct);
         var license = await db.Licenses
             .IgnoreQueryFilters()
             .Include(l => l.Customer)
@@ -557,6 +571,8 @@ public partial class LicenseService(
         if (license.Status is LicenseStatus.Revoked)
             throw new InvalidOperationException("Cannot update a revoked license.");
 
+        var previousPlan = license.PlanName;
+        var previousPrice = PriceChanges.LicensePriceChangeOps.PriceOf(license);
         // Edits may keep the license's current plan even when it is not (or no longer) an active catalog plan.
         license.PlanName = await ProductPlanRules.ResolveLicensePlanAsync(
             db, license.ServiceProductId, license.ServiceProduct.Code, request.PlanName, license.PlanName, ct);
@@ -581,6 +597,13 @@ public partial class LicenseService(
             SetAnchor(license);
         }
         ApplyBilling(license, request.Billing, _defaultCurrency);
+        // A scheduled price change yields to an explicit edit: a different price or plan cancels it (and tells the
+        // customer if they were already notified). Edits that leave the price alone keep it.
+        var planChanged = !string.Equals(previousPlan, license.PlanName, StringComparison.Ordinal);
+        if (planChanged || PriceChanges.LicensePriceChangeOps.PriceOf(license) != previousPrice)
+            await PriceChanges.LicensePriceChangeOps.CancelPendingAsync(db, auditLog, outbox, templates, [license],
+                planChanged ? PriceChanges.LicensePriceChangeOps.ReasonPlanChanged : PriceChanges.LicensePriceChangeOps.ReasonManualPrice,
+                performedBy, ipAddress, notifyCustomer: true, ct);
         int? oldMaxDevices = license.MaxDevices;
         if (request.MaxDevices is { } requestedMax)
             license.MaxDevices = ResolveMaxDevices(requestedMax);
@@ -697,6 +720,9 @@ public partial class LicenseService(
             // open for an admin to settle (a payment arriving later is recorded but changes nothing on the license).
             var (voided, keptOpen) = await VoidUnpaidInvoicesAsync(invoiceIds, "license revoked", now, performedBy,
                 ipAddress, ct);
+            // A revoked key is never renewed, so its scheduled price change can't apply (no extra email on revoke).
+            await PriceChanges.LicensePriceChangeOps.CancelPendingAsync(db, auditLog, outbox, templates, [license],
+                PriceChanges.LicensePriceChangeOps.ReasonRevoked, performedBy, ipAddress, notifyCustomer: false, ct);
             var revoked = templates.StatusNotice(
                 license.Customer, license.ServiceProduct, EmailDeliveryKind.Revoked);
             outbox.Enqueue(
@@ -912,7 +938,8 @@ public partial class LicenseService(
             .ToListAsync(cancellationToken);
 
         var display = await ProductPlanDisplay.NameAsync(db, license.ServiceProductId, license.PlanName, cancellationToken);
-        return MapLicense(license, Summarize(rows), TrialMaxMonths, display);
+        var pending = await PriceChanges.LicensePriceChangeOps.LoadPendingAsync(db, [id], cancellationToken);
+        return MapLicense(license, Summarize(rows), TrialMaxMonths, display, pending.GetValueOrDefault(id));
     }
 
     private sealed record InvoiceRow(string LicenseId, string Id, DateTime CreatedAt, bool IsActivation, InvoiceStatus Status, string Number);
@@ -937,8 +964,10 @@ public partial class LicenseService(
         return new InvoiceSummary(latestId, activation);
     }
 
-    private static LicenseDto MapLicense(License license, InvoiceSummary? invoices = null, int trialMaxMonths = 3, string? planDisplayName = null) => new()
+    private static LicenseDto MapLicense(License license, InvoiceSummary? invoices = null, int trialMaxMonths = 3, string? planDisplayName = null,
+        Platform.Shared.Dtos.ServiceProducts.LicensePriceChangeDto? pendingPriceChange = null) => new()
     {
+        PendingPriceChange = pendingPriceChange,
         IsTrial = license.IsTrial,
         TrialStartedAt = license.TrialStartedAt,
         TrialMaxEndsAt = license.IsTrial ? TrialCap(license.TrialStartedAt, trialMaxMonths) : null,

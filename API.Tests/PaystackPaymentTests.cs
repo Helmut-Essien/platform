@@ -694,7 +694,7 @@ public class PaystackPaymentTests
 
         var row = await db.PaymentCheckouts.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(PaymentCheckoutStatus.Refunded, row.Status);
-        Assert.Contains("Full refund 10.00 GHS", row.LastError);
+        Assert.Contains("Full refund GHS 10.00", row.LastError);
         var receipt = await db.Receipts.IgnoreQueryFilters().SingleAsync();
         Assert.Equal(ReceiptStatus.Reversed, receipt.Status);
         Assert.Equal(1, await db.PaymentTransactions.IgnoreQueryFilters().CountAsync(t => t.Kind == PaymentTransactionKind.Reversal));

@@ -526,7 +526,7 @@ public class BillingService(
 
         var amountDue = GetAmountDue(invoice);
         if (request.AmountPaid > amountDue)
-            throw new InvalidOperationException($"Amount paid exceeds balance due of {amountDue:0.00}.");
+            throw new InvalidOperationException($"Amount paid exceeds balance due of {Platform.Shared.Formatting.MoneyText.Format(amountDue, invoice.Currency)}.");
 
         if (!string.IsNullOrEmpty(paymentReference)
             && invoice.PaymentTransactions.Any(t =>
@@ -950,6 +950,58 @@ public class BillingService(
                 await db.SaveChangesAsync(ct);
             }
 
+            // A scheduled price change whose effective date has come: this invoice (the first whose period starts on
+            // or after that date) bills the new price, and the license takes it as its own price from now on.
+            // Locked after the invoice rows (billing lock order: renewal lock, invoice rows, license row, then its
+            // price-change rows), so a schedule or cancel in flight finishes first.
+            await LockLicenseRowAsync(licenseId, ct);
+            if (db.Database.IsRelational())
+            {
+                // An edit may have committed while this waited for the row: bill what is stored now, not the copy
+                // read before the lock (its price, plan, expiry or status may have moved).
+                await db.Entry(license).ReloadAsync(ct);
+                var moved = RenewalIneligibility(license, expectedExpiresAt)
+                    ?? (!explicitRequest && !license.AutoRenewInvoice ? "Automatic renewal invoices are turned off for this license." : null)
+                    ?? (license.ExpiresAt != periodStart ? "The license was changed while the invoice was being created. Refresh and try again." : null);
+                if (moved is not null)
+                {
+                    if (explicitRequest)
+                        throw new ConflictException(moved);
+                    return null; // not committed: any superseded-invoice voids above roll back too
+                }
+            }
+            var priceChange = await db.LicensePriceChanges.IgnoreQueryFilters()
+                .Where(c => c.LicenseId == licenseId && c.Status == LicensePriceChangeStatus.Pending && c.EffectiveFrom <= periodStart)
+                .OrderBy(c => c.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+            var priceChangeAudits = new List<AuditEntryRequest>(2);
+            if (priceChange is not null)
+            {
+                if (!string.Equals(priceChange.PlanCode, license.PlanName, StringComparison.Ordinal))
+                {
+                    // Safety net (moving the plan already cancels it): never bill another plan's price.
+                    priceChange.Status = LicensePriceChangeStatus.Cancelled;
+                    priceChange.CancelledAt = now;
+                    priceChange.CancelledBy = performedBy;
+                    priceChange.CancelReason = PriceChanges.LicensePriceChangeOps.ReasonPlanChanged;
+                    priceChangeAudits.Add(new AuditEntryRequest(AuditAction.LicensePriceChangeCancelled, performedBy,
+                        license.CustomerId, license.Id, null,
+                        AuditJson.Serialize(new { priceChangeId = priceChange.Id, reason = priceChange.CancelReason }), ipAddress));
+                    priceChange = null;
+                }
+                else
+                {
+                    license.BillingAmount = priceChange.NewAmount;
+                    license.BillingTaxAmount = priceChange.NewTaxAmount;
+                    license.BillingCurrency = priceChange.NewCurrency;
+                    if (priceChange.NewPeriodMonths is { } newMonths)
+                        license.BillingPeriodMonths = newMonths;
+                    license.UpdatedAt = now;
+                    priceChange.Status = LicensePriceChangeStatus.Applied;
+                    priceChange.AppliedAt = now;
+                }
+            }
+
             var months = Math.Clamp(license.BillingPeriodMonths, 1, 36);
             var periodEnd = RenewalPeriodEnd(periodStart, months, license.BillingAnchorDay);
             var subtotal = license.BillingAmount!.Value;
@@ -994,8 +1046,41 @@ public class BillingService(
                     total = invoice.TotalAmount,
                     periodStart,
                     periodEnd,
-                    recreatedAfterVoid = existing.Count > 0
+                    recreatedAfterVoid = existing.Count > 0,
+                    priceChangeId = priceChange?.Id
                 }), ipAddress, ct);
+            if (priceChange is not null)
+            {
+                priceChange.AppliedInvoiceId = invoice.Id;
+                priceChangeAudits.Add(new AuditEntryRequest(AuditAction.LicensePriceChangeApplied, performedBy,
+                    license.CustomerId, license.Id, invoice.Id, AuditJson.Serialize(new
+                    {
+                        priceChangeId = priceChange.Id,
+                        invoiceNumber = invoice.InvoiceNumber,
+                        periodStart,
+                        from = new { amount = priceChange.OldAmount, tax = priceChange.OldTaxAmount, currency = priceChange.OldCurrency, periodMonths = priceChange.OldPeriodMonths },
+                        to = new { amount = license.BillingAmount, tax = license.BillingTaxAmount, currency = license.BillingCurrency, periodMonths = license.BillingPeriodMonths }
+                    }), ipAddress));
+                // The customer must hear about the new price before (or at the latest with) the first invoice at it.
+                // Normally the notice went out Billing:PriceChangeNoticeDays ahead; it hasn't when the notice window
+                // is shorter than RenewalInvoiceDaysBefore, or the customer was suspended through it and this renewal
+                // ran before the notice worker after reinstatement. Send it with the invoice.
+                if (priceChange.NoticeQueuedAt is null
+                    && PriceChanges.PlanPriceChangeService.NoticeDaysOf(_billing) > 0)
+                {
+                    var noticeProduct = await db.ServiceProducts.AsNoTracking().FirstAsync(p => p.Id == license.ServiceProductId, ct);
+                    var notice = templates.PriceChangeNotice(license.Customer, noticeProduct, license, priceChange, planLabel);
+                    outbox.Enqueue(EmailDeliveryKind.PriceChangeNotice, CustomerContactResolver.Billing(license.Customer),
+                        notice.Subject, notice.Html, license.CustomerId, license.Id);
+                    priceChange.NoticeQueuedAt = now;
+                    priceChangeAudits.Add(new AuditEntryRequest(AuditAction.LicensePriceChangeNoticeQueued, performedBy,
+                        license.CustomerId, license.Id, invoice.Id,
+                        AuditJson.Serialize(new { priceChangeId = priceChange.Id, effectiveFrom = priceChange.EffectiveFrom, withInvoice = true }),
+                        ipAddress));
+                }
+            }
+            if (priceChangeAudits.Count > 0)
+                await auditLog.WriteBatchAsync(priceChangeAudits, ct);
 
             if (trial)
             {

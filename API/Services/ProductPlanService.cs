@@ -9,9 +9,42 @@ namespace Platform.Api.Services;
 
 public class ProductPlanService(
     AppDbContext db,
-    IAuditLogService auditLog) : IProductPlanService
+    IAuditLogService auditLog,
+    Email.IEmailOutboxService? outbox = null,
+    Email.EmailTemplateService? templates = null,
+    Microsoft.Extensions.Options.IOptions<Configuration.BillingSettings>? billingSettings = null) : IProductPlanService
 {
     private const int MaxUsageRows = 500;
+
+    private readonly string _defaultCurrency =
+        BillingService.DefaultCurrencyOf(billingSettings?.Value ?? new Configuration.BillingSettings());
+
+    /// <summary>Validates a default price and writes it onto the plan (null clears it).</summary>
+    private void ApplyDefaultPrice(ProductPlan plan, PlanPriceDto? price)
+    {
+        if (price is null)
+        {
+            plan.DefaultAmount = null;
+            plan.DefaultTaxAmount = 0;
+            plan.DefaultCurrency = null;
+            plan.DefaultPeriodMonths = null;
+            return;
+        }
+        if (price.Amount <= 0)
+            throw new InvalidOperationException("Default price must be above zero (clear it for no default price).");
+        BillingService.EnsureValidMoney(price.Amount, "Default price");
+        BillingService.EnsureValidMoney(price.TaxAmount, "Default tax");
+        if (price.PeriodMonths is < 1 or > 36)
+            throw new InvalidOperationException("Billing period must be 1 to 36 months.");
+        plan.DefaultAmount = price.Amount;
+        plan.DefaultTaxAmount = price.TaxAmount;
+        plan.DefaultCurrency = string.IsNullOrWhiteSpace(price.Currency) ? _defaultCurrency : BillingService.NormalizeCurrency(price.Currency);
+        plan.DefaultPeriodMonths = price.PeriodMonths;
+    }
+
+    private static object? DefaultPriceAudit(ProductPlan plan) => plan.DefaultAmount is null
+        ? null
+        : new { amount = plan.DefaultAmount, tax = plan.DefaultTaxAmount, currency = plan.DefaultCurrency, periodMonths = plan.DefaultPeriodMonths };
 
     public async Task<IReadOnlyList<ProductPlanDto>> ListAsync(string serviceProductId, CancellationToken cancellationToken = default)
     {
@@ -57,12 +90,13 @@ public class ProductPlanService(
             SortOrder = request.SortOrder,
             IsActive = request.IsActive
         };
+        ApplyDefaultPrice(plan, request.DefaultPrice);
         db.ProductPlans.Add(plan);
         try
         {
             // One save for the plan and its audit row: a plan can't exist without its audit entry.
             await auditLog.WriteAsync(AuditAction.ProductPlanCreated, performedBy, null, null, null,
-                AuditJson.Serialize(new { serviceProductId, productCode = product.Code, code, plan.DisplayName, plan.IsActive }),
+                AuditJson.Serialize(new { serviceProductId, productCode = product.Code, code, plan.DisplayName, plan.IsActive, defaultPrice = DefaultPriceAudit(plan) }),
                 ipAddress, cancellationToken);
         }
         catch (DbUpdateException ex) when (PostgresUniqueViolation.IsUniqueViolation(ex))
@@ -101,6 +135,11 @@ public class ProductPlanService(
             throw new InvalidOperationException("Display name must be one line of text (no line breaks or control characters), up to 100 characters.");
 
         var wasActive = plan.IsActive;
+        // Null = unchanged, so an older client (or the active switch) can't wipe the default price.
+        if (request.DefaultPrice is not null)
+            ApplyDefaultPrice(plan, request.DefaultPrice);
+        else if (request.ClearDefaultPrice)
+            ApplyDefaultPrice(plan, null);
         plan.DisplayName = displayName;
         plan.SortOrder = request.SortOrder;
         plan.IsActive = request.IsActive;
@@ -114,7 +153,8 @@ public class ProductPlanService(
                 code = plan.Code,
                 plan.DisplayName,
                 plan.IsActive,
-                activationChanged = wasActive != plan.IsActive
+                activationChanged = wasActive != plan.IsActive,
+                defaultPrice = DefaultPriceAudit(plan)
             }), ipAddress, cancellationToken);
         return Map(plan);
     }
@@ -266,6 +306,10 @@ public class ProductPlanService(
                     skippedRevoked = revokedCount
                 }), ipAddress));
 
+            // A pending price change belongs to the plan it was scheduled for: moving the license cancels it.
+            await PriceChanges.LicensePriceChangeOps.CancelPendingAsync(db, auditLog, outbox, templates, licenses,
+                PriceChanges.LicensePriceChangeOps.ReasonPlanChanged, performedBy, ipAddress, notifyCustomer: true, ct,
+                only: c => !string.Equals(c.PlanCode, toCode, StringComparison.Ordinal));
             await auditLog.WriteBatchAsync(audits, ct); // one SaveChanges: licenses + audit rows
             await db.SaveChangesAsync(ct);              // no-op when the audit writer already saved
             if (transaction is not null)
@@ -291,6 +335,15 @@ public class ProductPlanService(
         Code = plan.Code,
         DisplayName = plan.DisplayName,
         SortOrder = plan.SortOrder,
-        IsActive = plan.IsActive
+        IsActive = plan.IsActive,
+        DefaultPrice = plan.DefaultAmount is > 0
+            ? new PlanPriceDto
+            {
+                Amount = plan.DefaultAmount.Value,
+                TaxAmount = plan.DefaultTaxAmount,
+                Currency = plan.DefaultCurrency,
+                PeriodMonths = plan.DefaultPeriodMonths ?? 12
+            }
+            : null
     };
 }

@@ -133,7 +133,7 @@
                         <RowTemplate>
                             <MudTd><MudLink Href="@($"/invoices/{context.Id}")">@context.InvoiceNumber</MudLink></MudTd>
                             <MudTd>@context.Status</MudTd>
-                            <MudTd>@context.TotalAmount.ToString("N2")</MudTd>
+                            <MudTd>@MoneyText.Format(context.TotalAmount, context.Currency)</MudTd>
                         </RowTemplate>
                     </MudTable>
                     @if (_invoices.Count > DrawerRowLimit)

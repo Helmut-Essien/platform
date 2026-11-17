@@ -228,15 +228,15 @@
     [SupplyParameterFromQuery] public string? CustomerId { get; set; }
 
     // Aggregates come from the server (B1): they cover every invoice, not the first page.
-    // Amounts in different currencies are never summed (E7); the primary currency is USD when present,
+    // Amounts in different currencies are never summed (E7); the primary currency is GHS when present,
     // otherwise the currency with the most outstanding value, and the others are listed in a footnote.
     private InvoiceStatsDto? _stats;
 
     private InvoiceCurrencyStatsDto? PrimaryStats =>
-        _stats?.Currencies.FirstOrDefault(c => c.Currency.Equals("USD", StringComparison.OrdinalIgnoreCase))
+        _stats?.Currencies.FirstOrDefault(c => c.Currency.Equals(MoneyText.PrimaryCurrency, StringComparison.OrdinalIgnoreCase))
         ?? _stats?.Currencies.OrderByDescending(c => c.Outstanding + c.TotalRevenue).FirstOrDefault();
 
-    private string PrimaryCurrency => PrimaryStats?.Currency ?? "USD";
+    private string PrimaryCurrency => PrimaryStats?.Currency ?? MoneyText.PrimaryCurrency;
 
     private string? OtherCurrencyNote(Func<InvoiceCurrencyStatsDto, decimal> selector)
     {
@@ -470,10 +470,7 @@
         return text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r' ? "'" + text : text;
     }
 
-    private static string FormatMoney(decimal amount, string currency) =>
-        currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
-            ? $"${amount:N2}"
-            : $"{amount:N2} {currency}";
+    private static string FormatMoney(decimal amount, string currency) => MoneyText.Format(amount, currency);
 
     private static string GetInitials(string? name)
     {

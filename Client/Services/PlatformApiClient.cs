@@ -202,6 +202,41 @@ public class PlatformApiClient(HttpClient http, ApiFailureNotifier notifier)
         return await ToApiResultAsync<List<ProductPlanUsageDto>>(response, ct);
     }
 
+    public async Task<ApiResult<PlanPriceChangePreviewDto>> PreviewPlanPriceChangeAsync(
+        string serviceProductId,
+        string planId,
+        PlanPriceChangeRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync(
+            $"api/serviceproducts/{Uri.EscapeDataString(serviceProductId)}/plans/{Uri.EscapeDataString(planId)}/price-change/preview", request, ct);
+        return await ToApiResultAsync<PlanPriceChangePreviewDto>(response, ct);
+    }
+
+    public async Task<ApiResult<SchedulePlanPriceChangeResultDto>> SchedulePlanPriceChangeAsync(
+        string serviceProductId,
+        string planId,
+        SchedulePlanPriceChangeRequest request,
+        CancellationToken ct = default)
+    {
+        var response = await http.PostAsJsonAsync(
+            $"api/serviceproducts/{Uri.EscapeDataString(serviceProductId)}/plans/{Uri.EscapeDataString(planId)}/price-change", request, ct);
+        return await ToApiResultAsync<SchedulePlanPriceChangeResultDto>(response, ct);
+    }
+
+    public async Task<ApiResult<List<LicensePriceChangeDto>>> GetLicensePriceChangesAsync(string licenseId, CancellationToken ct = default)
+    {
+        var response = await http.GetAsync($"api/licenses/{Uri.EscapeDataString(licenseId)}/price-changes", ct);
+        return await ToApiResultAsync<List<LicensePriceChangeDto>>(response, ct);
+    }
+
+    public async Task<ApiResult<LicensePriceChangeDto>> CancelLicensePriceChangeAsync(string licenseId, string priceChangeId, CancellationToken ct = default)
+    {
+        var response = await http.PostAsync(
+            $"api/licenses/{Uri.EscapeDataString(licenseId)}/price-changes/{Uri.EscapeDataString(priceChangeId)}/cancel", null, ct);
+        return await ToApiResultAsync<LicensePriceChangeDto>(response, ct);
+    }
+
     public async Task<ApiResult<RemapProductPlanResultDto>> RemapProductPlanAsync(
         string serviceProductId,
         RemapProductPlanRequest request,

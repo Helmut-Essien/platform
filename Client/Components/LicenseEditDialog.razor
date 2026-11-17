@@ -1,3 +1,7 @@
+@inject PlatformApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
 <MudDialog>
     <TitleContent>
         <MudText Typo="Typo.h6">Edit License</MudText>
@@ -11,6 +15,7 @@
             @if (PlanCatalogActive)
             {
                 <MudSelect T="string" @bind-Value="_model.PlanName"
+                           @bind-Value:after="OnPlanChanged"
                            For="@(() => _model.PlanName)"
                            Label="Plan"
                            Required="true"
@@ -50,6 +55,26 @@
                              Min="0" Max="1000"
                              Variant="Variant.Outlined"
                              Class="mb-2" />
+            @if (_pending is not null)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+                    <div>
+                        Scheduled price change: <strong>@PriceText.Format(_pending.NewAmount, _pending.NewTaxAmount, _pending.NewCurrency, _pending.NewPeriodMonths ?? License.Billing?.PeriodMonths ?? 12)</strong>
+                        from the first renewal on or after <strong>@_pending.EffectiveFrom.ToString("d MMM yyyy")</strong>.
+                        @(_pending.NoticeQueuedAt is { } n ? $"Customer notified {n.ToLocalTime():d MMM yyyy}." : "Customer not notified yet.")
+                    </div>
+                    @if (PendingWillBeCancelled)
+                    {
+                        <div class="mt-1"><strong>Saving cancels it</strong> (@(PlanChanged ? "the plan changes" : "the price differs"))@(_pending.NoticeQueuedAt is not null ? " and tells the customer" : "").</div>
+                    }
+                    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Error" Class="mt-1"
+                               OnClick="CancelPendingAsync" Disabled="_busy">Cancel scheduled change</MudButton>
+                </MudAlert>
+            }
+            @if (!string.IsNullOrEmpty(_priceNote))
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">@_priceNote</MudAlert>
+            }
             <LicenseBillingFields Billing="_billing" />
         </MudForm>
     </DialogContent>
@@ -101,6 +126,107 @@
     private bool _formValid;
     private UpdateLicenseRequest _model = new() { PlanName = "" };
     private LicenseBillingDto _billing = new();
+    private LicensePriceChangeDto? _pending;
+    private string? _priceNote;
+    private string _initialPlan = "";
+
+    private bool PlanChanged => !string.Equals(_model.PlanName?.Trim(), _initialPlan, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Mirrors the server rule: a different price (amount, tax, currency or period) or plan cancels the scheduled change.</summary>
+    private bool PendingWillBeCancelled
+    {
+        get
+        {
+            var b = License.Billing;
+            var amount = _billing.Amount is > 0 ? _billing.Amount : null;
+            var current = b?.Amount is > 0 ? b.Amount : null;
+            return PlanChanged
+                || amount != current
+                || (amount is not null && (_billing.TaxAmount != (b?.TaxAmount ?? 0)
+                    || !string.Equals(CurrencyOrDefault(_billing.Currency), CurrencyOrDefault(b?.Currency), StringComparison.OrdinalIgnoreCase)))
+                || _billing.PeriodMonths != (b?.PeriodMonths ?? 12);
+        }
+    }
+
+    private static string CurrencyOrDefault(string? currency) =>
+        string.IsNullOrWhiteSpace(currency) ? BillingDefaults.Currency : currency.Trim();
+
+    // The price last filled in from a plan; while the fields still hold it, it is ours to replace or undo.
+    private LicenseBillingDto? _prefill;
+
+    private bool StillPrefilled => _prefill is { } p && p.Amount == _billing.Amount && p.TaxAmount == _billing.TaxAmount
+        && string.Equals(p.Currency, _billing.Currency, StringComparison.OrdinalIgnoreCase) && p.PeriodMonths == _billing.PeriodMonths;
+
+    /// <summary>Moving to another plan offers that plan's default price (not for free licenses); the admin can change it.</summary>
+    private void OnPlanChanged()
+    {
+        _priceNote = null;
+        if (License.IsComplimentary)
+            return;
+        var plan = PlanChanged ? ActivePlans.FirstOrDefault(p => p.Code == _model.PlanName) : null;
+        if (plan?.DefaultPrice is not { } price)
+        {
+            // Back on the license's own plan, or on a plan without a default price: undo an untouched prefill so the
+            // license's own price (and its scheduled change) stay as they were.
+            if (StillPrefilled)
+                CopyInto(LicenseBillingFields.Copy(License.Billing), _billing);
+            _prefill = null;
+            return;
+        }
+        _billing.Amount = price.Amount;
+        _billing.TaxAmount = price.TaxAmount;
+        _billing.Currency = price.Currency ?? BillingDefaults.Currency;
+        _billing.PeriodMonths = price.PeriodMonths;
+        _prefill = LicenseBillingFields.Copy(_billing);
+        _priceNote = $"Price filled from the {plan.DisplayName} plan ({PriceText.Format(price)}). Change it below if this customer pays something else.";
+    }
+
+    private static void CopyInto(LicenseBillingDto from, LicenseBillingDto to)
+    {
+        to.Amount = from.Amount;
+        to.TaxAmount = from.TaxAmount;
+        to.Currency = from.Currency;
+        to.PeriodMonths = from.PeriodMonths;
+    }
+
+    private async Task CancelPendingAsync()
+    {
+        if (_pending is null || _busy)
+            return;
+        var confirm = await DialogService.ShowAsync<ConfirmDialog>("Cancel price change", new DialogParameters
+        {
+            ["Title"] = "Cancel price change",
+            ["Message"] = _pending.NoticeQueuedAt is not null
+                ? "Cancel the scheduled price change? The customer was already told about it and gets an email saying it is cancelled."
+                : "Cancel the scheduled price change? The customer hasn't been told about it yet.",
+            ["ConfirmText"] = "Cancel change",
+            ["IsDestructive"] = true
+        }, PlatformDialogOptions.Confirm);
+        var answer = await confirm.Result;
+        if (answer?.Canceled is not false)
+            return;
+        _busy = true;
+        try
+        {
+            var result = await Api.CancelLicensePriceChangeAsync(License.Id, _pending.Id);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.ErrorMessage ?? "Couldn't cancel the price change.", Severity.Error);
+                return;
+            }
+            _pending = null;
+            License.PendingPriceChange = null;
+            Snackbar.Add("Scheduled price change cancelled.", Severity.Success);
+        }
+        catch (Exception)
+        {
+            Snackbar.Add("Couldn't reach the server. Check your connection and try again.", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     protected override void OnInitialized()
     {
@@ -115,6 +241,8 @@
             _model.PlanName = match.Code;
         _billing = LicenseBillingFields.Copy(License.Billing);
         _model.Billing = _billing;
+        _initialPlan = _model.PlanName.Trim();
+        _pending = License.PendingPriceChange;
     }
 
     private void Cancel()

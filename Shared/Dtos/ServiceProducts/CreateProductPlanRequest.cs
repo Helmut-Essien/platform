@@ -17,4 +17,7 @@ public class CreateProductPlanRequest
     public int SortOrder { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Optional default price (filled into licenses when the plan is picked).</summary>
+    public PlanPriceDto? DefaultPrice { get; set; }
 }

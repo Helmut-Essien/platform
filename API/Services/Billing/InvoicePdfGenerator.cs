@@ -527,15 +527,6 @@ public class InvoicePdfGenerator : IInvoicePdfGenerator, IReceiptPdfGenerator
 
     internal static string Money(decimal amount, string currency)
     {
-        var code = (currency ?? string.Empty).Trim().ToUpperInvariant();
-        var symbol = code switch
-        {
-            "USD" => "$",
-            "EUR" => "€",
-            "GBP" => "£",
-            "GHS" => "GH₵",
-            _ => code + " "
-        };
-        return symbol + amount.ToString("N2", Invariant);
+        return Platform.Shared.Formatting.MoneyText.Format(amount, currency); // "GHS 1,200.00"
     }
 }

@@ -294,6 +294,79 @@ public class EmailTemplateService
                 """));
     }
 
+    // ---------------------------------------------------------------- price changes
+
+    /// <summary>Advance notice of a scheduled price change (sent once per change). Names are HTML-encoded.</summary>
+    public (string Subject, string Html) PriceChangeNotice(
+        Customer customer, ServiceProduct product, License license, LicensePriceChange change, string? planDisplayName,
+        bool nextInvoiceAlreadyIssued = false)
+    {
+        var productName = Enc(product.Name);
+        var plan = string.IsNullOrWhiteSpace(planDisplayName) ? null : Enc(planDisplayName.Trim());
+        var what = plan is null ? productName : $"{productName} ({plan})";
+        var effective = D(change.EffectiveFrom);
+        var newPeriod = change.NewPeriodMonths ?? license.BillingPeriodMonths;
+        var rows = new List<string>();
+        if (change.OldAmount is > 0 && !string.IsNullOrEmpty(change.OldCurrency))
+            rows.Add(Row("Current price", PriceText(change.OldAmount.Value, change.OldTaxAmount, change.OldCurrency, change.OldPeriodMonths), encodeValue: false));
+        rows.Add(Row("New price", PriceText(change.NewAmount, change.NewTaxAmount, change.NewCurrency, newPeriod), encodeValue: false, emphasize: true));
+        rows.Add(Row("Takes effect", effective));
+        // The first renewal whose period starts on or after the effective date is billed at the new price.
+        // An invoice already issued for the coming period keeps the old price, so the new one starts the period after.
+        var firstRenewal = nextInvoiceAlreadyIssued
+            ? "Your next invoice has already been issued at the current price; the new price applies from the renewal after that."
+            : license.ExpiresAt is { } exp && exp >= change.EffectiveFrom
+                ? $"Your first invoice at the new price is for the period starting {Enc(D(exp))}."
+                : $"Your first invoice at the new price is for your first renewal on or after {Enc(effective)}.";
+        return ($"Price update for {product.Name} from {effective}",
+            Wrap(customer.Name,
+                $"The price of {what} changes from {Enc(effective)}.",
+                $"We're writing to let you know that the price of {what} changes from <strong>{Enc(effective)}</strong>.",
+                $"""
+                {Table(rows.ToArray())}
+                {P(firstRenewal, top: 16)}
+                {P("Invoices already issued are not affected, and nothing changes in your software or license key.")}
+                {P("Questions? Just reply to this email.", last: true)}
+                """));
+    }
+
+    /// <summary>A price change the customer was told about will not happen (cancelled after its notice went out).</summary>
+    public (string Subject, string Html) PriceChangeCancelled(
+        Customer customer, ServiceProduct product, License license, LicensePriceChange change, string? planDisplayName)
+    {
+        var productName = Enc(product.Name);
+        var plan = string.IsNullOrWhiteSpace(planDisplayName) ? null : Enc(planDisplayName.Trim());
+        var what = plan is null ? productName : $"{productName} ({plan})";
+        var effective = D(change.EffectiveFrom);
+        // The license's price as it is now (after an edit it may differ from the one the notice called "current").
+        var current = license.IsComplimentary
+            ? P("Your license is now complimentary: there is nothing to pay.")
+            : license.BillingAmount is > 0 && !string.IsNullOrEmpty(license.BillingCurrency)
+                ? P($"Your price is <strong>{PriceText(license.BillingAmount.Value, license.BillingTaxAmount, license.BillingCurrency, license.BillingPeriodMonths)}</strong>.")
+                : string.Empty;
+        return ($"Update: the {product.Name} price change is cancelled",
+            Wrap(customer.Name,
+                $"The price change for {what} from {Enc(effective)} will not happen.",
+                $"The price change we told you about for {what}, from {Enc(effective)}, has been cancelled.",
+                $"""
+                {current}
+                {P("Please disregard our earlier notice. Questions? Just reply to this email.", last: true)}
+                """));
+    }
+
+    /// <summary>"GHS 600.00 + GHS 90.00 tax per year" (already HTML-safe).</summary>
+    internal static string PriceText(decimal amount, decimal tax, string currency, int periodMonths)
+    {
+        var period = periodMonths switch
+        {
+            1 => "per month",
+            12 => "per year",
+            _ => $"every {periodMonths.ToString(Invariant)} months"
+        };
+        var taxText = tax > 0 ? $" + {Money(tax, currency)} tax" : string.Empty;
+        return $"{Money(amount, currency)}{taxText} {period}";
+    }
+
     // ---------------------------------------------------------------- status changes
 
     public (string Subject, string Html) StatusNotice(
@@ -673,16 +746,8 @@ public class EmailTemplateService
 
     internal static string Money(decimal amount, string currency)
     {
-        var normalizedCurrency = (currency ?? string.Empty).Trim().ToUpperInvariant();
-        var prefix = normalizedCurrency switch
-        {
-            "USD" => "$",
-            "EUR" => "€",
-            "GBP" => "£",
-            "GHS" => "GH₵",
-            _ => $"{Enc(normalizedCurrency)} "
-        };
-        return $"{prefix}{amount.ToString("N2", Invariant)}";
+        // "GHS 1,200.00" (Platform.Shared.Formatting.MoneyText), encoded: a stored code is data.
+        return Enc(Platform.Shared.Formatting.MoneyText.Format(amount, currency));
     }
 
     private static string AsSentence(string value)

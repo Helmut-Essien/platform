@@ -271,7 +271,7 @@ public static class SeedData
             Status = InvoiceStatus.Sent,
             IssueDate = now,
             DueDate = now.AddDays(30),
-            Currency = "USD",
+            Currency = "GHS",
             Subtotal = 299.00m,
             TaxAmount = 0m,
             TotalAmount = 299.00m,

@@ -570,7 +570,7 @@ Submit → `POST /api/licenses` → 201, status=Pending.
 │  Plan: Pro Annual — HOSTEL — Acme        │
 │  ────────────────────────────────        │
 │                                          │
-│  Subtotal   [ 299.00        ]  USD       │
+│  Subtotal   [ 299.00        ]  GHS       │
 │  Tax        [ 0.00          ]            │
 │  Due Date   [📅 mm/dd/yyyy]  (optional)  │
 │  Description[________________]  (opt)    │

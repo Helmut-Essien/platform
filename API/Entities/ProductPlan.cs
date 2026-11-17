@@ -25,6 +25,19 @@ public class ProductPlan
     /// <summary>Inactive plans cannot be chosen when issuing or editing a license; keys already on one keep working.</summary>
     public bool IsActive { get; set; } = true;
 
+    /// <summary>
+    /// Optional default price per period (before tax). Picking the plan in Issue/Edit License fills the license's
+    /// billing fields from it; the license keeps its own copy, so changing this never changes existing licenses.
+    /// Null = no default price (then the tax, currency and period below are unused).
+    /// </summary>
+    public decimal? DefaultAmount { get; set; }
+
+    public decimal DefaultTaxAmount { get; set; }
+
+    public string? DefaultCurrency { get; set; }
+
+    public int? DefaultPeriodMonths { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

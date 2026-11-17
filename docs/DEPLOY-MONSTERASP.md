@@ -43,6 +43,7 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Paystack__SecretKey` | no | Enables online payments (`sk_test_…` or `sk_live_…`). Unset = feature hidden, endpoints return 503. See §9. |
 | `Paystack__PublicKey` | no | `pk_test_…` / `pk_live_…`. Stored for completeness; checkout uses Paystack's hosted page. |
 | `Paystack__CollectionCap` | no | Starter Business limit in GHS for the dashboard card (default `30000`; `0` hides it). |
+| `Billing__DefaultCurrency` | no | Currency used when a request leaves it blank (default `GHS`; any 3-letter code, invalid values fall back to GHS). The admin screens always prefill GHS. Only GHS invoices get online pay links (Paystack). Not a secret: set in `API/appsettings.json` (`Billing:DefaultCurrency`), not passed by the deploy workflow. |
 | `Billing__RenewalInvoicesEnabled` | no | Automatic renewal invoices on/off (default `true`). See §10. |
 | `Billing__RenewalInvoiceDaysBefore` | no | Days before expiry the renewal invoice is created and emailed (default `14`, 1–90). |
 | `Billing__RenewalExtendFrom` | no | `Auto` (default), `PreviousExpiry` or `PaymentDate` — basis for the extension when a renewal invoice is paid. |
@@ -53,6 +54,7 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Billing__TrialMonths` | no | Length of a free trial in months (default `1`, 1–12). See §10. |
 | `Billing__TrialReminderDaysBefore` | no | Days before a trial ends that the reminder (with the first invoice, if priced) goes out (default `7`, 1–60). |
 | `Billing__TrialMaxTotalMonths` | no | Longest a trial can run, counting extensions, from its start (default `3`, at least `TrialMonths`, max 24). |
+| `Billing__PriceChangeNoticeDays` | no | Days before a scheduled plan price change takes effect that customers are emailed (default `30`, 0–365; `0` = no notice emails). Not a secret: set in `API/appsettings.json` (`Billing:PriceChangeNoticeDays`), not passed by the deploy workflow. See §10. |
 
 ## 2. Create the site and database
 
@@ -118,6 +120,9 @@ Repository secrets (Settings → Secrets and variables → Actions):
   `Email__FromName`, `Email__ResendApiKey`, `Email__Host`, `Email__Port`, `Email__EnableSsl`, `Email__Username`,
   `Email__Password`, `Redis__ConnectionString`, `Database__MigrateOnStartup`, `Https__Redirect`, `CORS_ORIGINS`,
   `ForwardedHeaders__Enabled`, `Paystack__SecretKey`, `Paystack__PublicKey`, `Paystack__CollectionCap`, and the `Licensing__*` settings from §1 (set `Licensing__TokenSigningKey` as one line with `\n` escapes).
+  No `Billing__*` setting is passed through. `Billing:DefaultCurrency` and `Billing:PriceChangeNoticeDays` are not secrets and
+  live in `API/appsettings.json` (change them there and commit; a panel environment variable of the same name would still
+  override it); other `Billing:*` settings use their built-in defaults unless set in the panel.
 
 Because the workflow writes these into `web.config`, settings in the panel for the same names are overridden by
 each deploy. Secret values are never printed; msdeploy output is masked.
@@ -157,6 +162,14 @@ Admins can open a Paystack hosted checkout (card or mobile money) for the outsta
 **GHS** invoice (**Pay with Paystack** on the invoice page). Paid checkouts are verified with Paystack's API and recorded
 as normal receipts (idempotency key `paystack:{reference}`, so a payment is never recorded twice), which also emails
 the receipt and reactivates suspended licenses as usual.
+
+**Currency.** Ghana cedis are the primary currency: every blank currency becomes `GHS` (`Billing:DefaultCurrency` in `appsettings.json`) and the
+admin forms prefill it. Checkouts are always created with `currency: "GHS"` and the amount in pesewas (GHS × 100, exact
+decimal, at most 2 decimal places); verification must report the same pesewa amount and `GHS` or the payment is held for review.
+Invoices in another currency can still be issued and paid offline, but get no pay link. Amounts are shown everywhere as
+`GHS 1,200.00` (code, space, amount); stored amounts and currencies are never rewritten.
+Confirm on the Paystack dashboard that the business is a Ghana (GHS) account with the channels you want (Mobile Money, card)
+enabled for live mode, and check Paystack's current minimum charge per transaction for GHS.
 
 **Test mode first**
 
@@ -287,6 +300,58 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 **Migration** `AddTrialsAndComplimentaryLicenses`: adds `Licenses.IsTrial`, `TrialStartedAt`, `TrialReminderForEndsAt`, `IsComplimentary`,
 `Invoices.IsTrialConversion` (all default false/null, existing licenses unchanged) and three partial indexes. Included in
 `docs/migrations-idempotent.sql`.
+
+### Plan prices and scheduled price changes
+
+- **Default price per plan** (Products → *Manage plans* → add/edit): optional amount, tax, currency and billing period (same rules as
+  license billing). Picking the plan in *Issue license* (or switching plan in *Edit license*) prefills the license price; you can
+  change it. Not used for complimentary licenses. Each license keeps its own price: editing the plan price never changes existing
+  licenses or invoices. The API create/update endpoints never apply it on their own.
+- **Change the price for existing customers** (*Manage plans* → $ icon on the plan):
+  1. Enter the new amount, tax, currency, optional new period, and the date it takes effect (today up to 5 years ahead).
+  2. *Preview* lists every license on the plan with old → new price. Complimentary, revoked, unpriced and already-at-this-price
+     licenses are not selectable; untick any license you want to leave out. A license whose next invoice is already issued
+     is flagged: that invoice keeps the old price and the new price starts with the following one.
+  3. Optionally tick *Also make this the plan's default price*, then *Schedule*.
+  With *Period: Keep each license's*, the amount is charged per each license's own period (GHS 750 would mean 750 a month
+  for a monthly license and 750 a year for a yearly one); the dialog warns when the selected licenses have different periods.
+- Each selected license gets a **pending price change**. The first renewal invoice whose period starts on or after the effective date
+  is created at the new price, and the license's own price is updated at that moment. Invoices already issued never change.
+- **Notice email**: `Billing:PriceChangeNoticeDays` in `API/appsettings.json` (default 30) before the effective date, once per change (hourly
+  `PriceChangeNoticeWorker`; sent immediately on scheduling if already inside the window). Suspended customers are skipped until reinstated.
+  If a renewal invoice at the new price is created before the notice went out (the notice window is shorter than
+  `Billing:RenewalInvoiceDaysBefore`, or the customer was suspended through it), the notice is sent with that invoice.
+  Scheduling the exact same price and date again does nothing (no second email). On a plan with more than 2,000 licenses, schedule
+  the first page, then preview again: licenses already scheduled are listed last.
+- **Pending change on a license**: shown in the Licenses grid (*New price … from …*) and in *Edit license*, with *Cancel scheduled change*.
+  Editing the license's price or period, renewing at a new price, changing its plan (or remapping it), making it complimentary or
+  revoking it cancels the pending change. If the customer had already been notified they get a "price change cancelled" email
+  (not on revoke). Scheduling again for the same license replaces its pending change; if the old one was already announced,
+  the new notice goes out immediately.
+- Audit: *Plan price change scheduled*, *License price change scheduled / applied / cancelled / notice queued*.
+
+**Migration** `AddPlanPricesAndPriceChanges`: adds nullable `ProductPlans.Default*` columns and the `LicensePriceChanges` table
+(one pending change per license enforced by a partial unique index). Existing data unchanged. Included in `docs/migrations-idempotent.sql`.
+
+**Settings check at startup**: the app logs a warning when `Billing:DefaultCurrency` isn't a 3-letter code (GHS is used),
+when `Billing:PriceChangeNoticeDays` is outside 0–365 (it is clamped), or when the notice window is shorter than
+`Billing:RenewalInvoiceDaysBefore`; a value that can't be read at all (e.g. text for a number) is logged as an error. A test
+binds the committed `API/appsettings.json` Billing section (unknown or misspelt keys fail), so CI catches a bad edit before deploy.
+
+**Rolling back to a build from before this release**: the migration only adds, so the database can stay as it is. But the older
+code can't read the new email kinds and audit actions (stored as text), so its email outbox and audit screens would fail on those
+rows. Prefer fixing forward. If you must roll back, first run:
+
+```sql
+UPDATE "EmailOutboxMessages" SET "Kind" = 'RenewalConfirmation' WHERE "Kind" IN ('PriceChangeNotice', 'PriceChangeCancelled');
+UPDATE "AuditLogs" SET "Action" = 'LicenseUpdated'
+ WHERE "Action" IN ('LicensePriceChangeScheduled', 'LicensePriceChangeApplied', 'LicensePriceChangeCancelled', 'LicensePriceChangeNoticeQueued');
+UPDATE "AuditLogs" SET "Action" = 'ProductPlanUpdated' WHERE "Action" = 'PlanPriceChangeScheduled';
+```
+
+The audit rows keep their details (the JSON still names the price change). Pending price changes are simply ignored by the older
+code: renewals bill each license's stored price, and its price edits don't cancel them. If you later deploy this release
+again, check the Licenses grid for *New price … from …* and cancel any change that no longer fits.
 
 ## 11. License validation: signed tokens, devices and client integration
 

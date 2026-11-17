@@ -53,6 +53,11 @@ public static class AuditDisplay
         AuditAction.ProductPlanUpdated => "Product plan updated",
         AuditAction.ProductPlanDeleted => "Product plan deleted",
         AuditAction.LicensePlansRemapped => "License plans remapped",
+        AuditAction.PlanPriceChangeScheduled => "Plan price change scheduled",
+        AuditAction.LicensePriceChangeScheduled => "Price change scheduled",
+        AuditAction.LicensePriceChangeApplied => "Price change applied (renewal invoice)",
+        AuditAction.LicensePriceChangeCancelled => "Price change cancelled",
+        AuditAction.LicensePriceChangeNoticeQueued => "Price change notice sent",
         _ => SplitPascal(action.ToString())
     };
 

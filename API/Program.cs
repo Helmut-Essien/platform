@@ -88,6 +88,8 @@ builder.Services.Configure<BillingSettings>(builder.Configuration.GetSection(Bil
 builder.Services.AddSingleton<Platform.Api.Services.Renewals.PayLinkService>();
 builder.Services.AddScoped<Platform.Api.Services.Renewals.PublicPayService>();
 builder.Services.AddHostedService<Platform.Api.Services.Renewals.RenewalInvoiceWorker>();
+builder.Services.AddScoped<Platform.Api.Services.PriceChanges.IPlanPriceChangeService, Platform.Api.Services.PriceChanges.PlanPriceChangeService>();
+builder.Services.AddHostedService<Platform.Api.Services.PriceChanges.PriceChangeNoticeWorker>();
 builder.Services.AddPlatformPayments(builder.Configuration);
 
 builder.Services.AddCors(options =>
@@ -196,6 +198,19 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.LogPaymentsConfiguration();
+
+// A Billing value that can't be read (e.g. "abc" for a number) would otherwise only fail on first use, in a request
+// or a background worker; values that are out of range are corrected where used, and logged here.
+try
+{
+    foreach (var problem in Platform.Api.Configuration.BillingSettingsCheck.Problems(
+                 app.Services.GetRequiredService<IOptions<BillingSettings>>().Value))
+        app.Logger.LogWarning("{BillingSettingsProblem}", problem);
+}
+catch (InvalidOperationException ex)
+{
+    app.Logger.LogError(ex, "The Billing settings can't be read; fix the Billing section in appsettings.json (or the Billing__* environment variables). Billing features fail until then.");
+}
 
 if (app.Environment.IsDevelopment())
 {

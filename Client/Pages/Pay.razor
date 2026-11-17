@@ -171,7 +171,7 @@
         }
     }
 
-    private string Money(decimal amount) => $"{_summary?.Currency} {amount:N2}";
+    private string Money(decimal amount) => MoneyText.Format(amount, _summary?.Currency);
 
     private Severity StatusSeverity => _status?.Status switch
     {

@@ -756,6 +756,114 @@ namespace Platform.Api.Data.Migrations
                     b.ToTable("LicenseDevices", (string)null);
                 });
 
+            modelBuilder.Entity("Platform.Api.Entities.LicensePriceChange", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<DateTime?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AppliedInvoiceId")
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("BatchId")
+                        .IsRequired()
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CancelledBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LicenseId")
+                        .IsRequired()
+                        .HasMaxLength(26)
+                        .HasColumnType("character varying(26)");
+
+                    b.Property<decimal>("NewAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("NewCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int?>("NewPeriodMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("NewTaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("NoticeQueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("OldAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("OldCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("OldPeriodMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("OldTaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("PlanCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EffectiveFrom")
+                        .HasDatabaseName("IX_LicensePriceChanges_NoticeDue")
+                        .HasFilter("\"Status\" = 'Pending' AND \"NoticeQueuedAt\" IS NULL");
+
+                    b.HasIndex("LicenseId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_LicensePriceChanges_OnePendingPerLicense")
+                        .HasFilter("\"Status\" = 'Pending'");
+
+                    b.HasIndex("LicenseId", "CreatedAt");
+
+                    b.ToTable("LicensePriceChanges", (string)null);
+                });
+
             modelBuilder.Entity("Platform.Api.Entities.PaymentCheckout", b =>
                 {
                     b.Property<string>("Id")
@@ -944,6 +1052,23 @@ namespace Platform.Api.Data.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("DefaultAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("DefaultCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int?>("DefaultPeriodMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("DefaultTaxAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
@@ -1303,6 +1428,17 @@ namespace Platform.Api.Data.Migrations
                 {
                     b.HasOne("Platform.Api.Entities.License", "License")
                         .WithMany("Devices")
+                        .HasForeignKey("LicenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("License");
+                });
+
+            modelBuilder.Entity("Platform.Api.Entities.LicensePriceChange", b =>
+                {
+                    b.HasOne("Platform.Api.Entities.License", "License")
+                        .WithMany()
                         .HasForeignKey("LicenseId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

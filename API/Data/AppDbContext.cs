@@ -38,6 +38,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<ProductPlan> ProductPlans => Set<ProductPlan>();
 
+    public DbSet<LicensePriceChange> LicensePriceChanges => Set<LicensePriceChange>();
+
     public override int SaveChanges()
     {
         IncrementLicenseVersions();
@@ -53,6 +55,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     private void IncrementLicenseVersions()
     {
         foreach (var entry in ChangeTracker.Entries<License>())
+        {
+            if (entry.State == EntityState.Modified)
+                entry.Entity.Version++;
+        }
+        foreach (var entry in ChangeTracker.Entries<LicensePriceChange>())
         {
             if (entry.State == EntityState.Modified)
                 entry.Entity.Version++;
@@ -85,5 +92,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         // Matches the License filter (required end). Validation and admin device code use IgnoreQueryFilters.
         modelBuilder.Entity<LicenseDevice>()
             .HasQueryFilter(d => !d.License.Customer.IsSuspended);
+
+        // Matches the License filter (required end). Price-change code always uses IgnoreQueryFilters.
+        modelBuilder.Entity<LicensePriceChange>()
+            .HasQueryFilter(c => !c.License.Customer.IsSuspended);
     }
 }
