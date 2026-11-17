@@ -191,7 +191,7 @@ Activate uses independent flags for key delivery, invoice creation, and invoice 
 
 Configuration:
 
-- `Email:Outbox:{EncryptionKey,PollIntervalSeconds,BatchSize,MaxAttempts}`
+- `Email:TimeoutSeconds` (default 15), `Email:Outbox:{EncryptionKey,PollIntervalSeconds,BatchSize,MaxAttempts,RetryBaseSeconds,StartupReclaimSeconds}`; new emails wake the worker after commit (`EmailOutboxWakeInterceptor` → `EmailOutboxSignal`), the poll is the fallback
 - `Lifecycle:{ExpiryReminderEnabled,ExpiryReminderDays,ExpiryReminderPollHours,AutoSuspendOnOverdue,OverduePollMinutes}`
 
 Keep `Lifecycle:AutoSuspendOnOverdue=false` for the first production deployment until historical overdue invoices are reviewed.

@@ -18,7 +18,7 @@ public static class EmailServiceExtensions
         var emailSection = configuration.GetSection(EmailSettings.SectionName);
         var provider = emailSection.GetValue<string>("Provider")?.Trim() ?? "Logging";
         var configuredTimeout = emailSection.GetValue<int?>("TimeoutSeconds");
-        var timeoutSeconds = configuredTimeout is > 0 ? configuredTimeout.Value : 30;
+        var timeoutSeconds = configuredTimeout is > 0 ? configuredTimeout.Value : EmailSettings.DefaultTimeoutSeconds;
         var hasResendKey = !string.IsNullOrWhiteSpace(emailSection.GetValue<string>("ResendApiKey"));
         var hasSmtpHost = !string.IsNullOrWhiteSpace(emailSection.GetValue<string>("Host"));
 
@@ -60,6 +60,8 @@ public static class EmailServiceExtensions
             sp.GetService<Microsoft.Extensions.Options.IOptions<Platform.Api.Configuration.AuthSettings>>()?.Value.ClientBaseUrl,
             sp.GetRequiredService<BrandNameCache>()));
         services.AddScoped<IEmailOutboxService, EmailOutboxService>();
+        services.AddSingleton<EmailOutboxSignal>();
+        services.AddSingleton<EmailOutboxWakeInterceptor>();
         services.AddHostedService<EmailOutboxWorker>();
         services.AddScoped<ILicenseKeyDeliveryService, LicenseKeyDeliveryService>();
 
