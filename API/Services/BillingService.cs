@@ -974,7 +974,7 @@ public class BillingService(
                 .Where(c => c.LicenseId == licenseId && c.Status == LicensePriceChangeStatus.Pending && c.EffectiveFrom <= periodStart)
                 .OrderBy(c => c.CreatedAt)
                 .FirstOrDefaultAsync(ct);
-            var priceChangeAudit = (AuditEntryRequest?)null;
+            var priceChangeAudits = new List<AuditEntryRequest>(2);
             if (priceChange is not null)
             {
                 if (!string.Equals(priceChange.PlanCode, license.PlanName, StringComparison.Ordinal))
@@ -984,9 +984,9 @@ public class BillingService(
                     priceChange.CancelledAt = now;
                     priceChange.CancelledBy = performedBy;
                     priceChange.CancelReason = PriceChanges.LicensePriceChangeOps.ReasonPlanChanged;
-                    priceChangeAudit = new AuditEntryRequest(AuditAction.LicensePriceChangeCancelled, performedBy,
+                    priceChangeAudits.Add(new AuditEntryRequest(AuditAction.LicensePriceChangeCancelled, performedBy,
                         license.CustomerId, license.Id, null,
-                        AuditJson.Serialize(new { priceChangeId = priceChange.Id, reason = priceChange.CancelReason }), ipAddress);
+                        AuditJson.Serialize(new { priceChangeId = priceChange.Id, reason = priceChange.CancelReason }), ipAddress));
                     priceChange = null;
                 }
                 else
@@ -1052,7 +1052,7 @@ public class BillingService(
             if (priceChange is not null)
             {
                 priceChange.AppliedInvoiceId = invoice.Id;
-                priceChangeAudit = new AuditEntryRequest(AuditAction.LicensePriceChangeApplied, performedBy,
+                priceChangeAudits.Add(new AuditEntryRequest(AuditAction.LicensePriceChangeApplied, performedBy,
                     license.CustomerId, license.Id, invoice.Id, AuditJson.Serialize(new
                     {
                         priceChangeId = priceChange.Id,
@@ -1060,10 +1060,27 @@ public class BillingService(
                         periodStart,
                         from = new { amount = priceChange.OldAmount, tax = priceChange.OldTaxAmount, currency = priceChange.OldCurrency, periodMonths = priceChange.OldPeriodMonths },
                         to = new { amount = license.BillingAmount, tax = license.BillingTaxAmount, currency = license.BillingCurrency, periodMonths = license.BillingPeriodMonths }
-                    }), ipAddress);
+                    }), ipAddress));
+                // The customer must hear about the new price before (or at the latest with) the first invoice at it.
+                // Normally the notice went out Billing:PriceChangeNoticeDays ahead; it hasn't when the notice window
+                // is shorter than RenewalInvoiceDaysBefore, or the customer was suspended through it and this renewal
+                // ran before the notice worker after reinstatement. Send it with the invoice.
+                if (priceChange.NoticeQueuedAt is null
+                    && PriceChanges.PlanPriceChangeService.NoticeDaysOf(_billing) > 0)
+                {
+                    var noticeProduct = await db.ServiceProducts.AsNoTracking().FirstAsync(p => p.Id == license.ServiceProductId, ct);
+                    var notice = templates.PriceChangeNotice(license.Customer, noticeProduct, license, priceChange, planLabel);
+                    outbox.Enqueue(EmailDeliveryKind.PriceChangeNotice, CustomerContactResolver.Billing(license.Customer),
+                        notice.Subject, notice.Html, license.CustomerId, license.Id);
+                    priceChange.NoticeQueuedAt = now;
+                    priceChangeAudits.Add(new AuditEntryRequest(AuditAction.LicensePriceChangeNoticeQueued, performedBy,
+                        license.CustomerId, license.Id, invoice.Id,
+                        AuditJson.Serialize(new { priceChangeId = priceChange.Id, effectiveFrom = priceChange.EffectiveFrom, withInvoice = true }),
+                        ipAddress));
+                }
             }
-            if (priceChangeAudit is not null)
-                await auditLog.WriteBatchAsync([priceChangeAudit], ct);
+            if (priceChangeAudits.Count > 0)
+                await auditLog.WriteBatchAsync(priceChangeAudits, ct);
 
             if (trial)
             {

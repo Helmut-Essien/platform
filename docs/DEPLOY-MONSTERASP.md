@@ -319,6 +319,8 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
   is created at the new price, and the license's own price is updated at that moment. Invoices already issued never change.
 - **Notice email**: `Billing:PriceChangeNoticeDays` in `API/appsettings.json` (default 30) before the effective date, once per change (hourly
   `PriceChangeNoticeWorker`; sent immediately on scheduling if already inside the window). Suspended customers are skipped until reinstated.
+  If a renewal invoice at the new price is created before the notice went out (the notice window is shorter than
+  `Billing:RenewalInvoiceDaysBefore`, or the customer was suspended through it), the notice is sent with that invoice.
   Scheduling the exact same price and date again does nothing (no second email). On a plan with more than 2,000 licenses, schedule
   the first page, then preview again: licenses already scheduled are listed last.
 - **Pending change on a license**: shown in the Licenses grid (*New price … from …*) and in *Edit license*, with *Cancel scheduled change*.
@@ -330,6 +332,26 @@ unavailable. Invoice page → *Copy pay link* gives the same URL.
 
 **Migration** `AddPlanPricesAndPriceChanges`: adds nullable `ProductPlans.Default*` columns and the `LicensePriceChanges` table
 (one pending change per license enforced by a partial unique index). Existing data unchanged. Included in `docs/migrations-idempotent.sql`.
+
+**Settings check at startup**: the app logs a warning when `Billing:DefaultCurrency` isn't a 3-letter code (GHS is used),
+when `Billing:PriceChangeNoticeDays` is outside 0–365 (it is clamped), or when the notice window is shorter than
+`Billing:RenewalInvoiceDaysBefore`; a value that can't be read at all (e.g. text for a number) is logged as an error. A test
+binds the committed `API/appsettings.json` Billing section (unknown or misspelt keys fail), so CI catches a bad edit before deploy.
+
+**Rolling back to a build from before this release**: the migration only adds, so the database can stay as it is. But the older
+code can't read the new email kinds and audit actions (stored as text), so its email outbox and audit screens would fail on those
+rows. Prefer fixing forward. If you must roll back, first run:
+
+```sql
+UPDATE "EmailOutboxMessages" SET "Kind" = 'RenewalConfirmation' WHERE "Kind" IN ('PriceChangeNotice', 'PriceChangeCancelled');
+UPDATE "AuditLogs" SET "Action" = 'LicenseUpdated'
+ WHERE "Action" IN ('LicensePriceChangeScheduled', 'LicensePriceChangeApplied', 'LicensePriceChangeCancelled', 'LicensePriceChangeNoticeQueued');
+UPDATE "AuditLogs" SET "Action" = 'ProductPlanUpdated' WHERE "Action" = 'PlanPriceChangeScheduled';
+```
+
+The audit rows keep their details (the JSON still names the price change). Pending price changes are simply ignored by the older
+code: renewals bill each license's stored price, and its price edits don't cancel them. If you later deploy this release
+again, check the Licenses grid for *New price … from …* and cancel any change that no longer fits.
 
 ## 11. License validation: signed tokens, devices and client integration
 

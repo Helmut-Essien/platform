@@ -32,7 +32,10 @@ public class PlanPriceChangeService(
 
     private readonly BillingSettings _settings = billingSettings?.Value ?? new BillingSettings();
 
-    private int NoticeDays => Math.Clamp(_settings.PriceChangeNoticeDays, 0, 365);
+    private int NoticeDays => NoticeDaysOf(_settings);
+
+    /// <summary>Billing:PriceChangeNoticeDays clamped to 0–365 (0 = no notice emails).</summary>
+    internal static int NoticeDaysOf(BillingSettings settings) => Math.Clamp(settings.PriceChangeNoticeDays, 0, 365);
 
     private sealed record NewPrice(decimal Amount, decimal Tax, string Currency, int? PeriodMonths, DateTime EffectiveFrom);
 

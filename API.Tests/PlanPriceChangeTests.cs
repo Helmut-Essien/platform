@@ -456,6 +456,48 @@ public class PlanPriceChangeTests
         Assert.Equal(6, (await db.Invoices.IgnoreQueryFilters().SingleAsync()).RenewalPeriodMonths);
     }
 
+    [Theory]
+    [InlineData(7, true)]   // notice window shorter than the 14-day renewal invoice lead: told with the invoice
+    [InlineData(0, false)]  // notices are off: no notice, the invoice alone
+    public async Task RenewalInvoice_AtANewPrice_SendsTheNoticeWithIt_WhenTheCustomerWasNotToldYet(int noticeDays, bool expectNotice)
+    {
+        await using var db = CreateDb();
+        var f = await SeedPlanAsync(db);
+        var expiry = Today.AddDays(10);
+        var license = await SeedLicenseAsync(db, f.ProductId, expiresAt: expiry);
+        await PriceChanges(db, noticeDays).ScheduleAsync(f.ProductId, f.Plan.Id, Schedule(expiry, [license.Id]), "admin");
+        db.ChangeTracker.Clear();
+        Assert.Null((await PendingAsync(db, license.Id)).NoticeQueuedAt); // outside the window when scheduled
+        db.ChangeTracker.Clear();
+
+        var invoice = await CreateBilling(db, settings: new BillingSettings { PriceChangeNoticeDays = noticeDays })
+            .CreateRenewalInvoiceAsync(license.Id, expiry, BillingService.RenewalActor);
+
+        Assert.Equal(750m, invoice!.Subtotal);
+        db.ChangeTracker.Clear();
+        var change = await db.LicensePriceChanges.IgnoreQueryFilters().SingleAsync();
+        Assert.Equal(LicensePriceChangeStatus.Applied, change.Status);
+        Assert.Equal(expectNotice, change.NoticeQueuedAt is not null);
+        Assert.Equal(expectNotice ? 1 : 0,
+            await db.EmailOutboxMessages.CountAsync(m => m.Kind == EmailDeliveryKind.PriceChangeNotice && m.LicenseId == license.Id));
+        Assert.Equal(1, await db.EmailOutboxMessages.CountAsync(m => m.Kind == EmailDeliveryKind.Invoice));
+    }
+
+    [Fact]
+    public async Task RenewalInvoice_DoesNotResendANoticeAlreadyQueued()
+    {
+        await using var db = CreateDb();
+        var f = await SeedPlanAsync(db);
+        var expiry = Today.AddDays(10);
+        var license = await SeedLicenseAsync(db, f.ProductId, expiresAt: expiry);
+        await PriceChanges(db).ScheduleAsync(f.ProductId, f.Plan.Id, Schedule(expiry, [license.Id]), "admin"); // inside 30 days: sent now
+        db.ChangeTracker.Clear();
+
+        await CreateBilling(db).CreateRenewalInvoiceAsync(license.Id, expiry, BillingService.RenewalActor);
+
+        Assert.Equal(1, await db.EmailOutboxMessages.CountAsync(m => m.Kind == EmailDeliveryKind.PriceChangeNotice));
+    }
+
     [Fact]
     public async Task RenewalInvoice_ForAPeriodBeforeTheEffectiveDate_KeepsTheOldPrice_AndTheChangeWaits()
     {

@@ -199,6 +199,19 @@ if (!app.Environment.IsDevelopment())
 
 app.LogPaymentsConfiguration();
 
+// A Billing value that can't be read (e.g. "abc" for a number) would otherwise only fail on first use, in a request
+// or a background worker; values that are out of range are corrected where used, and logged here.
+try
+{
+    foreach (var problem in Platform.Api.Configuration.BillingSettingsCheck.Problems(
+                 app.Services.GetRequiredService<IOptions<BillingSettings>>().Value))
+        app.Logger.LogWarning("{BillingSettingsProblem}", problem);
+}
+catch (InvalidOperationException ex)
+{
+    app.Logger.LogError(ex, "The Billing settings can't be read; fix the Billing section in appsettings.json (or the Billing__* environment variables). Billing features fail until then.");
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

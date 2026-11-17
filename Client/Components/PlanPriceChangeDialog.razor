@@ -44,7 +44,7 @@
             </MudItem>
             <MudItem xs="12" sm="3">
                 <MudDatePicker @bind-Date="_effective" @bind-Date:after="Invalidate" Label="Effective from" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" MinDate="@DateTime.Today" Disabled="@_busy" />
+                               Margin="Margin.Dense" MinDate="@UtcToday" MaxDate="@UtcToday.AddYears(5)" Disabled="@_busy" />
             </MudItem>
         </MudGrid>
         @if (BillingDefaults.LacksPayLink(_currency))
@@ -179,7 +179,9 @@
     private decimal _tax;
     private string? _currency = BillingDefaults.Currency;
     private int _period; // 0 = keep each license's own period
-    private DateTime? _effective = DateTime.Today.AddDays(30);
+    // The server checks the date against today in UTC (Ghana time); the browser's own "today" can be a day off.
+    private static DateTime UtcToday => DateTime.SpecifyKind(DateTime.UtcNow.Date, DateTimeKind.Unspecified);
+    private DateTime? _effective = UtcToday.AddDays(30);
     private bool _updateDefault = true;
 
     private PlanPriceChangePreviewDto? _preview;
