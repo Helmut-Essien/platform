@@ -21,7 +21,7 @@ public class SmtpEmailSender(IOptions<EmailSettings> options, ILogger<SmtpEmailS
         if (string.IsNullOrWhiteSpace(settings.Host))
             throw new InvalidOperationException("Email:Host is required for SMTP provider.");
 
-        var timeoutSeconds = settings.TimeoutSeconds > 0 ? settings.TimeoutSeconds : 30;
+        var timeoutSeconds = settings.EffectiveTimeoutSeconds;
         var hasCredentials = !string.IsNullOrWhiteSpace(settings.Username);
         var attachmentCount = attachments?.Count ?? 0;
         logger.LogInformation(

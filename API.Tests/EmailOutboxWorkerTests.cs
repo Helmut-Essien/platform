@@ -22,10 +22,19 @@ public class EmailOutboxWorkerTests
     [Fact]
     public void ComputeBackoff_DoublesAndIsCapped()
     {
-        Assert.Equal(TimeSpan.FromMinutes(2), EmailOutboxWorker.ComputeBackoff(1));
-        Assert.Equal(TimeSpan.FromMinutes(8), EmailOutboxWorker.ComputeBackoff(3));
+        // 30 s, 1 min, 2 min, 4 min, … capped at 6 hours.
+        Assert.Equal(TimeSpan.FromSeconds(30), EmailOutboxWorker.ComputeBackoff(1));
+        Assert.Equal(TimeSpan.FromSeconds(30), EmailOutboxWorker.ComputeBackoff(0));
+        Assert.Equal(TimeSpan.FromMinutes(1), EmailOutboxWorker.ComputeBackoff(2));
+        Assert.Equal(TimeSpan.FromMinutes(2), EmailOutboxWorker.ComputeBackoff(3));
+        Assert.Equal(TimeSpan.FromMinutes(4), EmailOutboxWorker.ComputeBackoff(4));
         Assert.Equal(TimeSpan.FromMinutes(360), EmailOutboxWorker.ComputeBackoff(12));
         Assert.Equal(TimeSpan.FromMinutes(360), EmailOutboxWorker.ComputeBackoff(500));
+        Assert.Equal(TimeSpan.FromMinutes(360), EmailOutboxWorker.ComputeBackoff(int.MaxValue));
+        // Configurable base (Email:Outbox:RetryBaseSeconds), clamped to 5–3600 s.
+        Assert.Equal(TimeSpan.FromMinutes(2), EmailOutboxWorker.ComputeBackoff(1, 120));
+        Assert.Equal(TimeSpan.FromSeconds(5), EmailOutboxWorker.ComputeBackoff(1, 0));
+        Assert.Equal(TimeSpan.FromHours(1), EmailOutboxWorker.ComputeBackoff(1, 99999));
     }
 
     [Fact]
@@ -162,7 +171,8 @@ public class EmailOutboxWorkerTests
         var stored = await h.Db.EmailOutboxMessages.FirstAsync(m => m.Id == message.Id);
         Assert.Equal(EmailDeliveryStatus.Failed, stored.Status);
         Assert.Equal(1, stored.AttemptCount);
-        Assert.True(stored.NextAttemptAt > DateTime.UtcNow.AddMinutes(1));
+        // First retry after about 30 seconds (not minutes).
+        Assert.InRange(stored.NextAttemptAt!.Value, DateTime.UtcNow.AddSeconds(20), DateTime.UtcNow.AddSeconds(31));
     }
 
     [Fact]
@@ -319,9 +329,292 @@ public class EmailOutboxWorkerTests
         Assert.True(await h.Db.EmailOutboxMessages.AnyAsync(m => m.Id == freshSent.Id));
     }
 
-    private static Harness CreateHarness(int maxAttempts = 5, AppDbContext? database = null)
+    internal sealed class MutableClock(DateTimeOffset now) : TimeProvider
     {
-        var db = database ?? new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
+    public void Lease_IsShortRightAfterStart_AndTheNormalTenMinutesLater()
+    {
+        var clock = new MutableClock(DateTimeOffset.UtcNow);
+        EmailOutboxWorker Worker(int timeout = 15, int reclaim = 120) => new(
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(new EmailSettings { TimeoutSeconds = timeout, Outbox = new EmailOutboxSettings { StartupReclaimSeconds = reclaim } }),
+            NullLogger<EmailOutboxWorker>.Instance, clock: clock);
+
+        var worker = Worker();
+        Assert.Equal(TimeSpan.FromSeconds(120), worker.CurrentLease(clock.Now.UtcDateTime));
+        // Never shorter than 4x the send timeout (a send in progress elsewhere must finish first), clamped 30-600 s.
+        Assert.Equal(TimeSpan.FromSeconds(240), Worker(timeout: 60).CurrentLease(clock.Now.UtcDateTime));
+        Assert.Equal(TimeSpan.FromSeconds(60), Worker(reclaim: 1).CurrentLease(clock.Now.UtcDateTime));
+        Assert.Equal(TimeSpan.FromSeconds(600), Worker(reclaim: 5000).CurrentLease(clock.Now.UtcDateTime));
+        Assert.Equal(TimeSpan.FromSeconds(60), Worker(timeout: 0, reclaim: 0).CurrentLease(clock.Now.UtcDateTime)); // default 15 s timeout x4
+        Assert.Equal(EmailOutboxWorker.LeaseTimeout, worker.CurrentLease(clock.Now.UtcDateTime + EmailOutboxWorker.StartupWindow));
+    }
+
+    private static async Task<string> SeedSendingAsync(AppDbContext db, DateTime updatedAt, int attempts = 1)
+    {
+        var message = new EmailOutboxMessage
+        {
+            Kind = EmailDeliveryKind.RenewalConfirmation, Status = EmailDeliveryStatus.Sending, ToEmail = "owner@acme.test",
+            Subject = "Subject", HtmlBody = "<p>Hello</p>", AttemptCount = attempts, UpdatedAt = updatedAt
+        };
+        db.EmailOutboxMessages.Add(message);
+        await db.SaveChangesAsync();
+        return message.Id;
+    }
+
+    [Fact]
+    public async Task Postgres_AfterStart_AnInterruptedSendIsReclaimedWithinMinutes_NotTen()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+        var now = DateTime.UtcNow;
+        string interrupted, recent, old;
+        await using (var seed = pg.NewContext())
+        {
+            interrupted = await SeedSendingAsync(seed, now.AddMinutes(-3)); // the process stopped mid-send 3 min ago
+            recent = await SeedSendingAsync(seed, now.AddSeconds(-20));     // may still be sending elsewhere
+        }
+
+        // Fresh process: the short startup lease applies.
+        await using (var h = CreateHarness(scopedPostgres: pg.ConnectionString))
+            Assert.Equal([interrupted], await h.Worker.ClaimBatchAsync(CancellationToken.None));
+
+        await using (var seed = pg.NewContext())
+            old = await SeedSendingAsync(seed, now.AddMinutes(-11));
+        await using (var seed = pg.NewContext())
+            await seed.EmailOutboxMessages.Where(m => m.Id == interrupted)
+                .ExecuteUpdateAsync(x => x.SetProperty(m => m.UpdatedAt, now.AddMinutes(-3)));
+
+        // A process running for more than the startup window only takes rows past the normal 10-minute lease.
+        var clock = new MutableClock(DateTimeOffset.UtcNow - EmailOutboxWorker.StartupWindow - TimeSpan.FromSeconds(1));
+        await using (var h = CreateHarness(scopedPostgres: pg.ConnectionString, clock: clock))
+        {
+            clock.Now = DateTimeOffset.UtcNow;
+            Assert.Equal([old], await h.Worker.ClaimBatchAsync(CancellationToken.None));
+        }
+        await using var check = pg.NewContext();
+        Assert.Equal(EmailDeliveryStatus.Sending, (await check.EmailOutboxMessages.FirstAsync(m => m.Id == recent)).Status);
+    }
+
+    [Fact]
+    public async Task Postgres_TwoOverlappingInstances_SendAReclaimedEmailOnce()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+        await using (var seed = pg.NewContext())
+        {
+            seed.EmailOutboxMessages.Add(new EmailOutboxMessage
+            {
+                Kind = EmailDeliveryKind.RenewalConfirmation, Status = EmailDeliveryStatus.Pending, ToEmail = "owner@acme.test",
+                Subject = "Subject", HtmlBody = "<p>Hello</p>", NextAttemptAt = DateTime.UtcNow.AddMinutes(-1)
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        // The old instance claims the email, but it waits in its batch behind slow sends...
+        await using var oldInstance = CreateHarness(scopedPostgres: pg.ConnectionString);
+        var claim = await oldInstance.Worker.ClaimAsync(CancellationToken.None);
+        var id = Assert.Single(claim.Ids);
+        await using (var age = pg.NewContext()) // ...long enough for the new instance's startup lease to pass
+            await age.EmailOutboxMessages.Where(m => m.Id == id)
+                .ExecuteUpdateAsync(x => x.SetProperty(m => m.UpdatedAt, claim.ClaimedAt.AddMinutes(-3)));
+        var agedClaim = claim.ClaimedAt.AddMinutes(-3);
+
+        // The new instance reclaims it.
+        await using var newInstance = CreateHarness(scopedPostgres: pg.ConnectionString);
+        var reclaim = await newInstance.Worker.ClaimAsync(CancellationToken.None);
+        Assert.Equal([id], reclaim.Ids);
+
+        // The old instance reaches it in its batch: no longer its claim, so it skips it (even before the new one sends).
+        await oldInstance.Worker.SendAsync(id, agedClaim, CancellationToken.None);
+        Assert.Empty(oldInstance.Sender.Sent);
+
+        await newInstance.Worker.SendAsync(id, reclaim.ClaimedAt, CancellationToken.None);
+        Assert.Single(newInstance.Sender.Sent);
+        await oldInstance.Worker.SendAsync(id, agedClaim, CancellationToken.None);
+        Assert.Empty(oldInstance.Sender.Sent);
+        await using var check = pg.NewContext();
+        var stored = await check.EmailOutboxMessages.FirstAsync(m => m.Id == id);
+        Assert.Equal((EmailDeliveryStatus.Sent, 1), (stored.Status, stored.AttemptCount));
+    }
+
+    [Fact]
+    public async Task Signal_CoalescesABurst_IntoOneWake()
+    {
+        var signal = new EmailOutboxSignal();
+        Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+        for (var i = 0; i < 50; i++)
+            signal.Notify();
+        Parallel.For(0, 50, _ => signal.Notify());
+        Assert.True(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+        Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None)); // one pass claims the whole burst
+    }
+
+    private static AppDbContext InMemoryWithWake(EmailOutboxSignal signal) =>
+        new(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(NUlid.Ulid.NewUlid().ToString())
+            .AddInterceptors(new EmailOutboxWakeInterceptor(signal))
+            .Options);
+
+    private static EmailOutboxMessage NewMessage() => new()
+    {
+        Kind = EmailDeliveryKind.RenewalConfirmation, ToEmail = "owner@acme.test", Subject = "Subject", HtmlBody = "<p>Hello</p>"
+    };
+
+    [Fact]
+    public async Task WakeInterceptor_SignalsAfterASaveThatQueuedAnEmail_Only()
+    {
+        var signal = new EmailOutboxSignal();
+        await using var db = InMemoryWithWake(signal);
+        db.Customers.Add(new Customer { Name = "Acme", ContactEmail = "a@acme.test" });
+        await db.SaveChangesAsync();
+        Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None)); // no email queued
+
+        new EmailOutboxService(db).Enqueue(EmailDeliveryKind.Welcome, "a@acme.test", "Hi", "<p>Hi</p>");
+        await db.SaveChangesAsync();
+        Assert.True(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+
+        var sent = await db.EmailOutboxMessages.FirstAsync();
+        sent.Status = EmailDeliveryStatus.Sent; // updating an email is not queuing one
+        db.SaveChanges();
+        Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+
+        sent.Status = EmailDeliveryStatus.Failed;
+        db.SaveChanges();
+        Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+        await new EmailOutboxService(db).RetryAsync(sent.Id); // the admin Retry button puts it back to Pending
+        Assert.True(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Postgres_WakeInterceptor_InAnExplicitTransaction_SignalsOnlyAfterCommit()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+        var signal = new EmailOutboxSignal();
+        AppDbContext NewDb() => new(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(pg.ConnectionString)
+            .AddInterceptors(new EmailOutboxWakeInterceptor(signal)).Options);
+
+        await using (var db = NewDb())
+        {
+            db.EmailOutboxMessages.Add(NewMessage());
+            await db.SaveChangesAsync();
+            Assert.True(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None)); // no transaction: committed on save
+        }
+        await using (var db = NewDb())
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
+            db.EmailOutboxMessages.Add(NewMessage());
+            await db.SaveChangesAsync();
+            Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None)); // not visible to the worker yet
+            await tx.CommitAsync();
+            Assert.True(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+        }
+
+        await using (var db = NewDb())
+        {
+            await using (var tx = await db.Database.BeginTransactionAsync())
+            {
+                db.EmailOutboxMessages.Add(NewMessage());
+                await db.SaveChangesAsync();
+                await tx.RollbackAsync();
+            }
+            Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+
+            // Disposed without commit, then a later unrelated transaction commits: no stale signal.
+            db.ChangeTracker.Clear();
+            await using (var tx = await db.Database.BeginTransactionAsync())
+            {
+                db.EmailOutboxMessages.Add(NewMessage());
+                await db.SaveChangesAsync();
+            }
+            db.ChangeTracker.Clear();
+            await using (var tx = await db.Database.BeginTransactionAsync())
+            {
+                db.Customers.Add(new Customer { Name = "Acme", ContactEmail = "a@acme.test" });
+                await db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
+            Assert.False(await signal.WaitAsync(TimeSpan.Zero, CancellationToken.None));
+        }
+
+        await using var check = pg.NewContext();
+        Assert.Equal(2, await check.EmailOutboxMessages.CountAsync()); // only the two committed ones exist
+    }
+
+    [Fact]
+    public async Task Postgres_Worker_SendsACommittedEmailRightAway_NotAtTheNextPoll()
+    {
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+        var signal = new EmailOutboxSignal();
+        await using var h = CreateHarness(scopedPostgres: pg.ConnectionString, signal: signal, pollSeconds: 300);
+        await h.Worker.StartAsync(CancellationToken.None);
+        try
+        {
+            await Task.Delay(500); // the first (empty) pass has run; the next poll is 5 minutes away
+            await using (var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(pg.ConnectionString)
+                .AddInterceptors(new EmailOutboxWakeInterceptor(signal)).Options))
+            {
+                db.EmailOutboxMessages.Add(NewMessage());
+                await db.SaveChangesAsync();
+            }
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (h.Sender.Sent.Count == 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
+            Assert.Single(h.Sender.Sent);
+        }
+        finally
+        {
+            await h.Worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Postgres_Worker_KeepsPolling_AfterAnEmptyClaim()
+    {
+        // Regression: an empty claim left the in-flight batch as an empty list, so every later pass skipped the
+        // claim and new emails waited until the process restarted. No wake signal here: the poll alone must find it.
+        await using var pg = await PostgresBehaviorTests.TempDatabase.CreateAsync();
+        if (pg is null)
+            return;
+        await using var h = CreateHarness(scopedPostgres: pg.ConnectionString, pollSeconds: 2);
+        await h.Worker.StartAsync(CancellationToken.None);
+        try
+        {
+            await Task.Delay(500); // first (empty) pass done
+            await using (var db = pg.NewContext())
+            {
+                db.EmailOutboxMessages.Add(NewMessage());
+                await db.SaveChangesAsync();
+            }
+
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (h.Sender.Sent.Count == 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(50);
+            Assert.Single(h.Sender.Sent);
+        }
+        finally
+        {
+            await h.Worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private static Harness CreateHarness(int maxAttempts = 5, AppDbContext? database = null,
+        string? scopedPostgres = null, TimeProvider? clock = null, EmailOutboxSignal? signal = null, int pollSeconds = 10)
+    {
+        var db = database ?? (scopedPostgres is not null
+            ? new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(scopedPostgres).Options)
+            : null) ?? new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase(NUlid.Ulid.NewUlid().ToString())
             .Options);
         var settings = Options.Create(new EmailSettings
@@ -329,6 +622,7 @@ public class EmailOutboxWorkerTests
             Outbox = new EmailOutboxSettings
             {
                 MaxAttempts = maxAttempts,
+                PollIntervalSeconds = pollSeconds,
                 EncryptionKey = Convert.ToBase64String(new byte[32])
             }
         });
@@ -339,7 +633,11 @@ public class EmailOutboxWorkerTests
         var sender = new RecordingSender();
 
         var services = new ServiceCollection();
-        services.AddSingleton(db);
+        // scopedPostgres: each worker scope gets its own context, as in production (fresh reads, no shared tracking).
+        if (scopedPostgres is not null)
+            services.AddDbContext<AppDbContext>(o => o.UseNpgsql(scopedPostgres));
+        else
+            services.AddSingleton(db);
         services.AddSingleton<IEmailSender>(sender);
         services.AddSingleton(protector);
         services.AddSingleton<StubPdf>();
@@ -351,7 +649,9 @@ public class EmailOutboxWorkerTests
         var worker = new EmailOutboxWorker(
             provider.GetRequiredService<IServiceScopeFactory>(),
             settings,
-            NullLogger<EmailOutboxWorker>.Instance);
+            NullLogger<EmailOutboxWorker>.Instance,
+            signal,
+            clock);
         return new Harness(db, worker, sender, protector, provider);
     }
 

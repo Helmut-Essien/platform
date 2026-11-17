@@ -63,12 +63,17 @@ if (connectionString.StartsWith("postgres", StringComparison.OrdinalIgnoreCase))
         Console.Error.WriteLine($"[Startup] Converted postgres URI → Host={uri.Host};Port={port};Database={database};Username={username}");
 }
 
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
+{
     options.UseNpgsql(connectionString, npgsql =>
         npgsql.EnableRetryOnFailure(
             maxRetryCount: 5,
             maxRetryDelay: TimeSpan.FromSeconds(10),
-            errorCodesToAdd: null)));
+            errorCodesToAdd: null));
+    // Wakes the email outbox worker once a queued email is committed (registered by AddPlatformEmail).
+    if (sp.GetService<Platform.Api.Services.Email.EmailOutboxWakeInterceptor>() is { } outboxWake)
+        options.AddInterceptors(outboxWake);
+});
 
 // Persist the Data Protection key ring in Postgres. On IIS the default key store is ephemeral
 // (no user profile), so restarts invalidated password-reset/confirmation tokens and other protected data.

@@ -23,6 +23,10 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Email__FromAddress`, `Email__FromName` | with real mail | Sender identity. |
 | `Email__ResendApiKey` | if Resend | Resend API key. |
 | `Email__Host`, `Email__Port`, `Email__EnableSsl`, `Email__Username`, `Email__Password` | if Smtp | SMTP server settings (port default 587, SSL default true). |
+| `Email__TimeoutSeconds` | no | Longest one send may take before it is retried (default `15`; `0` or less = 15). Not a secret: set in `API/appsettings.json`. |
+| `Email__Outbox__PollIntervalSeconds` / `__BatchSize` / `__MaxAttempts` | no | Fallback poll (default `10` s), emails claimed per pass (default `20`), tries before an email is dead-lettered (default `10`). New emails are sent right after they are saved; the poll only picks up retries and anything missed. Set in `API/appsettings.json`. |
+| `Email__Outbox__RetryBaseSeconds` | no | First retry delay after a failed send, doubling each time up to 6 h: 30 s, 1 min, 2 min, 4 min… (default `30`, 5–3600). Set in `API/appsettings.json`. |
+| `Email__Outbox__StartupReclaimSeconds` | no | For the first 5 minutes after a start, an email left "Sending" by a stopped process is retried after this long instead of 10 minutes (default `120`, never below 4 × `TimeoutSeconds`, 30–600). See §6. Set in `API/appsettings.json`. |
 | `Redis__ConnectionString` (or `REDIS_URL`) | no | Leave unset on MonsterASP: in-memory cache + deny lists are used (single instance only; a warning is logged). |
 | `Database__MigrateOnStartup` | no | Default `false` in Production. Set `true` only if you want the app to migrate itself. |
 | `Https__Redirect` | no | Default `true` in Production (with HSTS). |
@@ -139,7 +143,26 @@ redirects HTTP→HTTPS in Production.
 ## 6. Keep-alive
 
 IIS stops idle apps, which pauses the email outbox, overdue-invoice and expiry-reminder workers.
-Add a panel **scheduled task** (or an uptime pinger) hitting `https://<site>/health` every 5 minutes.
+Add a panel **scheduled task** (or an uptime pinger such as UptimeRobot) hitting `https://<site>/health` every 5 minutes,
+or turn on "Always On" / disable the app-pool idle timeout if the panel offers it.
+
+How email delivery behaves:
+
+- A new email is queued in the database and the outbox worker is woken as soon as that save (or its transaction)
+  commits, so it normally goes out within a second. The 10-second poll is only the fallback (retries coming due,
+  a missed wake-up). A rolled-back transaction never wakes the worker.
+- A failed send is retried after 30 s, 1 min, 2 min, 4 min… (capped at 6 h) up to `MaxAttempts`, then dead-lettered.
+- One SMTP/Resend call may take at most `Email:TimeoutSeconds` (15 s) before it counts as a failure.
+- If IIS stops the app in the middle of a send, that email stays "Sending". Normally another worker only takes it
+  back after 10 minutes. For the first 5 minutes after a start the wait is `StartupReclaimSeconds` (2 min) instead,
+  so an email interrupted by a recycle goes out about 2 minutes after the next start.
+  Trade-off: during an IIS overlapped recycle the old process may still be sending when the new one starts. Each
+  claim stamps the row with its own time, and a worker sends only while the row still carries its stamp, so an email
+  taken over by the other process is skipped rather than sent twice. The one remaining window is an SMTP call that
+  hangs past both the timeout and the startup lease (at least 4 × the timeout) and then still delivers: that email can
+  arrive twice. Single-instance hosting (MonsterASP) makes this rare; set `StartupReclaimSeconds` to `600` to keep the
+  full 10 minutes if a duplicate is worse than a delay.
+- Check `site\logs` for "SMTP email sent … in N ms" and for gaps between "Application started" lines (idle stops).
 `/health` is anonymous and not rate-limited; `/health/db` also checks the database (503 if unreachable).
 
 ## 7. First admin user

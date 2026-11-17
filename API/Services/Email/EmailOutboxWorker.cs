@@ -12,12 +12,44 @@ namespace Platform.Api.Services.Email;
 public class EmailOutboxWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<EmailSettings> settings,
-    ILogger<EmailOutboxWorker> logger) : BackgroundService
+    ILogger<EmailOutboxWorker> logger,
+    EmailOutboxSignal? signal = null,
+    TimeProvider? clock = null) : BackgroundService
 {
+    /// <summary>A "Sending" row untouched this long is treated as abandoned (covers a full batch on a slow provider).</summary>
+    internal static readonly TimeSpan LeaseTimeout = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long after start the shorter <see cref="EmailOutboxSettings.StartupReclaimSeconds"/> lease applies.</summary>
+    internal static readonly TimeSpan StartupWindow = TimeSpan.FromMinutes(5);
+
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+    private readonly DateTime _startedAt = (clock ?? TimeProvider.System).GetUtcNow().UtcDateTime;
+
+    private DateTime UtcNow => _clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    /// Lease after which a "Sending" row may be reclaimed. Normally <see cref="LeaseTimeout"/>. Right after start,
+    /// shorter: rows left by a process that stopped mid-send (IIS idle shutdown, recycle, deploy) come back within
+    /// about two minutes. Still safe when an old instance overlaps during a recycle: its current send finishes
+    /// within the send timeout (the lease is at least 4× that), and rows it claimed but hasn't started are skipped
+    /// by it once reclaimed here (SendAsync and <see cref="StartAttemptAsync"/> check the claim stamp), so nothing is
+    /// sent twice.
+    /// </summary>
+    internal TimeSpan CurrentLease(DateTime now)
+    {
+        if (now - _startedAt >= StartupWindow)
+            return LeaseTimeout;
+        var options = settings.Value;
+        var seconds = Math.Max(options.Outbox.StartupReclaimSeconds, 4 * options.EffectiveTimeoutSeconds);
+        return TimeSpan.FromSeconds(Math.Clamp(seconds, 30, 600));
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var delay = TimeSpan.FromSeconds(Math.Max(2, settings.Value.Outbox.PollIntervalSeconds));
+        var batchSize = Math.Clamp(settings.Value.Outbox.BatchSize, 1, 100);
         List<string>? inFlightBatch = null;
+        DateTime? inFlightClaimedAt = null;
         var lastPurge = DateTime.MinValue;
         await WarmBrandNameAsync(stoppingToken);
 
@@ -26,10 +58,17 @@ public class EmailOutboxWorker(
             if (stoppingToken.IsCancellationRequested && inFlightBatch is null)
                 break;
 
+            // A full batch means more may be waiting: claim again straight away instead of after the poll delay.
+            var moreWaiting = false;
             try
             {
                 if (inFlightBatch is null && !stoppingToken.IsCancellationRequested)
-                    inFlightBatch = await ClaimBatchAsync(stoppingToken);
+                {
+                    var claim = await ClaimAsync(stoppingToken);
+                    inFlightBatch = claim.Ids;
+                    inFlightClaimedAt = claim.ClaimedAt;
+                    moreWaiting = inFlightBatch.Count >= batchSize;
+                }
 
                 if (inFlightBatch is { Count: > 0 })
                 {
@@ -40,11 +79,13 @@ public class EmailOutboxWorker(
                         var sendToken = stoppingToken.IsCancellationRequested
                             ? CancellationToken.None
                             : stoppingToken;
-                        await SendAsync(id, sendToken);
+                        await SendAsync(id, inFlightClaimedAt, sendToken);
                     }
-
-                    inFlightBatch = null;
                 }
+
+                // Always clear, including after an empty claim: a non-null empty list would skip every later claim
+                // and leave new emails waiting until the process restarts.
+                inFlightBatch = null;
 
                 if (stoppingToken.IsCancellationRequested)
                     break;
@@ -57,6 +98,7 @@ public class EmailOutboxWorker(
             {
                 logger.LogError(ex, "Email outbox poll failed.");
                 inFlightBatch = null;
+                moreWaiting = false; // back off to the poll delay while something is failing
             }
 
             if (stoppingToken.IsCancellationRequested)
@@ -75,25 +117,38 @@ public class EmailOutboxWorker(
                 }
             }
 
-            await Task.Delay(delay, stoppingToken);
+            if (moreWaiting)
+                continue;
+            // Sleep until the poll interval passes or a committed email wakes us (EmailOutboxWakeInterceptor).
+            if (signal is not null)
+                await signal.WaitAsync(delay, stoppingToken);
+            else
+                await Task.Delay(delay, stoppingToken);
         }
     }
 
-    internal async Task<List<string>> ClaimBatchAsync(CancellationToken cancellationToken)
+    /// <summary>The ids claimed and the claim time written to their UpdatedAt (this worker's lease token).</summary>
+    internal sealed record ClaimedBatch(List<string> Ids, DateTime ClaimedAt);
+
+    internal async Task<List<string>> ClaimBatchAsync(CancellationToken cancellationToken) =>
+        (await ClaimAsync(cancellationToken)).Ids;
+
+    internal async Task<ClaimedBatch> ClaimAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         // Captured across strategy retries: after a successful commit, a transient error can
         // still trigger a retry — return the same ids instead of re-querying an empty Pending set.
-        List<string>? committedClaimIds = null;
+        ClaimedBatch? committedClaim = null;
         List<string>? pendingClaimIds = null;
+        var pendingClaimAt = DateTime.MinValue;
 
         // EnableRetryOnFailure requires user transactions to run inside CreateExecutionStrategy.
         return await RetriableTransaction.ExecuteAsync(db, async (transaction, ct) =>
         {
-            if (committedClaimIds is not null)
-                return committedClaimIds;
+            if (committedClaim is not null)
+                return committedClaim;
 
             if (transaction is null)
                 throw new InvalidOperationException("Email outbox claim requires a relational transaction.");
@@ -108,15 +163,15 @@ public class EmailOutboxWorker(
                     .ToListAsync(ct);
                 if (confirmed.Count > 0)
                 {
-                    committedClaimIds = confirmed;
-                    return confirmed;
+                    committedClaim = new ClaimedBatch(confirmed, pendingClaimAt);
+                    return committedClaim;
                 }
 
                 pendingClaimIds = null;
             }
 
-            var now = DateTime.UtcNow;
-            var stale = now.AddMinutes(-10);
+            var now = UtcNow;
+            var stale = now - CurrentLease(now);
             var batchSize = Math.Clamp(settings.Value.Outbox.BatchSize, 1, 100);
 
             var messages = await db.EmailOutboxMessages
@@ -140,18 +195,32 @@ public class EmailOutboxWorker(
 
             await db.SaveChangesAsync(ct);
             pendingClaimIds = messages.Select(x => x.Id).ToList();
+            pendingClaimAt = now;
             await transaction.CommitAsync(ct);
-            committedClaimIds = pendingClaimIds;
-            return committedClaimIds;
+            committedClaim = new ClaimedBatch(pendingClaimIds, now);
+            return committedClaim;
         }, cancellationToken);
     }
 
-    // Backoff doubles from 2 minutes and is capped so a provider outage of several hours
-    // does not exhaust the attempts of every queued message (B3).
-    internal static TimeSpan ComputeBackoff(int attemptCount) =>
-        TimeSpan.FromMinutes(Math.Min(Math.Pow(2, Math.Max(1, attemptCount)), 360));
+    internal static readonly TimeSpan MaxBackoff = TimeSpan.FromHours(6);
 
-    internal async Task SendAsync(string id, CancellationToken cancellationToken)
+    // Backoff doubles from RetryBaseSeconds (30 s, 1 min, 2 min, …) and is capped so a provider outage of several
+    // hours does not exhaust the attempts of every queued message (B3).
+    internal static TimeSpan ComputeBackoff(int attemptCount, int baseSeconds = 30)
+    {
+        var first = Math.Clamp(baseSeconds, 5, 3600);
+        var exponent = Math.Min(Math.Max(1, attemptCount) - 1, 30); // 2^30 × 5 s is far past the cap
+        return TimeSpan.FromSeconds(Math.Min(first * Math.Pow(2, exponent), MaxBackoff.TotalSeconds));
+    }
+
+    internal Task SendAsync(string id, CancellationToken cancellationToken) => SendAsync(id, null, cancellationToken);
+
+    /// <param name="claimedAt">
+    /// The claim time this worker wrote (its lease token). When the row's UpdatedAt no longer matches, another
+    /// worker reclaimed it while it waited in this batch (e.g. an overlapping instance after a recycle) and owns it
+    /// now: skip it, or the email would go out twice.
+    /// </param>
+    internal async Task SendAsync(string id, DateTime? claimedAt, CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -166,6 +235,8 @@ public class EmailOutboxWorker(
         // Only messages this worker claimed may be sent (a manual retry or another worker may have changed it).
         if (message.Status != EmailDeliveryStatus.Sending)
             return;
+        if (claimedAt is { } lease && (message.UpdatedAt - lease).Duration() > TimeSpan.FromMilliseconds(1))
+            return; // tolerance: Postgres stores microseconds, .NET ticks are 100 ns
 
         // Poison guard: a message whose earlier attempts crashed the worker (or hung past the stale window) is
         // reclaimed with its attempts already counted. Stop once the limit is reached instead of looping forever.
@@ -397,7 +468,7 @@ public class EmailOutboxWorker(
             : EmailDeliveryStatus.Failed;
         message.NextAttemptAt = message.Status == EmailDeliveryStatus.DeadLetter
             ? null
-            : DateTime.UtcNow.Add(ComputeBackoff(message.AttemptCount));
+            : DateTime.UtcNow.Add(ComputeBackoff(message.AttemptCount, settings.Value.Outbox.RetryBaseSeconds));
         message.LastError = Sanitize(ex.Message);
         message.UpdatedAt = DateTime.UtcNow;
         // B3: the encrypted payload and placeholders are kept on DeadLetter so a provider outage
