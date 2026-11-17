@@ -526,7 +526,7 @@ public class BillingService(
 
         var amountDue = GetAmountDue(invoice);
         if (request.AmountPaid > amountDue)
-            throw new InvalidOperationException($"Amount paid exceeds balance due of {amountDue:0.00}.");
+            throw new InvalidOperationException($"Amount paid exceeds balance due of {Platform.Shared.Formatting.MoneyText.Format(amountDue, invoice.Currency)}.");
 
         if (!string.IsNullOrEmpty(paymentReference)
             && invoice.PaymentTransactions.Any(t =>

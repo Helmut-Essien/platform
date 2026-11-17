@@ -20,9 +20,9 @@ public class EmailAndPdfPolishTests
 
         Assert.Contains("INV-2026-00007", subject);
         Assert.DoesNotContain(">Tax<", html);
-        Assert.Contains("Pay GH₵150.00 now", html);
+        Assert.Contains("Pay GHS 150.00 now", html);
         Assert.Contains("MTN MoMo, Telecel Cash or card", html);
-        Assert.True(html.IndexOf("Pay GH₵150.00 now", StringComparison.Ordinal)
+        Assert.True(html.IndexOf("Pay GHS 150.00 now", StringComparison.Ordinal)
             < html.IndexOf("INV-2026-00007</td>", StringComparison.Ordinal) || !html.Contains("INV-2026-00007</td>"));
         Assert.Contains("2 December 2026", html);
         Assert.Contains("#3f7a12", html);
@@ -39,8 +39,8 @@ public class EmailAndPdfPolishTests
         invoice.Receipts.Add(new Receipt { InvoiceId = invoice.Id, ReceiptNumber = "RCP-1", AmountPaid = 50m, Status = ReceiptStatus.Posted });
         var (_, html) = templates.Invoice(Customer(), invoice, "https://pay.example/x");
 
-        Assert.Contains("GH₵50.00", html);
-        Assert.Contains("Pay GH₵100.00 now", html);
+        Assert.Contains("GHS 50.00", html);
+        Assert.Contains("Pay GHS 100.00 now", html);
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class EmailAndPdfPolishTests
         invoice.Status = InvoiceStatus.PartiallyPaid;
         var receipt = new Receipt { InvoiceId = invoice.Id, ReceiptNumber = "RCP-2", AmountPaid = 100m, Status = ReceiptStatus.Posted, PaidAt = Now };
         var (_, html) = templates.PaymentReceipt(Customer(), invoice, receipt);
-        Assert.Contains("GH₵50.00", html);
+        Assert.Contains("GHS 50.00", html);
         Assert.Contains("receipt PDF is attached", html);
     }
 

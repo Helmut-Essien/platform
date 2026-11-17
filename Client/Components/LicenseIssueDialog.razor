@@ -192,7 +192,7 @@
         {
             var b = _model.Billing!;
             var period = b.PeriodMonths switch { 1 => "month", 12 => "year", _ => $"{b.PeriodMonths} months" };
-            return $"{b.Currency} {b.Amount + b.TaxAmount:N2} per {period}";
+            return $"{MoneyText.Format((b.Amount ?? 0) + b.TaxAmount, b.Currency)} per {period}";
         }
     }
 
@@ -313,8 +313,8 @@
         {
             var b = _model.Billing!;
             var period = b.PeriodMonths switch { 1 => "1 month", 12 => "1 year", _ => $"{b.PeriodMonths} months" };
-            var tax = b.TaxAmount > 0 ? $" + {b.TaxAmount:N2} tax" : "";
-            return $"{b.Currency} {b.Amount:N2}{tax} for the first {period}";
+            var tax = b.TaxAmount > 0 ? $" + {MoneyText.Format(b.TaxAmount, b.Currency)} tax" : "";
+            return $"{MoneyText.Format(b.Amount ?? 0, b.Currency)}{tax} for the first {period}";
         }
     }
 

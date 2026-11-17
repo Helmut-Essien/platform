@@ -509,7 +509,7 @@ Only available on Pending / Suspended / Expired licenses. Independent toggles de
 |-------|-----------|-------|
 | Subtotal | `MudTextField` numeric | Required, decimal |
 | Tax Amount | `MudTextField` numeric | Required, decimal |
-| Currency | `MudTextField` | Default "USD", max 3 chars |
+| Currency | `MudTextField` | Default "GHS", max 3 chars |
 | Due Date | `MudDatePicker` | Optional |
 | Description | `MudTextField` | Optional |
 
@@ -673,7 +673,7 @@ Follows [Form patterns](#form-patterns).
 | Status | `MudSelect` | Default Sent |
 | Subtotal | `MudTextField` numeric | Required |
 | Tax Amount | `MudTextField` numeric | Required |
-| Currency | `MudTextField` | Default "USD" |
+| Currency | `MudTextField` | Default "GHS" |
 | Due Date | `MudDatePicker` | Optional |
 | Plan Name | `MudTextField` | Optional |
 | Description | `MudTextField` | Optional |

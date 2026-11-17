@@ -11,7 +11,7 @@
         }
         <MudText Typo="Typo.body2" Class="mb-3">
             This permanently reverses receipt <strong>@ReceiptNumber</strong> for
-            <strong>@Amount.ToString("N2")</strong>. The original receipt remains for audit.
+            <strong>@MoneyText.Format(Amount, Currency)</strong>. The original receipt remains for audit.
         </MudText>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudTextField @bind-Value="_model.Reason"
@@ -41,6 +41,8 @@
     [Parameter] public string ReceiptNumber { get; set; } = "";
 
     [Parameter] public decimal Amount { get; set; }
+
+    [Parameter] public string? Currency { get; set; }
 
     /// <summary>Saves inside the dialog; returns an error message to show, or null on success (dialog then closes).</summary>
     [Parameter] public Func<ReverseReceiptRequest, Task<string?>>? Submit { get; set; }

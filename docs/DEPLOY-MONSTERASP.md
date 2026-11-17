@@ -43,6 +43,7 @@ Set these in the MonsterASP panel (website → environment variables / app setti
 | `Paystack__SecretKey` | no | Enables online payments (`sk_test_…` or `sk_live_…`). Unset = feature hidden, endpoints return 503. See §9. |
 | `Paystack__PublicKey` | no | `pk_test_…` / `pk_live_…`. Stored for completeness; checkout uses Paystack's hosted page. |
 | `Paystack__CollectionCap` | no | Starter Business limit in GHS for the dashboard card (default `30000`; `0` hides it). |
+| `Billing__DefaultCurrency` | no | Currency used when a request leaves it blank (default `GHS`; any 3-letter code, invalid values fall back to GHS). The admin screens always prefill GHS. Only GHS invoices get online pay links (Paystack). Passed through by the deploy workflow. |
 | `Billing__RenewalInvoicesEnabled` | no | Automatic renewal invoices on/off (default `true`). See §10. |
 | `Billing__RenewalInvoiceDaysBefore` | no | Days before expiry the renewal invoice is created and emailed (default `14`, 1–90). |
 | `Billing__RenewalExtendFrom` | no | `Auto` (default), `PreviousExpiry` or `PaymentDate` — basis for the extension when a renewal invoice is paid. |
@@ -119,7 +120,7 @@ Repository secrets (Settings → Secrets and variables → Actions):
   `Email__FromName`, `Email__ResendApiKey`, `Email__Host`, `Email__Port`, `Email__EnableSsl`, `Email__Username`,
   `Email__Password`, `Redis__ConnectionString`, `Database__MigrateOnStartup`, `Https__Redirect`, `CORS_ORIGINS`,
   `ForwardedHeaders__Enabled`, `Paystack__SecretKey`, `Paystack__PublicKey`, `Paystack__CollectionCap`, the `Licensing__*` settings from §1 (set `Licensing__TokenSigningKey` as one line with `\n` escapes), and
-  `Billing__PriceChangeNoticeDays`. Other `Billing__*` settings are not passed through; set them in the panel.
+  `Billing__PriceChangeNoticeDays`, `Billing__DefaultCurrency`. Other `Billing__*` settings are not passed through; set them in the panel.
 
 Because the workflow writes these into `web.config`, settings in the panel for the same names are overridden by
 each deploy. Secret values are never printed; msdeploy output is masked.
@@ -159,6 +160,14 @@ Admins can open a Paystack hosted checkout (card or mobile money) for the outsta
 **GHS** invoice (**Pay with Paystack** on the invoice page). Paid checkouts are verified with Paystack's API and recorded
 as normal receipts (idempotency key `paystack:{reference}`, so a payment is never recorded twice), which also emails
 the receipt and reactivates suspended licenses as usual.
+
+**Currency.** Ghana cedis are the primary currency: every blank currency becomes `GHS` (`Billing__DefaultCurrency`) and the
+admin forms prefill it. Checkouts are always created with `currency: "GHS"` and the amount in pesewas (GHS × 100, exact
+decimal, at most 2 decimal places); verification must report the same pesewa amount and `GHS` or the payment is held for review.
+Invoices in another currency can still be issued and paid offline, but get no pay link. Amounts are shown everywhere as
+`GHS 1,200.00` (code, space, amount); stored amounts and currencies are never rewritten.
+Confirm on the Paystack dashboard that the business is a Ghana (GHS) account with the channels you want (Mobile Money, card)
+enabled for live mode, and check Paystack's current minimum charge per transaction for GHS.
 
 **Test mode first**
 

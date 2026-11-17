@@ -354,7 +354,7 @@ public class EmailTemplateService
                 """));
     }
 
-    /// <summary>"GH₵600.00 + GH₵90.00 tax per year" (already HTML-safe).</summary>
+    /// <summary>"GHS 600.00 + GHS 90.00 tax per year" (already HTML-safe).</summary>
     internal static string PriceText(decimal amount, decimal tax, string currency, int periodMonths)
     {
         var period = periodMonths switch
@@ -746,16 +746,8 @@ public class EmailTemplateService
 
     internal static string Money(decimal amount, string currency)
     {
-        var normalizedCurrency = (currency ?? string.Empty).Trim().ToUpperInvariant();
-        var prefix = normalizedCurrency switch
-        {
-            "USD" => "$",
-            "EUR" => "€",
-            "GBP" => "£",
-            "GHS" => "GH₵",
-            _ => $"{Enc(normalizedCurrency)} "
-        };
-        return $"{prefix}{amount.ToString("N2", Invariant)}";
+        // "GHS 1,200.00" (Platform.Shared.Formatting.MoneyText), encoded: a stored code is data.
+        return Enc(Platform.Shared.Formatting.MoneyText.Format(amount, currency));
     }
 
     private static string AsSentence(string value)

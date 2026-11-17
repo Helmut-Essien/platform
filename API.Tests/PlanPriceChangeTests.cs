@@ -642,11 +642,11 @@ public class PlanPriceChangeTests
         Assert.Contains("1 March 2027", notice.Subject);
         Assert.Contains("Needle &amp; Base (Workshop)", notice.Html);
         Assert.DoesNotContain("<script>", notice.Html);
-        Assert.Contains("GH₵750.00 per year", notice.Html);
+        Assert.Contains("GHS 750.00 per year", notice.Html);
         Assert.Contains("period starting 1 March 2027", notice.Html);
 
         var cancelled = templates.PriceChangeCancelled(customer, product, license, change, "Workshop");
         Assert.Contains("cancelled", cancelled.Subject);
-        Assert.Contains("GH₵600.00 per year", cancelled.Html);
+        Assert.Contains("GHS 600.00 per year", cancelled.Html);
     }
 }

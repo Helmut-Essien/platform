@@ -108,7 +108,7 @@
                         {
                             <div class="mud-text-secondary" style="font-size:0.75rem;"
                                  title="Scheduled price change: the first renewal on or after this date bills the new price">
-                                New price @($"{change.NewCurrency} {change.NewAmount:N2}") from @change.EffectiveFrom.ToString("d MMM yyyy")
+                                New price @MoneyText.Format(change.NewAmount, change.NewCurrency) from @change.EffectiveFrom.ToString("d MMM yyyy")
                             </div>
                         }
                     </CellTemplate>

@@ -494,7 +494,7 @@ public class PlatformApiClientTests
     {
         Assert.Equal("No price", Platform.Client.Helpers.PriceText.Format(null, 0, "GHS", 12));
         Assert.Equal("—", Platform.Client.Helpers.PriceText.Format(null));
-        Assert.Equal("GHS 600.00 + 90.00 tax / year", Platform.Client.Helpers.PriceText.Format(
+        Assert.Equal("GHS 600.00 + GHS 90.00 tax / year", Platform.Client.Helpers.PriceText.Format(
             new PlanPriceDto { Amount = 600m, TaxAmount = 90m, Currency = "GHS", PeriodMonths = 12 }));
         Assert.Equal("USD 50.00 / 6 months", Platform.Client.Helpers.PriceText.Format(50m, 0, "USD", 6));
     }

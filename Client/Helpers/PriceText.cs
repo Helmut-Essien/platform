@@ -1,8 +1,9 @@
 using Platform.Shared.Dtos.ServiceProducts;
+using Platform.Shared.Formatting;
 
 namespace Platform.Client.Helpers;
 
-/// <summary>Short price labels for the admin screens ("GHS 600.00 + 90.00 tax / year").</summary>
+/// <summary>Short price labels for the admin screens ("GHS 600.00 + GHS 90.00 tax / year").</summary>
 public static class PriceText
 {
     public static string Period(int months) => months switch
@@ -19,8 +20,8 @@ public static class PriceText
     {
         if (amount is not > 0)
             return "No price";
-        var taxText = tax > 0 ? $" + {tax:N2} tax" : "";
-        return $"{currency} {amount:N2}{taxText} / {Period(periodMonths)}";
+        var taxText = tax > 0 ? $" + {MoneyText.Format(tax, currency)} tax" : "";
+        return $"{MoneyText.Format(amount.Value, currency)}{taxText} / {Period(periodMonths)}";
     }
 
     public static string Format(PlanPriceDto? price) =>

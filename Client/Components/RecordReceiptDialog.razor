@@ -7,7 +7,7 @@
     </TitleContent>
     <DialogContent>
         <MudText Typo="Typo.body2" Class="mb-3">
-            Balance due: <strong>@AmountDue.ToString("N2")</strong>
+            Balance due: <strong>@MoneyText.Format(AmountDue, Currency)</strong>
         </MudText>
         <MudForm @ref="_form" Model="_model" @bind-IsValid="_formValid">
             <MudNumericField @bind-Value="_model.AmountPaid"
@@ -67,6 +67,8 @@
 
     [Parameter] public decimal AmountDue { get; set; }
 
+    [Parameter] public string? Currency { get; set; }
+
     /// <summary>Saves inside the dialog; returns an error message to show, or null on success (dialog then closes).</summary>
     [Parameter] public Func<RecordReceiptRequest, Task<string?>>? Submit { get; set; }
 
@@ -111,7 +113,7 @@
 
         if (_model.AmountPaid > AmountDue)
         {
-            _error = $"Amount cannot exceed balance due of {AmountDue:N2}.";
+            _error = $"Amount cannot exceed balance due of {MoneyText.Format(AmountDue, Currency)}.";
             return;
         }
 
